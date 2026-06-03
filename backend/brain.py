@@ -1,0 +1,505 @@
+# backend/brain.py
+import requests
+import os
+import json
+from pathlib import Path
+from dotenv import load_dotenv
+from system_prompts import MASTER_PROMPT
+from logger import get_logger
+from tools import TOOL_DEFINITIONS, execute_tool
+
+load_dotenv()
+
+log = get_logger("brain")
+
+GROQ_FALLBACK_CHAIN = [
+    "openai/gpt-oss-120b",
+    "llama-3.3-70b-versatile",
+    "qwen/qwen3-32b",
+    "openai/gpt-oss-20b",
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "llama-3.1-8b-instant"
+]
+
+def get_adaptive_system_prompt(settings):
+    """Injects user onboarding profile into the base persona."""
+    base_prompt = MASTER_PROMPT
+    if settings.get("onboarding_completed", False):
+        profile = settings.get("onboarding_profile", {})
+        comm_style = ", ".join(profile.get("communication_style", []))
+        topics = ", ".join(profile.get("topics", []))
+        
+        if comm_style or topics:
+            base_prompt += (
+                f"\n\n[ADAPTIVE PROFILE INJECTION] "
+                f"The user prefers this communication style: {comm_style}. "
+                f"Blend this tone with your core directives. "
+                f"The user's interests include: {topics}. "
+                f"Keep these topics in mind when formulating responses."
+            )
+    return base_prompt
+
+def get_api_key(provider):
+    """Fetch API keys from settings first, then fall back to environment variables/keyring."""
+    try:
+        from settings_manager import load_settings
+        settings = load_settings()
+        key_name = f"{provider.lower()}_api_key"
+        if settings.get(key_name):
+            return settings[key_name]
+    except Exception:
+        pass
+
+    # Keyring or Env fallbacks
+    if provider.lower() == "groq":
+        try:
+            import keyring
+            key = keyring.get_password("primnox", "groq_api_key")
+            if key:
+                return key
+        except Exception:
+            pass
+        return os.getenv("GROQ_API_KEY")
+    elif provider.lower() == "openai":
+        return os.getenv("OPENAI_API_KEY")
+    elif provider.lower() == "anthropic":
+        return os.getenv("ANTHROPIC_API_KEY")
+    return None
+
+def get_groq_api_key():
+    return get_api_key("groq")
+
+def transcribe(audio_bytes):
+    log.info("Requesting transcription from Groq Whisper...")
+    api_key = get_groq_api_key()
+    if not api_key:
+        log.error("Groq API key missing!")
+        return {"error": "Groq API key not set"}
+    try:
+        # Multilingual Prompt: Optimized for English, Hindi, and Telugu
+        prompt = "Listen for English, Hindi, and Telugu. Keep transcriptions faithful to the spoken language."
+        
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            files={"file": ("audio.wav", audio_bytes, "audio/wav")},
+            data={"prompt": prompt, "model": "whisper-large-v3-turbo"},
+            timeout=15
+        )
+        res = resp.json()
+        log.debug(f"Transcription result: {res.get('text', 'NO TEXT')[:50]}...")
+        return res
+    except requests.exceptions.RequestException as e:
+        log.warning(f"Transcription failed (offline/network): {e}")
+        # Offline Short-Circuit
+        return {"error": "offline", "text": "[System: Offline - Transcription Failed]"}
+    except Exception as e:
+        log.error(f"Transcription crash: {e}", exc_info=True)
+        return {"error": str(e)}
+
+def think(prompt, context=None, image_base64=None):
+    """
+    Primnox Thinking Engine (Dynamic Routing)
+    Supports Groq, OpenAI, and Anthropic.
+    Locks the default MASTER_PROMPT system persona.
+    """
+    log.info(f"Thinking about: {prompt[:50]}...")
+    
+    # Load settings to check active model
+    try:
+        from settings_manager import load_settings
+        settings = load_settings()
+        active_model = settings.get("active_model", "Groq_Llama_3")
+    except Exception:
+        active_model = "Groq_Llama_3"
+        settings = {}
+
+    system_content = get_adaptive_system_prompt(settings)
+    
+    text_content = f"Context:\n{context}\n\nUser: {prompt}" if context else prompt
+    user_content = text_content
+
+    # Vision payload builders
+    def build_openai_vision(text, img_b64):
+        return [
+            {"type": "text", "text": text},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
+        ]
+        
+    def build_anthropic_vision(text, img_b64):
+        return [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}},
+            {"type": "text", "text": text}
+        ]
+
+    try:
+        if active_model == "OpenAI_GPT_4o":
+            api_key = get_api_key("openai")
+            if not api_key:
+                log.error("OpenAI API key missing!")
+                return {"error": "OpenAI API key not set"}
+                
+            msg_content = build_openai_vision(text_content, image_base64) if image_base64 else text_content
+            resp = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": "gpt-4o",
+                    "messages": [
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": msg_content}
+                    ]
+                },
+                timeout=20
+            )
+            res = resp.json()
+            return res
+
+        elif active_model == "Anthropic_Claude_3":
+            api_key = get_api_key("anthropic")
+            if not api_key:
+                log.error("Anthropic API key missing!")
+                return {"error": "Anthropic API key not set"}
+                
+            msg_content = build_anthropic_vision(text_content, image_base64) if image_base64 else text_content
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-3-5-sonnet-20241022",
+                    "max_tokens": 1024,
+                    "system": system_content,
+                    "messages": [
+                        {"role": "user", "content": msg_content}
+                    ]
+                },
+                timeout=20
+            )
+            res = resp.json()
+            # Map Anthropic response structure to OpenAI compatibility
+            content = res.get("content", [{}])[0].get("text", "ERROR")
+            mapped_res = {
+                "choices": [{
+                    "message": {
+                        "content": content
+                    }
+                }]
+            }
+            return mapped_res
+
+        else: # Default/Groq_Llama_3
+            api_key = get_api_key("groq")
+            if not api_key:
+                log.error("Groq API key missing!")
+                return {
+                    "error": "Groq API key not set",
+                    "choices": [{
+                        "message": {
+                            "content": "Sorry, cannot process this request without AI. Please add your Groq API key in Settings."
+                        }
+                    }]
+                }
+
+            msg_content = build_openai_vision(text_content, image_base64) if image_base64 else text_content
+            groq_model = "llama-3.2-11b-vision-preview" if image_base64 else "llama-3.3-70b-versatile"
+            
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": groq_model,
+                    "messages": [
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": msg_content}
+                    ]
+                },
+                timeout=20
+            )
+            res = resp.json()
+            return res
+    except requests.exceptions.RequestException as e:
+        log.warning(f"Thinking failed (offline/network): {e}")
+        # Offline Short-Circuit
+        return {
+            "error": "offline",
+            "choices": [{
+                "message": {
+                    "content": "offline. can't think. check your net."
+                }
+            }]
+        }
+    except Exception as e:
+        log.error(f"Thinking crash: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
+def think_stream(prompt, context="", session_id=""):
+    try:
+        from settings_manager import load_settings
+        settings = load_settings()
+        active_model = settings.get("active_model", "Groq_Llama_3")
+    except Exception:
+        active_model = "Groq_Llama_3"
+        settings = {}
+
+    system_content = get_adaptive_system_prompt(settings)
+    
+    messages = [
+        {"role": "system", "content": system_content}
+    ]
+
+    if session_id:
+        try:
+            from chat_manager import get_session_messages
+            history = get_session_messages(session_id)
+            for i, msg in enumerate(history):
+                # Skip if it's the exact same prompt at the end (just added by core.py)
+                if i == len(history) - 1 and msg["text"] == prompt and msg["speaker"] != "Primnox":
+                    continue
+                role = "assistant" if msg["speaker"] == "Primnox" else "user"
+                messages.append({"role": role, "content": msg["text"]})
+        except Exception as e:
+            log.error(f"Failed to load chat history: {e}")
+
+    user_content = f"Context:\n{context}\n\nUser: {prompt}" if context else prompt
+    messages.append({"role": "user", "content": user_content})
+
+    api_key = ""
+    url = ""
+    model_name = ""
+    headers = {}
+    
+    if active_model == "OpenAI_GPT_4o":
+        api_key = get_api_key("openai")
+        url = "https://api.openai.com/v1/chat/completions"
+        model_name = "gpt-4o"
+        headers = {"Authorization": f"Bearer {api_key}"}
+    elif active_model == "Anthropic_Claude_3":
+        # Anthropic tool calling is different, we'll skip for now and fallback
+        api_key = get_api_key("anthropic")
+        url = "https://api.anthropic.com/v1/messages"
+        model_name = "claude-3-5-sonnet-20241022"
+        headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+    else:
+        api_key = get_api_key("groq")
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        model_name = "llama-3.3-70b-versatile"
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+    if not api_key:
+        yield "Sorry, cannot process this request without AI. Please add your Groq API key in Settings."
+        return
+
+    try:
+        if active_model != "Anthropic_Claude_3":
+            max_steps = 5
+            for step in range(max_steps):
+                for _retry in range(3):
+                    resp = requests.post(
+                        url,
+                        headers=headers,
+                        json={
+                            "model": model_name,
+                            "messages": messages,
+                            "tools": TOOL_DEFINITIONS,
+                            "tool_choice": "auto"
+                        },
+                        timeout=60
+                    )
+                    if resp.status_code == 429:
+                        if "groq.com" in url and model_name in GROQ_FALLBACK_CHAIN:
+                            current_idx = GROQ_FALLBACK_CHAIN.index(model_name)
+                            if current_idx + 1 < len(GROQ_FALLBACK_CHAIN):
+                                next_model = GROQ_FALLBACK_CHAIN[current_idx + 1]
+                                log.warning(f"Rate limit hit. Falling back to {next_model}...")
+                                model_name = next_model
+                                continue
+                        log.warning("Rate limit hit. Retrying in 2 seconds...")
+                        import time
+                        time.sleep(2)
+                        continue
+                    break
+                
+                res_data = None
+                if resp.status_code != 200:
+                    if "tool_use_failed" in resp.text:
+                        try:
+                            err_data = resp.json()
+                            failed_gen = err_data.get("error", {}).get("failed_generation", "")
+                            if failed_gen.startswith("<function="):
+                                func_part = failed_gen[10:].split("</function>")[0]
+                                brace_idx = func_part.find("{")
+                                if brace_idx != -1:
+                                    func_name = func_part[:brace_idx].strip('=>"\' ')
+                                    func_args_str = func_part[brace_idx:]
+                                    tool_call = {
+                                        "id": "call_simulated",
+                                        "type": "function",
+                                        "function": {
+                                            "name": func_name,
+                                            "arguments": func_args_str
+                                        }
+                                    }
+                                    response_msg = {
+                                        "role": "assistant",
+                                        "content": None,
+                                        "tool_calls": [tool_call]
+                                    }
+                                    res_data = {"choices": [{"message": response_msg}]}
+                                    log.warning(f"Groq tool parsed manually: {func_name}")
+                        except Exception:
+                            pass
+                            
+                        if not res_data:
+                            log.warning("Groq tool parsing failed entirely. Retrying without tools.")
+                            for _retry in range(3):
+                                resp = requests.post(
+                                    url, headers=headers,
+                                    json={"model": model_name, "messages": messages}, timeout=60
+                                )
+                                if resp.status_code == 429:
+                                    if "groq.com" in url and model_name in GROQ_FALLBACK_CHAIN:
+                                        current_idx = GROQ_FALLBACK_CHAIN.index(model_name)
+                                        if current_idx + 1 < len(GROQ_FALLBACK_CHAIN):
+                                            next_model = GROQ_FALLBACK_CHAIN[current_idx + 1]
+                                            log.warning(f"Rate limit hit. Falling back to {next_model}...")
+                                            model_name = next_model
+                                            continue
+                                    log.warning("Rate limit hit. Retrying in 2 seconds...")
+                                    import time
+                                    time.sleep(2)
+                                    continue
+                                break
+                            if resp.status_code != 200:
+                                yield f"[API ERROR {resp.status_code}]: {resp.text}"
+                                return
+                            res_data = resp.json()
+                    else:
+                        yield f"[API ERROR {resp.status_code}]: {resp.text}"
+                        return
+                else:
+                    res_data = resp.json()
+                    
+                response_msg = res_data.get("choices", [{}])[0].get("message", {})
+                
+                tool_calls = response_msg.get("tool_calls")
+                if tool_calls:
+                    log.info(f"LLM decided to use {len(tool_calls)} tools (Step {step+1}).")
+                    messages.append(response_msg)
+                    
+                    for tool_call in tool_calls:
+                        func_name = tool_call.get("function", {}).get("name")
+                        try:
+                            args = json.loads(tool_call.get("function", {}).get("arguments", "{}"))
+                        except Exception:
+                            args = {}
+                            
+                        log.info(f"Executing tool {func_name}...")
+                        yield f"\n[SYSTEM: Executing {func_name}]\n"
+                        result = execute_tool(func_name, args)
+                        
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.get("id"),
+                            "name": func_name,
+                            "content": str(result)
+                        })
+                    
+                    # If we reached max steps, break to force final response
+                    if step == max_steps - 1:
+                        log.warning("Max steps reached, forcing final response.")
+                        break
+                else:
+                    # No tools called. Stream the text response directly
+                    content = response_msg.get("content", "")
+                    for word in content.split(" "):
+                        yield word + " "
+                    return
+                    
+            # Force a final streaming pass if we hit max_steps or broke out needing a final pass
+            for _retry in range(3):
+                resp_stream = requests.post(
+                    url,
+                    headers=headers,
+                    json={
+                        "model": model_name,
+                        "messages": messages,
+                        "stream": True
+                    },
+                    stream=True,
+                    timeout=60
+                )
+                if resp_stream.status_code == 429:
+                    if "groq.com" in url and model_name in GROQ_FALLBACK_CHAIN:
+                        current_idx = GROQ_FALLBACK_CHAIN.index(model_name)
+                        if current_idx + 1 < len(GROQ_FALLBACK_CHAIN):
+                            next_model = GROQ_FALLBACK_CHAIN[current_idx + 1]
+                            log.warning(f"Rate limit hit on streaming. Falling back to {next_model}...")
+                            model_name = next_model
+                            continue
+                    log.warning("Rate limit hit on streaming. Retrying in 2 seconds...")
+                    import time
+                    time.sleep(2)
+                    continue
+                break
+            
+            for line in resp_stream.iter_lines():
+                if line:
+                    decoded = line.decode('utf-8')
+                    if decoded.startswith("data: "):
+                        data_str = decoded[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            token = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            if token:
+                                yield token
+                        except Exception:
+                            pass
+                    
+        else:
+            # Fallback for Anthropic
+            resp = requests.post(
+                url,
+                headers=headers,
+                json={
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": user_content}],
+                    "system": system_content,
+                    "stream": True,
+                    "max_tokens": 1024
+                },
+                stream=True,
+                timeout=60
+            )
+            for line in resp.iter_lines():
+                if line:
+                    decoded = line.decode('utf-8')
+                    if decoded.startswith("data: "):
+                        data_str = decoded[6:]
+                        try:
+                            chunk = json.loads(data_str)
+                            if chunk.get("type") == "content_block_delta":
+                                token = chunk.get("delta", {}).get("text", "")
+                                if token:
+                                    yield token
+                        except Exception:
+                            pass
+
+    except Exception as e:
+        log.error(f"Streaming thinking crash: {e}", exc_info=True)
+        yield f"error thinking: {e}"
+
+if __name__ == "__main__":
+    print("Testing think:")
+    print(think("status update"))
+    print("\nTesting think_stream:")
+    for token in think_stream("status update"):
+        print(token, end="", flush=True)
+    print()
+

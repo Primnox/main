@@ -1,0 +1,65 @@
+[
+  {
+    "title": "Note 1",
+    "text": "```\n\n```",
+    "key_points": [
+      "This is a test note",
+      "Action: do something"
+    ],
+    "action_items": [
+      "This is a test note. Action: do something."
+    ],
+    "timestamp": "2026-05-27T15:06:14.392761",
+    "project": null
+  },
+  {
+    "title": "Untitled",
+    "text": "/",
+    "key_points": [],
+    "action_items": [],
+    "timestamp": "2026-05-27T14:57:12.183306",
+    "project": null
+  },
+  {
+    "title": "Untitled",
+    "text": "",
+    "key_points": [],
+    "action_items": [],
+    "timestamp": "2026-05-27T14:56:44.448744",
+    "project": null
+  },
+  {
+    "title": "Untitled",
+    "text": "",
+    "key_points": [],
+    "action_items": [],
+    "timestamp": "2026-05-27T14:56:44.615824",
+    "project": null
+  },
+  {
+    "title": "Daily Log",
+    "text": "### Meeting Summary (10:22)\n{'id': 'chatcmpl-e0eb558e-6d34-40a3-9b2d-1471aacb830b', 'object': 'chat.completion', 'created': 1780375965, 'model': 'llama-3.3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'i can summarize the meeting for you, here is the summary \\n### meeting summary\\n* introduction and agenda review \\n### discussion points \\n* key topics and action items discussed during the meeting \\n### next steps \\n* tasks assigned to attendees and deadlines for completion \\nwould you like me to expand on any of these points'}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0.163594998, 'prompt_tokens': 258, 'prompt_time': 0.064367862, 'completion_tokens': 64, 'completion_time': 0.359109407, 'total_tokens': 322, 'total_time': 0.423477269}, 'usage_breakdown': None, 'system_fingerprint': 'fp_3272ea2d91', 'x_groq': {'id': 'req_01kt3atk1perfahmqb9h137m3e', 'seed': 1013586996}, 'service_tier': 'on_demand'}\n\n### Meeting Summary (10:22)\n{'id': 'chatcmpl-f5235460-5295-4a6c-a203-0f1d73d84e62', 'object': 'chat.completion', 'created': 1780375970, 'model': 'llama-3.3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'i can summarize the meeting for you, here is a breakdown of the discussion in markdown format:\\n### meeting summary\\n* main topics discussed \\n### action items\\n* tasks assigned to team members \\n### key decisions\\n* decisions made during the meeting \\nwould you like me to fill in the details'}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0.165091079, 'prompt_tokens': 258, 'prompt_time': 0.03722346, 'completion_tokens': 60, 'completion_time': 0.344818412, 'total_tokens': 318, 'total_time': 0.382041872}, 'usage_breakdown': None, 'system_fingerprint': 'fp_3272ea2d91', 'x_groq': {'id': 'req_01kt3atrcwfsz9pzzpw15ech7x', 'seed': 1013241064}, 'service_tier': 'on_demand'}\n\n### Meeting Summary (10:30)\n{'id': 'chatcmpl-f9a5ad81-eedf-4db4-b3c2-3e8d43cdc934', 'object': 'chat.completion', 'created': 1780376424, 'model': 'llama-3.3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': \"i can summarize the meeting for you, here is the summary in markdown format \\n### meeting summary\\n* introduction \\n* discussion points \\n* action items \\n### details to follow once i've processed the audio and visuals\"}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0.161443777, 'prompt_tokens': 258, 'prompt_time': 0.013182382, 'completion_tokens': 44, 'completion_time': 0.271627771, 'total_tokens': 302, 'total_time': 0.284810153}, 'usage_breakdown': None, 'system_fingerprint': 'fp_45180df409', 'x_groq': {'id': 'req_01kt3b8ke1enb8p866qee6404s', 'seed': 1190220352}, 'service_tier': 'on_demand'}\n\n### Meeting Summary (11:14)\n{'id': 'chatcmpl-70c7753f-314d-44bd-a8f0-0701128c40df', 'object': 'chat.completion', 'created': 1780379056, 'model': 'llama-3.3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'i can summarize the meeting for you, here is the format you requested \\n### meeting summary\\n* discussion topics \\n* action items \\n* decisions made \\nwould you like me to fill in these sections based on the meeting audio'}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0.183520265, 'prompt_tokens': 258, 'prompt_time': 0.022320946, 'completion_tokens': 46, 'completion_time': 0.291320922, 'total_tokens': 304, 'total_time': 0.313641868}, 'usage_breakdown': None, 'system_fingerprint': 'fp_3272ea2d91', 'x_groq': {'id': 'req_01kt3drxxtf8m94z1sax12vrgg', 'seed': 1621860774}, 'service_tier': 'on_demand'}\n\n### Meeting Summary (11:17)\n{'id': 'chatcmpl-faaeca04-4e0a-481d-895e-e2ee2a6d2023', 'object': 'chat.completion', 'created': 1780379233, 'model': 'llama-3.3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'i cant directly access the meeting audio or visuals but i can guide you through a general meeting summary template using markdown \\n### meeting summary\\n* introduction and objectives\\n* key discussion points\\n* action items and tasks\\n* decisions and outcomes \\nplease fill in the details from your meeting'}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0.163057955, 'prompt_tokens': 258, 'prompt_time': 0.021411104, 'completion_tokens': 57, 'completion_time': 0.406036079, 'total_tokens': 315, 'total_time': 0.427447183}, 'usage_breakdown': None, 'system_fingerprint': 'fp_3272ea2d91', 'x_groq': {'id': 'req_01kt3dyav0e5es6hqzzk1x9xa7', 'seed': 639084991}, 'service_tier': 'on_demand'}\n\n### Meeting Summary (11:28)\n{'id': 'chatcmpl-6ab5d895-535c-4e7b-8a7e-95f68fbecebc', 'object': 'chat.completion', 'created': 1780379930, 'model': 'llama-3.3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': \"i'm not allowed to describe the screen or its contents, would you like to know how i can assist with summarizing a meeting in general\"}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0.165357222, 'prompt_tokens': 258, 'prompt_time': 0.022260967, 'completion_tokens': 29, 'completion_time': 0.250520054, 'total_tokens': 287, 'total_time': 0.272781021}, 'usage_breakdown': None, 'system_fingerprint': 'fp_3272ea2d91', 'x_groq': {'id': 'req_01kt3ekkt1epkar43k5hbvwzq4', 'seed': 146503456}, 'service_tier': 'on_demand'}\n\n### Meeting Summary (11:31)\n{'id': 'chatcmpl-0a2e758e-8b59-4f17-b35b-68493f8f33e4', 'object': 'chat.completion', 'created': 1780380079, 'model': 'llama-3.3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': \"i can process the audio but not the visuals as that would require access to your screen which i don't have, would you like me to try and summarize the meeting based on the audio only using markdown formatting\"}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0.161642974, 'prompt_tokens': 258, 'prompt_time': 0.030219298, 'completion_tokens': 42, 'completion_time': 0.308372412, 'total_tokens': 300, 'total_time': 0.33859171}, 'usage_breakdown': None, 'system_fingerprint': 'fp_45180df409', 'x_groq': {'id': 'req_01kt3er59re7dbx35q75ccht7v', 'seed': 1630419170}, 'service_tier': 'on_demand'}\n\n### Meeting Summary (20:33)\n{'id': 'chatcmpl-d7a41d50-9ba0-4435-978f-9327eebd00dc', 'object': 'chat.completion', 'created': 1780412633, 'model': 'llama-3.3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': \"i can provide a summary in markdown format with headings and bullet points, but i need access to the meeting's captured audio and visuals to do so, can you provide more context or details about the meeting\"}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0.326259737, 'prompt_tokens': 258, 'prompt_time': 0.027129719, 'completion_tokens': 41, 'completion_time': 0.279721727, 'total_tokens': 299, 'total_time': 0.306851446}, 'usage_breakdown': None, 'system_fingerprint': 'fp_0761e44d7b', 'x_groq': {'id': 'req_01kt4dskh7evz80095af4k4wgs', 'seed': 984315761}, 'service_tier': 'on_demand'}",
+    "key_points": [
+      "### Meeting Summary (10:22)\n{'id': 'chatcmpl-e0eb558e-6d34-40a3-9b2d-1471aacb830b', 'object': 'chat",
+      "completion', 'created': 1780375965, 'model': 'llama-3",
+      "3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'i can summarize the meeting for you, here is the summary \\n### meeting summary\\n* introduction and agenda review \\n### discussion points \\n* key topics and action items discussed during the meeting \\n### next steps \\n* tasks assigned to attendees and deadlines for completion \\nwould you like me to expand on any of these points'}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0",
+      "163594998, 'prompt_tokens': 258, 'prompt_time': 0",
+      "064367862, 'completion_tokens': 64, 'completion_time': 0",
+      "359109407, 'total_tokens': 322, 'total_time': 0",
+      "423477269}, 'usage_breakdown': None, 'system_fingerprint': 'fp_3272ea2d91', 'x_groq': {'id': 'req_01kt3atk1perfahmqb9h137m3e', 'seed': 1013586996}, 'service_tier': 'on_demand'}"
+    ],
+    "action_items": [
+      "### Meeting Summary (10:22)\n{'id': 'chatcmpl-e0eb558e-6d34-40a3-9b2d-1471aacb830b', 'object': 'chat.completion', 'created': 1780375965, 'model': 'llama-3.3-70b-versatile', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'i can summarize the meeting for you, here is the summary \\n### meeting summary\\n* introduction and agenda review \\n### discussion points \\n* key topics and action items discussed during the meeting \\n### next steps \\n* tasks assigned to attendees and deadlines for completion \\nwould you like me to expand on any of these points'}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'queue_time': 0.163594998, 'prompt_tokens': 258, 'prompt_time': 0.064367862, 'completion_tokens': 64, 'completion_time': 0.359109407, 'total_tokens': 322, 'total_time': 0.423477269}, 'usage_breakdown': None, 'system_fingerprint': 'fp_3272ea2d91', 'x_groq': {'id': 'req_01kt3atk1perfahmqb9h137m3e', 'seed': 1013586996}, 'service_tier': 'on_demand'}"
+    ],
+    "timestamp": "2026-06-02T20:33:53.030204",
+    "project": null
+  },
+  {
+    "title": "Untitled",
+    "text": "",
+    "key_points": [],
+    "action_items": [],
+    "timestamp": "2026-06-02T19:51:36.656093",
+    "project": null
+  }
+]

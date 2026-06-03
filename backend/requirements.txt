@@ -1,0 +1,67 @@
+# ————— API + SERVER ——————————————————————
+groq
+fastapi
+uvicorn[standard]
+websockets
+python-multipart
+httpx
+
+# ————— ENV + CONFIG ——————————————————————
+python-dotenv
+pathlib2
+psutil
+requests
+
+# ————— SECURITY + STORAGE ————————————————
+cryptography
+keyring
+pywin32
+
+# ————— AUDIO + VOICE —————————————————————
+pyaudiowpatch
+sounddevice
+numpy
+resemblyzer
+torch
+torchaudio
+pydub
+
+# ————— SCREEN + VISION ———————————————————
+uiautomation
+Pillow
+mss
+opencv-python
+pygetwindow
+ultralytics
+easyocr
+
+# ————— MEMORY + DATA —————————————————————
+scipy
+scikit-learn
+
+# ————— SKILLS ————————————————————————————
+pypdf
+reportlab
+pdf2image
+python-docx
+docx2pdf
+openpyxl
+pandas
+xlrd
+python-pptx
+pyzbar
+piexif
+ffmpeg-python
+SpeechRecognition
+tabulate
+rarfile
+py7zr
+pygments
+black
+isort
+comtypes
+edge-tts
+pyttsx3
+pyperclip
+keyboard
+rapidfuzz
