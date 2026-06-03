@@ -18,7 +18,7 @@
   "stt_language": "en",
   "startup_with_windows": false,
   "debug_mode": false,
-  "onboarding_completed": true,
+  "onboarding_completed": false,
   "onboarding_profile": {
     "projects": [],
     "topics": [],
