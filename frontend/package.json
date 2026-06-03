@@ -19,17 +19,15 @@
       "output": "dist-electron"
     },
     "win": {
-      "target": "nsis",
-      "icon": "public/icon.ico"
+      "target": "nsis"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "installerIcon": "public/icon.ico",
-      "uninstallerIcon": "public/icon.ico",
-      "script": "installer.nsh"
+      "deleteAppDataOnUninstall": false,
+      "include": "installer.nsh"
     },
     "extraResources": [
       {
