@@ -31,6 +31,15 @@ DEFAULT_SETTINGS = {
     "debug_mode": False,
     "voice_feedback": True,
     "onboarding_completed": False,
+    "access_permissions": ["Documents", "Projects", "Notes"],
+    "interaction_mode": "vad",
+    "adaptive_communication": True,
+    "memory_mode": "smart",
+    "personalization_options": [
+        "Vocabulary Learning", "Slang Learning", "Writing Style Matching",
+        "Research Style Learning", "Productivity Pattern Learning", "Response Depth Adaptation"
+    ],
+    "workspaces": ["Personal Workspace", "Development Workspace", "Research Workspace"],
     "onboarding_profile": {
         "projects": [],
         "topics": [],

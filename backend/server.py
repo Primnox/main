@@ -629,6 +629,43 @@ async def startup_event():
     asyncio.create_task(start_clipboard_monitor())
     log.info("Primnox Startup Complete - Event loop and clipboard monitor initialized.")
 
+@app.post("/api/feedback")
+async def receive_feedback(request: Request):
+    import time
+    from pathlib import Path
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    category = body.get("category", "General")
+    content = body.get("content", "")
+    contact = body.get("contact", "")
+
+    log.info(f"User Feedback Received [{category}]: {content}")
+    feedback_file = Path(__file__).parent / "feedback.json"
+
+    feedback_entry = {
+        "timestamp": time.time(),
+        "category": category,
+        "content": content,
+        "contact": contact
+    }
+
+    try:
+        if feedback_file.exists():
+            with open(feedback_file, "r") as f:
+                data = json.load(f)
+        else:
+            data = []
+        data.append(feedback_entry)
+        with open(feedback_file, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        log.error(f"Failed to save feedback: {e}")
+
+    return {"status": "ok"}
+
 if __name__ == "__main__":
     loop_type = "asyncio"
     try:
@@ -644,3 +681,4 @@ if __name__ == "__main__":
     
     # Run uvicorn natively, it manages the loop
     server.run()
+

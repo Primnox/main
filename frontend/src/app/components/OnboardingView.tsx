@@ -64,7 +64,7 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
         <AnimatePresence mode="wait">
           {step === 1 && <Step1Welcome key="step1" next={nextStep} skip={skipSetup} />}
           {step === 2 && <Step2Privacy key="step2" next={nextStep} />}
-          {step === 3 && <Step3AIProvider key="step3" next={nextStep} />}
+          {step === 3 && <Step3AIProvider key="step3" next={nextStep} updateSettings={updateSettings} settings={settings} />}
           {step === 4 && <Step4Permissions key="step4" next={nextStep} />}
           {step === 5 && <Step5Voice key="step5" next={nextStep} />}
           {step === 6 && <Step6Learning key="step6" next={nextStep} activity={activity} profile={profile} scanEnvironment={scanEnvironment} setProfile={setProfile} />}
@@ -128,16 +128,27 @@ const Step2Privacy = ({ next }: any) => (
   </motion.div>
 );
 
-const Step3AIProvider = ({ next }: any) => {
+const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
   const [key, setKey] = useState('');
   const [status, setStatus] = useState<'idle'|'testing'|'success'|'error'>('idle');
 
-  const testKey = () => {
+  const testKey = async () => {
     setStatus('testing');
-    setTimeout(() => {
-      setStatus(key.length > 10 ? 'success' : 'error');
-      if (key.length > 10) setTimeout(next, 1000);
-    }, 1500);
+    try {
+      const resp = await fetch('https://api.groq.com/openai/v1/models', {
+        headers: { 'Authorization': `Bearer ${key}` }
+      });
+      if (resp.ok) {
+        setStatus('success');
+        // Actually save the key to settings
+        await updateSettings({ ...settings, groq_api_key: key });
+        setTimeout(next, 1000);
+      } else {
+        setStatus('error');
+      }
+    } catch {
+      setStatus('error');
+    }
   };
 
   return (

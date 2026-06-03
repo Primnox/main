@@ -1,6 +1,13 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
+const { autoUpdater } = require('electron-updater');
+
+const envPath = app.isPackaged ? path.join(process.resourcesPath, '.env') : path.join(app.getAppPath(), '.env');
+require('dotenv').config({ path: envPath });
+if (process.env.GH_TOKEN) {
+  autoUpdater.requestHeaders = { Authorization: 'Bearer ' + process.env.GH_TOKEN };
+}
 
 // Hardening: Disable Chromium remote debugging switches
 app.commandLine.appendSwitch('disable-http-cache');
@@ -36,6 +43,9 @@ function createWindow() {
 }
 
 // IPC Relays and Controls
+ipcMain.on('restart-app', () => {
+  autoUpdater.quitAndInstall();
+});
 ipcMain.on('set-window-mode', (event, mode) => {
   if (!mainWindow) return;
   const { screen } = require('electron');
@@ -74,6 +84,17 @@ ipcMain.on('maximize-app', () => {
 app.whenReady().then(() => {
   startBackend();
   createWindow();
+
+  autoUpdater.on('update-available', () => {
+    if (mainWindow) mainWindow.webContents.send('update-available');
+  });
+
+  autoUpdater.on('update-downloaded', () => {
+    if (mainWindow) mainWindow.webContents.send('update-downloaded');
+  });
+
+  // Check for updates quietly
+  autoUpdater.checkForUpdatesAndNotify();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -116,3 +137,5 @@ function startBackend() {
     console.error(`Backend stderr: ${data}`);
   });
 }
+
+
