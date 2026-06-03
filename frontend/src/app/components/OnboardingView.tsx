@@ -10,13 +10,15 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 13;
   
-  const { activity, updateSettings, settings } = usePrimnox();
-  const [profile, setProfile] = useState({
-    projects: ['Primnox', 'Capstone'],
-    topics: ['AI', 'Programming', 'Research'],
-    skills: ['Python', 'React'],
-    communication_style: ['Detailed Explanations', 'Casual Communication'],
-    knowledge_areas: ['Development Workspace', 'Machine Learning']
+  const { activity, updateSettings, settings, scanEnvironment } = usePrimnox();
+  const [profile, setProfile] = useState<any>({
+    name: 'User',
+    role: 'System Administrator',
+    projects: ['<Scanning Local Workspace>'],
+    topics: ['<Analyzing Interests>'],
+    skills: ['<Mapping Capabilities>'],
+    communication_style: ['<Observing Patterns>'],
+    knowledge_areas: ['<Building Knowledge Graph>']
   });
   
   const nextStep = () => setStep(prev => Math.min(prev + 1, totalSteps));
@@ -65,7 +67,7 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
           {step === 3 && <Step3AIProvider key="step3" next={nextStep} />}
           {step === 4 && <Step4Permissions key="step4" next={nextStep} />}
           {step === 5 && <Step5Voice key="step5" next={nextStep} />}
-          {step === 6 && <Step6Learning key="step6" next={nextStep} activity={activity} profile={profile} />}
+          {step === 6 && <Step6Learning key="step6" next={nextStep} activity={activity} profile={profile} scanEnvironment={scanEnvironment} setProfile={setProfile} />}
           {step === 7 && <Step7UserModel key="step7" next={nextStep} />}
           {step === 8 && <Step8ProfileReview key="step8" next={nextStep} profile={profile} setProfile={setProfile} />}
           {step === 9 && <Step9Memory key="step9" next={nextStep} />}
@@ -217,38 +219,47 @@ const Step5Voice = ({ next }: any) => (
   </motion.div>
 );
 
-const Step6Learning = ({ next, activity, profile }: any) => {
+const Step6Learning = ({ next, activity, profile, scanEnvironment, setProfile }: any) => {
   const [progress, setProgress] = useState(0);
   const [stream, setStream] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let p = 0;
+    let isDone = false;
+    
+    // Fake progress that slows down as it gets closer to 99%
     const interval = setInterval(() => {
-      p += Math.random() * 2;
-      setProgress(Math.min(100, p));
+      if (isDone) return;
+      p += (99 - p) * 0.1;
+      setProgress(Math.min(99, p));
       
-      // Use actual real-time activity data instead of hallucinating
       const randomAct = activity.length > 0 ? activity[Math.floor(Math.random() * activity.length)] : null;
       let logMsg = "Scanning system environment...";
       if (randomAct) {
          const name = randomAct.window || randomAct.app || "System Process";
-         // Clean up common suffixes for cleaner display
          const cleanName = name.replace(/ - Word| - Google Chrome| - Opera/g, '');
          logMsg = `Analyzing: ${cleanName.substring(0, 40)}`;
       }
-      
       setStream(prev => [...prev, logMsg].slice(-10));
-        
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      
-      if (p >= 100) {
-        clearInterval(interval);
-        setTimeout(next, 1500);
-      }
     }, 200);
+
+    // Run the actual backend scan
+    if (scanEnvironment) {
+      scanEnvironment().then((data: any) => {
+        isDone = true;
+        setProgress(100);
+        if (data && data.projects) {
+          setProfile(data);
+          setStream(prev => [...prev, "> Scan Complete: Real data acquired!"].slice(-10));
+        }
+        setTimeout(next, 1500);
+      });
+    }
+
     return () => clearInterval(interval);
-  }, [activity, next]);
+  }, [activity, next, scanEnvironment, setProfile]);
 
   return (
     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} className="flex flex-col gap-8 h-[60vh]">

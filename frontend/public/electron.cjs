@@ -103,7 +103,8 @@ function startBackend() {
   } else {
     const backendPath = path.join(process.resourcesPath, 'primnox_backend', 'primnox_backend.exe');
     pythonProcess = spawn(backendPath, [], {
-      cwd: path.join(process.resourcesPath, 'primnox_backend')
+      cwd: path.join(process.resourcesPath, 'primnox_backend'),
+      windowsHide: true
     });
   }
 

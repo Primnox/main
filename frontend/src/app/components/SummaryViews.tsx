@@ -179,7 +179,7 @@ export const SummariesSidebarHidden = ({ onNavigate }: { onNavigate: (id: Screen
             </div>
             <div className="h-6 w-px bg-white/10" />
             <div className="flex items-center gap-4">
-              <span className="font-mono text-[10px] text-white/20 uppercase tracking-[0.3em]">VERSION: 2.0.0-HARDENED</span>
+              <span className="font-mono text-[10px] text-white/20 uppercase tracking-[0.3em]">VERSION: 0.0.3-ALPHA</span>
             </div>
           </div>
         </div>

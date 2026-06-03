@@ -328,6 +328,16 @@ export function usePrimnox() {
       addToast('error', 'Export failed');
     }
   }, [addToast]);
+
+  const scanEnvironment = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/onboarding/scan`);
+      return await resp.json();
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }, []);
   
   useEffect(() => {
     fetchSettings();
@@ -358,5 +368,6 @@ export function usePrimnox() {
     fetchChats,
     loadChat,
     createNewChat,
+    scanEnvironment,
   };
 }

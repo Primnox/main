@@ -12,11 +12,7 @@ import re
 import logging
 from observer import start_clipboard_monitor, clear_clipboard_data, register_observer_callback
 
-try:
-    from fastapi.responses import ORJSONResponse
-    app = FastAPI(default_response_class=ORJSONResponse)
-except ImportError:
-    app = FastAPI()
+app = FastAPI()
 
 # Zero-Trust Security Middleware
 logger = logging.getLogger("primnox_firewall")
@@ -418,6 +414,114 @@ async def delete_memory(key: str):
 async def get_conversations():
     from notes_manager import get_conversations
     return get_conversations()
+
+@app.get("/api/onboarding/scan")
+async def scan_onboarding():
+    import os
+    from pathlib import Path
+    import getpass
+    import json
+    from brain import think
+    
+    projects = []
+    skills = set()
+    
+    home_dir = Path.home()
+    
+    # Aggressive ignore list to prevent freezing and junk data
+    ignore_dirs = {
+        'AppData', 'Application Data', 'Local Settings', 'Cookies', 
+        'Recent', 'SendTo', 'Start Menu', 'NetHood', 'PrintHood', 
+        'Templates', 'node_modules', 'venv', '.venv', '.git', 
+        'dist', 'build', '__pycache__', '.cache', '.cargo', 
+        '.rustup', '.npm', '.vscode', 'Downloads', 'Music', 
+        'Pictures', 'Videos', 'Documents', 'Desktop', 'Public',
+        'Saved Games', 'Favorites', 'Contacts', 'Searches', 'Links',
+        'OneDrive'
+    }
+
+    try:
+        for root, dirs, files in os.walk(str(home_dir)):
+            # Mutate dirs in-place to skip heavy or hidden folders
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+            
+            # Don't go deeper than 4 levels from home directory
+            depth = root.count(os.sep) - str(home_dir).count(os.sep)
+            if depth > 4:
+                dirs.clear()
+                continue
+                
+            # If we find code files in this directory, consider it a project
+            is_project = False
+            for f in files:
+                if f.endswith(".py"): 
+                    skills.add("Python")
+                    is_project = True
+                elif f.endswith(".ts") or f.endswith(".tsx"): 
+                    skills.add("TypeScript")
+                    is_project = True
+                elif f.endswith(".js") or f.endswith(".jsx"): 
+                    skills.add("JavaScript")
+                    is_project = True
+                elif f.endswith(".rs"): 
+                    skills.add("Rust")
+                    is_project = True
+                elif f.endswith(".go"): 
+                    skills.add("Go")
+                    is_project = True
+                elif f.endswith(".cpp") or f.endswith(".h"): 
+                    skills.add("C++")
+                    is_project = True
+                elif f.endswith(".java"): 
+                    skills.add("Java")
+                    is_project = True
+                elif f.endswith(".cs"): 
+                    skills.add("C#")
+                    is_project = True
+            
+            # If it's a project (and not the root home folder itself), add its name
+            if is_project and depth > 0:
+                folder_name = os.path.basename(root)
+                if folder_name not in projects:
+                    projects.append(folder_name)
+                    
+            # Cap the number of projects we extract to save time
+            if len(projects) > 30:
+                break
+    except Exception as e:
+        print(f"Scanner error: {e}")
+        pass
+
+    projects = projects[:10] if projects else ["Workspace Sandbox"]
+    skills = list(skills)[:10] if skills else ["System Administration"]
+    
+    # Use LLM to infer the rest of the profile dynamically
+    prompt = f"Given these projects: {', '.join(projects)} and skills: {', '.join(skills)}, infer 3 topics, 2 communication_styles, and 3 knowledge_areas. Output ONLY valid JSON matching this schema: {{\"topics\": [], \"communication_style\": [], \"knowledge_areas\": []}}"
+    try:
+        response = think(prompt)
+        # Extract JSON if it contains markdown formatting
+        if "```json" in response:
+            response = response.split("```json")[1].split("```")[0].strip()
+        elif "```" in response:
+            response = response.split("```")[1].split("```")[0].strip()
+            
+        llm_data = json.loads(response)
+    except Exception:
+        llm_data = {
+            "topics": ["Software Development", "System Architecture", "Open Source"],
+            "communication_style": ["Direct", "Technical"],
+            "knowledge_areas": ["Local Filesystem", "Version Control", "Application Development"]
+        }
+
+    return {
+        "name": getpass.getuser(),
+        "role": "Developer",
+        "projects": projects[:5],
+        "skills": skills[:5],
+        "topics": llm_data.get("topics", [])[:4],
+        "communication_style": llm_data.get("communication_style", [])[:3],
+        "knowledge_areas": llm_data.get("knowledge_areas", [])[:4]
+    }
 
 @app.get("/settings")
 async def get_settings():
