@@ -93,10 +93,19 @@ app.on('quit', () => {
 });
 
 function startBackend() {
-  const backendPath = path.join(__dirname, '../../backend/server.py');
-  pythonProcess = spawn('python', [backendPath], {
-    cwd: path.join(__dirname, '../../backend')
-  });
+  const isDev = !app.isPackaged;
+  
+  if (isDev) {
+    const backendPath = path.join(__dirname, '../../backend/server.py');
+    pythonProcess = spawn('python', [backendPath], {
+      cwd: path.join(__dirname, '../../backend')
+    });
+  } else {
+    const backendPath = path.join(process.resourcesPath, 'primnox_backend', 'primnox_backend.exe');
+    pythonProcess = spawn(backendPath, [], {
+      cwd: path.join(process.resourcesPath, 'primnox_backend')
+    });
+  }
 
   pythonProcess.stdout.on('data', (data) => {
     console.log(`Backend stdout: ${data}`);
