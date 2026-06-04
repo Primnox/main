@@ -135,24 +135,18 @@
 }
 
 /* ─── BlockNote Seamless Integration ─────────────────────── */
-/* These MUST override @blocknote/mantine/style.css dark theme */
-.notion-editor-wrapper .bn-container,
-.notion-editor-wrapper .bn-container[data-theme="dark"],
-.notion-editor-wrapper .bn-editor,
-.bn-container[data-theme="dark"],
-.bn-container,
-.bn-editor {
-  background-color: transparent !important;
-  background: transparent !important;
-  color: #D4D4D4 !important;
+/* Override the CSS variables at root level — this is the ONLY reliable
+   way to kill the grey #1f1f1f editor background that BlockNote ships
+   in dark mode. Direct background-color overrides don't work because
+   BlockNote uses var(--bn-colors-editor-background) internally. */
+.notion-editor-wrapper .bn-root[data-color-scheme="dark"],
+.bn-root[data-color-scheme="dark"] {
+  --bn-colors-editor-background: transparent;
 }
 
-/* Kill the grey background on the root blocknote wrapper */
-[data-theming-css-variables-demo],
-.bn-container[data-color-scheme="dark"],
-div[class*="bn-container"] {
-  background: transparent !important;
-  background-color: transparent !important;
+.notion-editor-wrapper .bn-editor,
+.bn-editor {
+  border-radius: 0 !important;
 }
 
 .notion-editor-wrapper .bn-container {
