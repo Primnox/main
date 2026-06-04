@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Minus, Square, X, MessageSquare, DownloadCloud } from 'lucide-react';
 import { FeedbackModal } from './FeedbackModal';
 

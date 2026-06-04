@@ -132,7 +132,7 @@ export const IslandSettings = ({
                         value={activeModel}
                         onChange={(e) => setActiveModel(e.target.value)}
                       >
-                        <option value="Groq_Llama_3">Groq: Llama 3 (HyperSpeed)</option>
+                        <option value="Groq_Llama_3">Groq: Llama 3.3 (HyperSpeed)</option>
                         <option value="OpenAI_GPT_4o">OpenAI: GPT-4o (Max Reasoning)</option>
                         <option value="Anthropic_Claude_3">Anthropic: Claude 3.5 Sonnet</option>
                       </select>
