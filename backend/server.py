@@ -202,12 +202,14 @@ async def post_notes_update(request: Request, background_tasks: BackgroundTasks)
     project = body.get("project", "General")
     parent_id = body.get("parent_id", None)
     
-    if index is not None and index >= 0:
+    if index is not None and index > 0:
         success = update_note(index, title, text, project=project, parent_id=parent_id)
         if not success:
-            add_note(text, title=title, project=project, parent_id=parent_id)
+            note = add_note(text, title=title, project=project, parent_id=parent_id)
+            index = note["id"]
     else:
-        add_note(text, title=title, project=project, parent_id=parent_id)
+        note = add_note(text, title=title, project=project, parent_id=parent_id)
+        index = note["id"]
         
     def _summarize():
         from notes_manager import get_db
@@ -223,13 +225,8 @@ async def post_notes_update(request: Request, background_tasks: BackgroundTasks)
                 kp = json.loads(arr_str.group())
                 conn = get_db()
                 c = conn.cursor()
-                # we need the actual id for updating safely, but since we only have index,
-                # let's map it back to id
-                c.execute("SELECT id FROM notes ORDER BY id ASC")
-                rows = c.fetchall()
-                if index is not None and 0 <= index < len(rows):
-                    note_id = rows[index]["id"]
-                    c.execute("UPDATE notes SET key_points=? WHERE id=?", (json.dumps(kp), note_id))
+                if index is not None and index > 0:
+                    c.execute("UPDATE notes SET key_points=? WHERE id=?", (json.dumps(kp), index))
                     conn.commit()
                 conn.close()
         except Exception as e:
@@ -237,7 +234,7 @@ async def post_notes_update(request: Request, background_tasks: BackgroundTasks)
 
     background_tasks.add_task(_summarize)
     broadcast("note_added", {})
-    return {"success": True}
+    return {"success": True, "id": index}
 
 @app.post("/api/notes/generate-batch")
 async def generate_batch_notes(

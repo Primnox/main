@@ -193,11 +193,15 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
   const persistNote = useCallback(async (title: string, text: string, id: number, project: string) => {
     setSaveStatus('saving');
     try {
-      await fetch('http://localhost:8000/notes/update', {
+      const res = await fetch('http://localhost:8000/notes/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ index: id, id: id, title, text, project })
       });
+      const data = await res.json();
+      if (data.id && data.id !== id) {
+        setActiveNoteId(data.id);
+      }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (e) {
@@ -289,11 +293,13 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
   // ─── New Note ───────────────────────────────────────────────
   const handleNewNote = async () => {
     try {
-      await fetch('http://localhost:8000/notes/update', {
+      const res = await fetch('http://localhost:8000/notes/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace })
       });
+      const data = await res.json();
+      if (data.id) setActiveNoteId(data.id);
     } catch (e) {
       console.error("Failed to create note:", e);
     }
@@ -301,11 +307,13 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
 
   const handleNewSubNote = async (parentId: number) => {
     try {
-      await fetch('http://localhost:8000/notes/update', {
+      const res = await fetch('http://localhost:8000/notes/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace, parent_id: parentId })
       });
+      const data = await res.json();
+      if (data.id) setActiveNoteId(data.id);
     } catch (e) {
       console.error("Failed to create subnote:", e);
     }
