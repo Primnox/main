@@ -2,26 +2,56 @@
 
 ## v0.0.6-alpha (2026-06-04)
 
+### 🧠 Persona Overhaul
+- Rewrote `system_prompts.py` — Primnox now responds as a fiercely loyal, sarcastic best friend instead of a generic chatbot.
+- 6 emotion-specific prompt variants (happy, sad, angry, anxious, excited, neutral) injected dynamically.
+
+### 🎭 Emotion & Behavior Engine
+- New `emotion_agent.py` — analyzes chat history to detect user mood with >70% confidence threshold.
+- `brain.py` now calls `get_adaptive_system_prompt()` to inject the detected mood into every response.
+
+### 💬 Chat Context Menu (Right-Click)
+- Fully functional right-click context menu on chat sessions: Pin, Move to Folder, Auto-assign, Delete.
+- Fixed portal rendering so the menu appears at the cursor position (not offset by parent CSS transforms).
+- Pin/Delete/Move actions now call the backend and refresh the session list in real-time.
+
+### 🗑️ Memory Wipe on Delete
+- Deleting a chat session now also purges all associated memories from the semantic memory store via `delete_memories_by_session()`.
+
+### 🔗 Chat Referencing (`#session_id`)
+- Type `#` followed by a 6-char hex session ID in any message to inject that conversation's history into the system prompt.
+- Capped at 20 messages per reference to prevent token overflow.
+
 ### 📝 Notion-Style Notes Editor
 - Redesigned notes editor to match Notion's centered, full-width layout.
 - Content column is horizontally centered (max-width 900px) with generous padding.
 - Full black canvas background — no grey container boxes.
-- Responsive padding scales gracefully across screen sizes.
+- Responsive padding scales gracefully across screen sizes (96px → 48px → 24px).
 - BlockNote editor background forced transparent for seamless integration.
 
-### 🐛 Notes System Critical Fix
-- Fixed `AttributeError: 'sqlite3.Row' object has no attribute 'get'` crash in `notes_manager.py`.
-- This was silently breaking the GET `/notes` endpoint (500 error), which prevented new pages from appearing after creation.
+### 📌 Notes Pinning & Folder Filtering
+- Notes can now be pinned (persisted to database).
+- Sidebar filters notes by workspace/project dynamically.
+- Research view now correctly filters files by folder.
+
+### 📊 Learning Profiler
+- New `profiler.py` — reads `settings.json`, prompts the LLM to analyze user behavior, and updates the `onboarding_profile` field.
+- Accessible via `/api/profile/analyze` endpoint.
+
+### 🐛 Critical Fixes
+- Fixed `sqlite3.Row.get()` crash in `notes_manager.py` that was silently 500'ing every GET `/notes` call.
+- Fixed `Ctrl+N` (new page) shortcut — stale React closure prevented it from firing.
+- Fixed duplicate "Archive" buttons appearing in the chat sidebar.
 
 ### ⌨️ Keyboard Shortcuts
-- Fixed `Ctrl+N` (new page) — was broken due to stale React closure.
 - Added `Ctrl+=` / `Ctrl+-` / `Ctrl+0` zoom controls in Electron (frameless window strips default browser zoom).
 - Key matching now case-insensitive (works with CapsLock on).
 
-### 🧹 UI Cleanup
-- Removed duplicate "View All Archives" link from chat sidebar.
-- Cleaned up unused icon imports (`Settings`, `MoreVertical`, `Archive`) from ChatView.
-- Removed unused `React` default import from NotesView (uses named imports).
+### 🎨 UI Polish Pass
+- Standardized glassmorphism across all panels (`bg-zinc-950/80 backdrop-blur-2xl`).
+- Fixed micro-typography scale (bumped `text-[9px]` → `text-[10px]`, reduced extreme tracking).
+- Improved custom scrollbar styling.
+- Cleaned up all unused TypeScript imports (zero compile errors).
 
 ---
 
