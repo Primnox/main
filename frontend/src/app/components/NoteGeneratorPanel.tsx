@@ -172,7 +172,7 @@ export const NoteGeneratorPanel = ({ onDone, activeWorkspace = 'General' }: { on
             <select 
               value={project} 
               onChange={e => setProject(e.target.value)}
-              className="flex-1 bg-black/50 border border-white/10 rounded px-2 py-1 text-white/80 outline-none"
+              className="flex-1 bg-black/50 border border-white/10 rounded px-2 py-1 text-white/80 outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50"
             >
               <option value="General">General</option>
               <option value="Work">Work</option>
@@ -184,7 +184,7 @@ export const NoteGeneratorPanel = ({ onDone, activeWorkspace = 'General' }: { on
             placeholder="Custom instructions (optional)..." 
             value={prompt}
             onChange={e => setPrompt(e.target.value)}
-            className="w-full bg-black/50 border border-white/10 rounded p-2 text-xs text-white/90 placeholder-white/30 outline-none resize-none h-16"
+            className="w-full bg-black/50 border border-white/10 rounded p-2 text-xs text-white/90 placeholder-white/30 outline-none resize-none h-16 focus-visible:ring-1 focus-visible:ring-emerald-500/50"
           />
 
           <button 

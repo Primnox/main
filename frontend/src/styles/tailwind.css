@@ -120,11 +120,63 @@
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  width: 6px;
+  height: 6px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ─── Notion-style Editor Layout ─────────────────────────── */
+.notion-page-wrapper {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 80px 96px 160px 96px;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 1024px) {
+  .notion-page-wrapper {
+    padding: 60px 48px 120px 48px;
+  }
+}
+
+@media (max-width: 640px) {
+  .notion-page-wrapper {
+    padding: 40px 24px 80px 24px;
+  }
+}
+
+/* BlockNote Seamless Integration */
+.notion-editor-wrapper .bn-container,
+.notion-editor-wrapper .bn-editor,
+.bn-container[data-theme="dark"],
+.bn-editor {
+  background-color: transparent !important;
+  background: transparent !important;
+}
+
+.notion-editor-wrapper .bn-container {
+  height: 100%;
+  min-height: 40vh;
+}
+
+/* Remove BlockNote's default side-menu gutter so text aligns with title */
+.notion-editor-wrapper .bn-block-group > .bn-block-outer {
+  margin-left: 0 !important;
+}
+
+/* Make BlockNote text match the page font */
+.notion-editor-wrapper .bn-editor .bn-block-content {
+  font-family: var(--font-sans);
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
-import { Paperclip, ArrowRight, Sparkles, X, Plus, MessageSquare, Pin, Folder, ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import { Paperclip, ArrowRight, Sparkles, X, Plus, MessageSquare, Pin, Folder, ChevronDown, ChevronRight, Trash2, Bot } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy';
@@ -15,7 +16,8 @@ export const ChatExpandedSidebar = ({
   chatFolders = [],
   activeChatId = 'current',
   loadChat = () => {},
-  createNewChat = () => {}
+  createNewChat = () => {},
+  refreshChats = () => {}
 }: { 
   aiName: string, 
   userName: string, 
@@ -26,7 +28,8 @@ export const ChatExpandedSidebar = ({
   chatFolders?: any[],
   activeChatId?: string,
   loadChat?: (id: string) => void,
-  createNewChat?: () => void
+  createNewChat?: () => void,
+  refreshChats?: () => void
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -34,11 +37,55 @@ export const ChatExpandedSidebar = ({
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
 
   // State for Left Sidebar
-  const [foldersOpen, setFoldersOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(true);
+  const [foldersOpen, setFoldersOpen] = useState(true);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, chat: any } | null>(null);
+
+  // Close context menu on click outside
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null);
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, []);
+
+  const handleContextMenu = (e: React.MouseEvent, chat: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, chat });
+  };
+
+  const handleMenuAction = async (action: string, chat: any, folderId?: string) => {
+    setContextMenu(null);
+    try {
+      if (action === 'pin') {
+        await fetch(`http://localhost:8000/api/chats/${chat.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isPinned: !chat.isPinned })
+        });
+      } else if (action === 'move') {
+        await fetch(`http://localhost:8000/api/chats/${chat.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folderId })
+        });
+      } else if (action === 'auto_assign') {
+        await fetch(`http://localhost:8000/api/chats/${chat.id}/auto_assign`, { method: 'POST' });
+      } else if (action === 'delete') {
+        await fetch(`http://localhost:8000/api/chats/${chat.id}`, { method: 'DELETE' });
+      }
+      refreshChats();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
 
   const pinnedChats = chatSessions.filter(c => c.isPinned);
-  const unpinnedChats = chatSessions.filter(c => !c.isPinned);
+  const unpinnedChats = chatSessions.filter(c => !c.isPinned && ((!activeFolderId && !c.folderId) || (c.folderId === activeFolderId)));
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -68,6 +115,46 @@ export const ChatExpandedSidebar = ({
 
   return (
     <div className="flex-1 flex h-full bg-zinc-950 overflow-hidden">
+      {/* Context Menu Overlay */}
+      {contextMenu && createPortal(
+        <div 
+          className="fixed z-50 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl py-1 w-48 text-sm"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-2 border-b border-white/5 font-bold text-white truncate text-xs">
+            {contextMenu.chat.title}
+          </div>
+          <button onClick={() => handleMenuAction('pin', contextMenu.chat)} className="w-full text-left px-4 py-2 hover:bg-white/10 text-white/80 flex items-center gap-2">
+            <Pin size={14} /> {contextMenu.chat.isPinned ? 'Unpin' : 'Pin'}
+          </button>
+          
+          <div className="group/submenu relative">
+            <button className="w-full text-left px-4 py-2 hover:bg-white/10 text-white/80 flex items-center justify-between">
+              <span className="flex items-center gap-2"><Folder size={14} /> Add to Project</span>
+              <ChevronRight size={14} />
+            </button>
+            <div className="absolute left-full top-0 hidden group-hover/submenu:block w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl py-1 ml-1">
+              <button onClick={() => handleMenuAction('auto_assign', contextMenu.chat)} className="w-full text-left px-4 py-2 hover:bg-white/10 text-primary flex items-center gap-2">
+                <Bot size={14} /> Auto-Detect
+              </button>
+              <div className="h-px bg-white/10 my-1" />
+              {chatFolders.map((f: any) => (
+                <button key={f.id} onClick={() => handleMenuAction('move', contextMenu.chat, f.id)} className="w-full text-left px-4 py-2 hover:bg-white/10 text-white/80 truncate text-xs">
+                  {f.title}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div className="h-px bg-white/10 my-1" />
+          <button onClick={() => handleMenuAction('delete', contextMenu.chat)} className="w-full text-left px-4 py-2 hover:bg-red-500/20 text-red-400 flex items-center gap-2">
+            <Trash2 size={14} /> Delete Chat
+          </button>
+        </div>,
+        document.body
+      )}
+
       {/* LEFT CHAT SIDEBAR (History/Folders) */}
       <div className="w-64 lg:w-72 border-r border-white/5 bg-zinc-900/20 flex flex-col pt-12 text-white overflow-hidden shrink-0">
         
@@ -88,8 +175,11 @@ export const ChatExpandedSidebar = ({
             </div>
             <div className="space-y-1">
               {pinnedChats.map((c: any) => (
-                <button key={c.id} onClick={() => loadChat(c.id)} className={`w-full text-left p-3 rounded-lg text-sm transition-all group flex flex-col gap-1 ${activeChatId === c.id ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-white/70'}`}>
-                  <span className="truncate font-bold">{c.title}</span>
+                <button key={c.id} onClick={() => loadChat(c.id)} onContextMenu={(e) => handleContextMenu(e, c)} className={`w-full text-left p-3 rounded-lg text-sm transition-all group flex flex-col gap-1 ${activeChatId === c.id ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-white/70'}`}>
+                  <div className="flex justify-between items-start">
+                    <span className="truncate font-bold">{c.title}</span>
+                    <span className="text-[9px] text-white/20 font-mono">#{c.id.substring(0,6)}</span>
+                  </div>
                   <span className="text-[10px] text-white/40">{new Date(c.date).toLocaleDateString()}</span>
                 </button>
               ))}
@@ -105,9 +195,9 @@ export const ChatExpandedSidebar = ({
             {foldersOpen && (
               <div className="space-y-1">
                 {chatFolders.map((f: any) => (
-                  <button key={f.id} className="w-full text-left p-3 rounded-lg text-sm hover:bg-white/5 text-white/70 transition-all flex items-center justify-between group">
+                  <button key={f.id} onClick={() => { setActiveFolderId(f.id); setHistoryOpen(true); }} className={`w-full text-left p-3 rounded-lg text-sm hover:bg-white/5 transition-all flex items-center justify-between group ${activeFolderId === f.id ? 'text-primary bg-white/10' : 'text-white/70'}`}>
                     <div className="flex items-center gap-3 truncate">
-                      <Folder size={14} className="text-white/30 group-hover:text-primary transition-colors" />
+                      <Folder size={14} className={`group-hover:text-primary transition-colors ${activeFolderId === f.id ? 'text-primary' : 'text-white/30'}`} />
                       <span className="truncate">{f.title}</span>
                     </div>
                     <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded text-white/50">{f.count}</span>
@@ -119,28 +209,24 @@ export const ChatExpandedSidebar = ({
 
           {/* History Section */}
           <div>
-             <button onClick={() => setHistoryOpen(!historyOpen)} className="w-full px-3 py-1 text-[10px] font-mono text-white/40 uppercase tracking-widest mb-2 flex items-center justify-between hover:text-white transition-colors">
-              <div className="flex items-center gap-2"><MessageSquare size={12} /> Recent</div>
+             <button onClick={() => { setActiveFolderId(null); setHistoryOpen(true); }} className={`w-full px-3 py-1 text-[10px] font-mono uppercase tracking-widest mb-2 flex items-center justify-between transition-colors ${activeFolderId === null ? 'text-primary' : 'text-white/40 hover:text-white'}`}>
+              <div className="flex items-center gap-2"><MessageSquare size={12} /> {activeFolderId ? "Back to Recent" : "Recent"}</div>
               {historyOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </button>
             {historyOpen && (
               <div className="space-y-1">
                 {unpinnedChats.map((c: any) => (
-                  <button key={c.id} onClick={() => loadChat(c.id)} className={`w-full text-left p-3 rounded-lg text-sm transition-all group flex flex-col gap-1 ${activeChatId === c.id ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-white/70'}`}>
-                    <span className="truncate">{c.title}</span>
+                  <button key={c.id} onClick={() => loadChat(c.id)} onContextMenu={(e) => handleContextMenu(e, c)} className={`w-full text-left p-3 rounded-lg text-sm transition-all group flex flex-col gap-1 ${activeChatId === c.id ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-white/70'}`}>
+                    <div className="flex justify-between items-start">
+                      <span className="truncate">{c.title}</span>
+                      <span className="text-[9px] text-white/20 font-mono">#{c.id.substring(0,6)}</span>
+                    </div>
                     <span className="text-[10px] text-white/40">{new Date(c.date).toLocaleDateString()}</span>
                   </button>
                 ))}
               </div>
             )}
           </div>
-        </div>
-        
-        {/* Settings / Archive link bottom */}
-        <div className="p-4 border-t border-white/5">
-           <button className="w-full flex items-center gap-3 text-white/40 hover:text-white text-xs transition-colors p-2 rounded hover:bg-white/5">
-             <Settings size={14} /> View All Archives
-           </button>
         </div>
       </div>
 

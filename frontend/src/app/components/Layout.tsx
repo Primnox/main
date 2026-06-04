@@ -30,14 +30,14 @@ const IconButton = ({ icon: Icon, active, onClick, label }: { icon: any, active?
     <div className={`p-2 rounded ${active ? 'bg-primary/10' : 'hover:bg-white/5'}`}>
       <Icon size={18} />
     </div>
-    {label && <span className="text-[8px] font-mono uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">{label}</span>}
+    {label && <span className="text-[10px] font-mono uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all duration-300">{label}</span>}
   </button>
 );
 
 const SidebarLink = ({ icon: Icon, label, active, onClick }: { icon: any, label: string, active?: boolean, onClick?: () => void }) => (
   <div 
     onClick={onClick}
-    className={`flex items-center gap-4 px-6 py-3 font-mono text-[10px] uppercase tracking-widest transition-all cursor-pointer group
+    className={`flex items-center gap-4 px-6 py-3 font-mono text-[10px] uppercase tracking-widest transition-all duration-300 cursor-pointer group
       ${active 
         ? 'bg-primary/10 text-white border-l-2 border-primary' 
         : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
@@ -122,7 +122,7 @@ export const Layout = ({
                   initial={{ opacity: 0, x: 20, scale: 0.9 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   exit={{ opacity: 0, x: 20, scale: 0.9 }}
-                  className={`px-6 py-4 rounded-xl border backdrop-blur-xl shadow-2xl font-mono text-[10px] uppercase tracking-widest font-bold
+                  className={`px-6 py-4 rounded-xl border backdrop-blur-2xl bg-zinc-950/80 shadow-2xl font-mono text-[10px] uppercase tracking-widest font-bold
                     ${toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 
                       toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' : 
                       'bg-primary/10 border-primary/20 text-primary'}`}
@@ -137,7 +137,7 @@ export const Layout = ({
           <div className="flex-1 flex overflow-hidden">
             {!isZenMode && (
               <aside 
-                className={`flex flex-col bg-zinc-950/50 backdrop-blur-xl border-r border-white/5 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] relative z-20 shrink-0
+                className={`flex flex-col backdrop-blur-2xl bg-zinc-950/80 border-r border-white/5 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] relative z-20 shrink-0
                   ${localSidebar === 'expanded' ? 'w-[260px]' : localSidebar === 'icon' ? 'w-20' : 'w-0 border-r-0 opacity-0'}`}
               >
                 {/* Logo Area */}
@@ -184,7 +184,7 @@ export const Layout = ({
                 <div className="p-6 mt-auto">
                   <button 
                     onClick={() => setLocalSidebar(localSidebar === 'expanded' ? 'icon' : 'expanded')}
-                    className={`w-full p-3 rounded flex items-center gap-3 text-white/20 hover:text-white transition-all overflow-hidden whitespace-nowrap
+                    className={`w-full p-3 rounded flex items-center gap-3 text-white/20 hover:text-white transition-all duration-300 overflow-hidden whitespace-nowrap
                       ${localSidebar === 'icon' ? 'justify-center' : ''}`}
                   >
                     <ChevronRight size={18} className={`transition-transform duration-500 ${localSidebar === 'expanded' ? 'rotate-180' : ''}`} />
@@ -196,10 +196,10 @@ export const Layout = ({
 
             <main className="flex-1 flex flex-col relative overflow-hidden bg-black">
               {!isZenMode && (
-                <header className="h-20 border-b border-white/5 flex items-center px-12 justify-between bg-zinc-950/50 backdrop-blur-xl relative z-30">
+                <header className="h-20 border-b border-white/5 flex items-center px-12 justify-between backdrop-blur-2xl bg-zinc-950/80 relative z-30">
                   <div className="flex flex-col text-left">
                     <h2 className="text-white font-bold tracking-tighter text-lg italic lowercase">{title}</h2>
-                    <p className="text-white/20 font-mono text-[9px] uppercase tracking-[0.4em] font-bold">{subtitle}</p>
+                    <p className="text-white/20 font-mono text-[10px] uppercase tracking-widest font-bold">{subtitle}</p>
                   </div>
                   <div className="flex items-center gap-6">
                     {actions && (

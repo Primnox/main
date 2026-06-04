@@ -36,7 +36,7 @@ export const SummariesExpanded = ({ onNavigate, activity = [] }: { onNavigate: (
                   <Maximize2 size={32} className="text-white relative z-10" />
                 </div>
                 <div>
-                  <h3 className="text-white text-xl font-bold tracking-tighter mb-2 italic text-left lowercase">
+                  <h3 className="font-bold lowercase italic tracking-wide text-white text-xl mb-2 text-left">
                     {activity[0]?.module || 'system_core_active'}
                   </h3>
                   <p className="font-mono text-white/30 text-[9px] uppercase tracking-[0.4em] font-medium text-left">
@@ -144,7 +144,7 @@ export const SummariesExpanded = ({ onNavigate, activity = [] }: { onNavigate: (
             <div className="flex justify-between mb-8 uppercase font-mono text-[9px] tracking-[0.4em] font-medium">
               <span className="text-white/20">{new Date(item.ts * 1000).toLocaleTimeString()}</span>
             </div>
-            <h3 className="text-white font-bold text-base mb-4 group-hover:text-primary transition-colors leading-tight italic tracking-tighter truncate lowercase">{item.module}</h3>
+            <h3 className="font-bold lowercase italic tracking-wide text-white text-base mb-4 group-hover:text-primary transition-colors leading-tight truncate">{item.module}</h3>
             <p className="text-white/30 text-xs line-clamp-2 mb-10 leading-relaxed font-light">{item.msg}</p>
             <div className="flex gap-3">
               <span className="px-3 py-1 bg-white/[0.03] border border-white/10 text-white/30 font-mono text-[9px] uppercase tracking-widest rounded-sm">{item.level}</span>
@@ -164,7 +164,7 @@ export const SummariesSidebarHidden = ({ onNavigate }: { onNavigate: (id: Screen
           <div className="w-1.5 h-4 bg-primary shadow-[0_0_10px_rgba(79,70,229,0.5)]" />
           <span className="font-mono text-primary lowercase text-xs tracking-[0.4em] font-bold italic opacity-60">session_active // synthesis_buffer</span>
         </div>
-        <h1 className="text-4xl font-bold text-white tracking-tighter hover:text-primary transition-all duration-700 cursor-default italic lowercase">
+        <h1 className="font-bold lowercase italic tracking-wide text-4xl text-white hover:text-primary transition-all duration-700 cursor-default">
           Primary_Interface_X
         </h1>
       </div>
@@ -192,11 +192,11 @@ export const SummariesSidebarHidden = ({ onNavigate }: { onNavigate: (id: Screen
             </p>
           </div>
           <div className="flex items-center gap-8 pt-20 border-t border-white/5">
-            <button onClick={() => onNavigate('summaries_expanded')} className="bg-white text-black font-mono px-12 py-5 uppercase text-[12px] font-bold tracking-[0.2em] hover:bg-primary hover:text-white transition-all shadow-2xl active:scale-95 flex items-center gap-4 rounded-xl">
+            <button onClick={() => onNavigate('summaries_expanded')} className="bg-white text-black font-mono px-12 py-5 uppercase text-[12px] font-bold tracking-[0.2em] hover:bg-primary hover:text-white shadow-2xl flex items-center gap-4 rounded-xl transition-all duration-300 ease-out active:scale-95">
               Apply_Changes
               <CheckCircle size={20} />
             </button>
-            <button onClick={() => onNavigate('logs')} className="border border-white/10 text-white/40 font-mono px-12 py-5 uppercase text-[11px] tracking-[0.3em] font-bold hover:bg-white/5 transition-all rounded-xl">
+            <button onClick={() => onNavigate('logs')} className="border border-white/10 text-white/40 font-mono px-12 py-5 uppercase text-[11px] tracking-[0.3em] font-bold hover:bg-white/5 rounded-xl transition-all duration-300 ease-out active:scale-95">
               VIEW_RAW_HEX
             </button>
           </div>
@@ -215,7 +215,7 @@ export const SummariesEmptyState = ({ onNavigate }: { onNavigate: (id: ScreenId)
         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-black border border-white/10 px-3 py-1 rounded font-mono text-[8px] text-primary uppercase">Idle_State</div>
       </div>
       
-      <h1 className="text-4xl font-bold text-white tracking-tighter mb-4 lowercase">No Active Sessions Found</h1>
+      <h1 className="font-bold lowercase italic tracking-wide text-4xl text-white mb-4">No Active Sessions Found</h1>
       <p className="text-on-surface-variant max-w-sm leading-relaxed mb-12 opacity-60 lowercase">The neural nexus is currently in stasis. Initialize a new analysis task to begin data orchestration.</p>
       
       <div className="flex flex-col gap-4">
@@ -273,7 +273,7 @@ export const SummariesIconSidebar = ({ onNavigate, notes = [] }: { onNavigate: (
           <div className="w-fit">
             <span className="bg-primary/10 text-primary px-3 py-1 border border-primary/20 font-mono text-[10px] uppercase tracking-[0.2em] shadow-[0_0_15px_rgba(79,70,229,0.1)]">Neural Nexus Core</span>
           </div>
-          <h1 className="text-3xl lg:text-4xl font-bold tracking-tighter lowercase leading-[0.95] text-white max-w-4xl italic">
+          <h1 className="font-bold lowercase italic tracking-wide text-3xl lg:text-4xl leading-[0.95] text-white max-w-4xl">
             {notes[0] ? (typeof notes[0] === 'string' ? notes[0] : notes[0].text) : 'Technical architecture of the decentralized neural nexus'}
           </h1>
           <div className="flex items-center gap-4 pt-4">
@@ -306,9 +306,9 @@ export const SummariesIconSidebar = ({ onNavigate, notes = [] }: { onNavigate: (
 
         <div className="fixed bottom-12 left-1/2 -translate-x-1/2 z-50">
           <div className="flex gap-2 p-2 bg-black/70 backdrop-blur-3xl rounded-full border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-            <button className="p-4 rounded-full text-white/40 hover:text-white transition-colors" onClick={() => onNavigate('chat_expanded_sidebar')}><MessageSquare size={20} /></button>
-            <button className="p-4 rounded-full border border-primary text-primary bg-primary/10 transition-all shadow-[0_0_20px_rgba(79,70,229,0.2)]" onClick={() => onNavigate('notes_icon_sidebar')}><Database size={20} /></button>
-            <button className="p-4 rounded-full text-white/40 hover:text-white transition-colors" onClick={() => onNavigate('summaries_expanded')}><FileText size={20} /></button>
+            <button className="p-4 rounded-full text-white/40 hover:text-white transition-all duration-300 ease-out active:scale-95" onClick={() => onNavigate('chat_expanded_sidebar')}><MessageSquare size={20} /></button>
+            <button className="p-4 rounded-full border border-primary text-primary bg-primary/10 shadow-[0_0_20px_rgba(79,70,229,0.2)] transition-all duration-300 ease-out active:scale-95" onClick={() => onNavigate('notes_icon_sidebar')}><Database size={20} /></button>
+            <button className="p-4 rounded-full text-white/40 hover:text-white transition-all duration-300 ease-out active:scale-95" onClick={() => onNavigate('summaries_expanded')}><FileText size={20} /></button>
           </div>
         </div>
       </div>

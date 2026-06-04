@@ -99,7 +99,7 @@ def get_notes():
             "timestamp": r["timestamp"],
             "project": r["project"],
             "parent_id": r["parent_id"],
-            "pinned": bool(r.get("pinned", 0))
+            "pinned": bool(r["pinned"]) if "pinned" in r.keys() else False
         })
     conn.close()
     return notes

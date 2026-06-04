@@ -174,7 +174,7 @@ TOOL_DEFINITIONS = [
     }
 ]
 
-def execute_tool(name: str, arguments: dict) -> str:
+def execute_tool(name: str, arguments: dict, session_id: str = None) -> str:
     """Executes a tool by name and returns the string result."""
     log.info(f"Executing tool: {name} with args: {arguments}")
     
@@ -225,7 +225,7 @@ def execute_tool(name: str, arguments: dict) -> str:
             from memory import add_memory
             text = arguments.get("text", "")
             category = arguments.get("category", "session")
-            success = add_memory(text, category=category)
+            success = add_memory(text, category=category, session_id=session_id)
             return f"Memory saved: {text[:50]}" if success else "Memory already exists (duplicate)."
             
         else:

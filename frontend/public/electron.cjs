@@ -40,6 +40,24 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // Handle Zooming since default menu is hidden (frame: false)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.control && input.type === 'keyDown') {
+      if (input.key === '=' || input.key === '+') {
+        let zoom = mainWindow.webContents.getZoomLevel();
+        mainWindow.webContents.setZoomLevel(zoom + 0.5);
+        event.preventDefault();
+      } else if (input.key === '-') {
+        let zoom = mainWindow.webContents.getZoomLevel();
+        mainWindow.webContents.setZoomLevel(zoom - 0.5);
+        event.preventDefault();
+      } else if (input.key === '0') {
+        mainWindow.webContents.setZoomLevel(0);
+        event.preventDefault();
+      }
+    }
+  });
 }
 
 // IPC Relays and Controls

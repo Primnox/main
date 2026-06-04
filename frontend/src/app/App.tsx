@@ -73,7 +73,7 @@ export default function App() {
     chatSessions,
     chatFolders,
     activeChatId,
-    fetchChats: _fetchChats,
+    fetchChats,
     loadChat,
     createNewChat,
     addToast
@@ -212,6 +212,7 @@ export default function App() {
             activeChatId={activeChatId}
             loadChat={loadChat}
             createNewChat={createNewChat}
+            refreshChats={fetchChats}
           />
         );
       case 'research_workspace':

@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.0.6-alpha (2026-06-04)
+
+### 📝 Notion-Style Notes Editor
+- Redesigned notes editor to match Notion's centered, full-width layout.
+- Content column is horizontally centered (max-width 900px) with generous padding.
+- Full black canvas background — no grey container boxes.
+- Responsive padding scales gracefully across screen sizes.
+- BlockNote editor background forced transparent for seamless integration.
+
+### 🐛 Notes System Critical Fix
+- Fixed `AttributeError: 'sqlite3.Row' object has no attribute 'get'` crash in `notes_manager.py`.
+- This was silently breaking the GET `/notes` endpoint (500 error), which prevented new pages from appearing after creation.
+
+### ⌨️ Keyboard Shortcuts
+- Fixed `Ctrl+N` (new page) — was broken due to stale React closure.
+- Added `Ctrl+=` / `Ctrl+-` / `Ctrl+0` zoom controls in Electron (frameless window strips default browser zoom).
+- Key matching now case-insensitive (works with CapsLock on).
+
+### 🧹 UI Cleanup
+- Removed duplicate "View All Archives" link from chat sidebar.
+- Cleaned up unused icon imports (`Settings`, `MoreVertical`, `Archive`) from ChatView.
+- Removed unused `React` default import from NotesView (uses named imports).
+
+---
+
 ## v0.0.5-alpha (2026-06-04)
 
 ### 🔍 Unlimited Web Search

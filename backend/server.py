@@ -1,4 +1,4 @@
-# backend/server.py
+﻿# backend/server.py
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, BackgroundTasks, HTTPException, File, UploadFile, Form
 from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
@@ -129,6 +129,39 @@ async def put_chat(session_id: str, request: Request):
     folder_id = body.get("folderId")
     update_session(session_id, title=title, is_pinned=is_pinned, folder_id=folder_id)
     return {"status": "ok"}
+
+@app.delete("/api/chats/{session_id}")
+async def delete_chat(session_id: str):
+    from chat_manager import delete_session
+    delete_session(session_id)
+    return {"status": "ok"}
+
+@app.post("/api/chats/{session_id}/auto_assign")
+async def auto_assign_chat(session_id: str):
+    from chat_manager import get_session_messages, update_session, get_db
+    from brain import think
+    
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT id, title FROM folders')
+    folders = [{"id": r["id"], "title": r["title"]} for r in c.fetchall()]
+    conn.close()
+    
+    msgs = get_session_messages(session_id)[-20:]
+    chat_text = "\n".join([f"{m['speaker']}: {m['text']}" for m in msgs])
+    
+    folder_list = "\n".join([f"- ID: {f['id']}, Name: {f['title']}" for f in folders])
+    
+    prompt = f"Analyze the following chat and assign it to the most relevant folder from the list below. Return ONLY the exact folder ID string and nothing else.\n\nFolders:\n{folder_list}\n\nChat:\n{chat_text}"
+    
+    result = think(prompt)
+    chosen_id = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+    
+    if chosen_id in [f["id"] for f in folders]:
+        update_session(session_id, folder_id=chosen_id)
+        return {"status": "ok", "folder_id": chosen_id}
+        
+    return {"status": "failed", "reason": "AI did not return a valid folder id", "raw": chosen_id}
 
 
 @app.get("/health")
@@ -691,3 +724,20 @@ if __name__ == "__main__":
     # Run uvicorn natively, it manages the loop
     server.run()
 
+
+import threading
+from profiler import run_background_profiler
+
+@app.post("/api/profile/analyze")
+async def analyze_profile():
+    # Run in background to avoid blocking
+    threading.Thread(target=run_background_profiler).start()
+    return {"status": "started"}
+
+
+from emotion_agent import run_emotion_analysis
+
+@app.post("/api/emotion/analyze")
+async def analyze_emotion():
+    threading.Thread(target=run_emotion_analysis).start()
+    return {"status": "started"}

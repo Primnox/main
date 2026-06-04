@@ -37,6 +37,17 @@ def get_adaptive_system_prompt(settings):
                 f"The user's interests include: {topics}. "
                 f"Keep these topics in mind when formulating responses."
             )
+            
+    current_mood = settings.get("current_mood")
+    if current_mood:
+        try:
+            from system_prompts import EMOTION_PROMPTS
+            mood_prompt = EMOTION_PROMPTS.get(current_mood)
+            if mood_prompt:
+                base_prompt += f"\n\n{mood_prompt}"
+        except ImportError:
+            pass
+            
     return base_prompt
 
 def get_api_key(provider):
@@ -116,6 +127,22 @@ def think(prompt, context=None, image_base64=None):
 
     system_content = get_adaptive_system_prompt(settings)
     
+    import re
+    # Check for context references
+    refs = re.findall(r'#([a-fA-F0-9]{6})', prompt)
+    if refs:
+        try:
+            from chat_manager import get_sessions, get_session_messages
+            sessions = get_sessions()
+            for ref in refs:
+                matching = [s for s in sessions if s["id"].startswith(ref)]
+                if matching:
+                    ref_hist = get_session_messages(matching[0]["id"])[-20:]
+                    ref_text = "\n".join([f"{msg['speaker']}: {msg['text']}" for msg in ref_hist])
+                    system_content += f"\n\n[REFERENCED CONTEXT FROM CHAT #{ref}]:\n{ref_text}"
+        except Exception as e:
+            log.error(f"Failed to load referenced chat context: {e}")
+
     text_content = f"Context:\n{context}\n\nUser: {prompt}" if context else prompt
     user_content = text_content
 
@@ -205,22 +232,34 @@ def think(prompt, context=None, image_base64=None):
                 }
 
             msg_content = build_openai_vision(text_content, image_base64) if image_base64 else text_content
-            groq_model = "llama-3.2-11b-vision-preview" if image_base64 else "llama-3.3-70b-versatile"
             
-            resp = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": groq_model,
-                    "messages": [
-                        {"role": "system", "content": system_content},
-                        {"role": "user", "content": msg_content}
-                    ]
-                },
-                timeout=20
-            )
-            res = resp.json()
-            return res
+            if image_base64:
+                models_to_try = ["llama-3.2-11b-vision-preview"]
+            else:
+                models_to_try = GROQ_FALLBACK_CHAIN
+                
+            last_res = None
+            for groq_model in models_to_try:
+                resp = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": groq_model,
+                        "messages": [
+                            {"role": "system", "content": system_content},
+                            {"role": "user", "content": msg_content}
+                        ]
+                    },
+                    timeout=20
+                )
+                res = resp.json()
+                last_res = res
+                if "error" not in res:
+                    return res
+                # if there is an error, we can try the next model
+                log.warning(f"Groq model {groq_model} failed: {res.get('error')}")
+                
+            return last_res
     except requests.exceptions.RequestException as e:
         log.warning(f"Thinking failed (offline/network): {e}")
         # Offline Short-Circuit
@@ -245,9 +284,25 @@ def think_stream(prompt, context="", session_id=""):
     except Exception:
         active_model = "Groq_Llama_3"
         settings = {}
-
+        
     system_content = get_adaptive_system_prompt(settings)
-    
+
+    import re
+    # Check for context references
+    refs = re.findall(r'#([a-fA-F0-9]{6})', prompt)
+    if refs:
+        try:
+            from chat_manager import get_sessions, get_session_messages
+            sessions = get_sessions()
+            for ref in refs:
+                matching = [s for s in sessions if s["id"].startswith(ref)]
+                if matching:
+                    ref_hist = get_session_messages(matching[0]["id"])[-20:]
+                    ref_text = "\n".join([f"{msg['speaker']}: {msg['text']}" for msg in ref_hist])
+                    system_content += f"\n\n[REFERENCED CONTEXT FROM CHAT #{ref}]:\n{ref_text}"
+        except Exception as e:
+            log.error(f"Failed to load referenced chat context: {e}")
+            
     messages = [
         {"role": "system", "content": system_content}
     ]
@@ -255,7 +310,7 @@ def think_stream(prompt, context="", session_id=""):
     if session_id:
         try:
             from chat_manager import get_session_messages
-            history = get_session_messages(session_id)
+            history = get_session_messages(session_id)[-20:] # Limit to 20 to prevent Groq crash
             for i, msg in enumerate(history):
                 # Skip if it's the exact same prompt at the end (just added by core.py)
                 if i == len(history) - 1 and msg["text"] == prompt and msg["speaker"] != "Primnox":
@@ -400,7 +455,7 @@ def think_stream(prompt, context="", session_id=""):
                             
                         log.info(f"Executing tool {func_name}...")
                         yield f"\n[SYSTEM: Executing {func_name}]\n"
-                        result = execute_tool(func_name, args)
+                        result = execute_tool(func_name, args, session_id=session_id)
                         
                         messages.append({
                             "role": "tool",

@@ -84,7 +84,7 @@ export const IslandSettings = ({
                 <button 
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full text-left px-5 py-4 rounded-xl font-mono text-[11px] uppercase tracking-[0.3em] font-bold transition-all flex items-center gap-3 border
+                  className={`w-full text-left px-5 py-4 rounded-xl font-mono text-[11px] uppercase tracking-[0.3em] font-bold transition-all duration-300 ease-out active:scale-95 flex items-center gap-3 border
                     ${isActive 
                       ? 'bg-primary/10 text-primary border-primary/20 shadow-lg shadow-primary/5' 
                       : 'text-white/25 border-transparent hover:text-white hover:bg-white/5'}`}
@@ -111,7 +111,7 @@ export const IslandSettings = ({
         <div className="flex-1 p-10 lg:p-16 space-y-16 flex flex-col justify-between">
           <div className="space-y-12">
             <header className="space-y-4 border-b border-white/5 pb-10">
-              <h2 className="text-4xl font-bold text-white tracking-tighter italic">Machine_Cognition_Settings</h2>
+              <h2 className="font-bold lowercase italic tracking-wide text-4xl text-white">Machine_Cognition_Settings</h2>
               <p className="text-white/30 font-light text-lg">Calibrate the neural interface and operative parameters.</p>
             </header>
 

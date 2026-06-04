@@ -46,7 +46,7 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
           <span className="text-xs text-white/50 font-mono">Step {step} of {totalSteps}</span>
           <span className="text-[10px] text-primary/70 font-mono">~{estimatedTime} Minutes Remaining</span>
         </div>
-        <button onClick={skipSetup} className="text-xs text-white/40 hover:text-white transition-colors">
+        <button onClick={skipSetup} className="text-xs text-white/40 hover:text-white transition-all duration-300 ease-out active:scale-95">
           Skip For Now
         </button>
       </div>
@@ -90,16 +90,16 @@ const Step1Welcome = ({ next, skip }: any) => (
     <div className="w-20 h-20 rounded-full border border-primary/30 flex items-center justify-center bg-primary/10 text-primary mx-auto mb-4 shadow-[0_0_30px_rgba(79,70,229,0.3)]">
       <Sparkles size={32} />
     </div>
-    <h1 className="text-4xl font-bold tracking-tight text-white">Welcome to Primnox</h1>
-    <h2 className="text-xl text-primary font-mono uppercase tracking-widest">Your AI Operating Environment</h2>
+    <h1 className="font-bold lowercase italic tracking-wide text-4xl text-white">Welcome to Primnox</h1>
+    <h2 className="font-bold lowercase italic tracking-wide text-xl text-primary font-mono uppercase">Your AI Operating Environment</h2>
     <p className="text-white/50 max-w-lg mx-auto text-sm leading-relaxed mb-8">
       An assistant that learns your projects, workflows, communication style, and preferences over time. Primnox is not being configured. Primnox is learning.
     </p>
     <div className="flex items-center justify-center gap-4">
-      <button onClick={next} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]">
+      <button onClick={next} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 shadow-[0_0_20px_rgba(255,255,255,0.2)] transition-all duration-300 ease-out active:scale-95">
         Begin Setup
       </button>
-      <button onClick={skip} className="px-8 py-3 bg-white/5 text-white/70 font-medium text-sm rounded-lg hover:bg-white/10 transition-all border border-white/10">
+      <button onClick={skip} className="px-8 py-3 bg-white/5 text-white/70 font-medium text-sm rounded-lg hover:bg-white/10 border border-white/10 transition-all duration-300 ease-out active:scale-95">
         Skip Setup
       </button>
     </div>
@@ -109,7 +109,7 @@ const Step1Welcome = ({ next, skip }: any) => (
 const Step2Privacy = ({ next }: any) => (
   <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
     <div>
-      <h2 className="text-2xl font-bold mb-2">Privacy Architecture</h2>
+      <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Privacy Architecture</h2>
       <p className="text-white/50 text-sm">Note: This version currently only supports the Cloud Assisted model.</p>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -120,7 +120,7 @@ const Step2Privacy = ({ next }: any) => (
       ].map(opt => (
         <button key={opt.id} onClick={!opt.disabled ? next : undefined} className={`flex flex-col items-start text-left p-6 rounded-xl border transition-all group ${opt.disabled ? 'border-white/5 bg-white/5 opacity-50 cursor-not-allowed' : 'border-primary/50 bg-primary/10 hover:bg-primary/20 hover:scale-105'}`}>
           <opt.icon size={24} className={`${opt.disabled ? 'text-white/30' : 'text-primary'} mb-4 group-hover:scale-110 transition-transform`} />
-          <h3 className="font-bold text-sm mb-1">{opt.title}</h3>
+          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">{opt.title}</h3>
           <p className="text-[10px] text-white/50 leading-relaxed">{opt.desc}</p>
         </button>
       ))}
@@ -154,7 +154,7 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
   return (
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
-        <h2 className="text-2xl font-bold mb-2">AI Provider Connect</h2>
+        <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">AI Provider Connect</h2>
         <p className="text-white/50 text-sm">Primnox currently utilizes Groq for ultra-fast reasoning.</p>
       </div>
       <div className="p-6 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-4">
@@ -167,7 +167,7 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
             className="flex-1 bg-black/50 border border-white/10 rounded px-4 py-2 text-sm focus:border-primary/50 outline-none" 
             placeholder="gsk_..."
           />
-          <button onClick={testKey} disabled={!key || status === 'testing'} className="px-6 bg-primary text-white text-sm font-bold rounded hover:bg-primary/90 transition-colors disabled:opacity-50 min-w-[120px]">
+          <button onClick={testKey} disabled={!key || status === 'testing'} className="px-6 bg-primary text-white text-sm font-bold rounded hover:bg-primary/90 disabled:opacity-50 min-w-[120px] transition-all duration-300 ease-out active:scale-95">
             {status === 'testing' ? <Loader2 size={16} className="animate-spin mx-auto" /> : status === 'success' ? 'Connected' : 'Test Connection'}
           </button>
         </div>
@@ -188,18 +188,18 @@ const Step4Permissions = ({ next, updateSettings, settings }: any) => {
   return (
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
-        <h2 className="text-2xl font-bold mb-2">Access Permissions</h2>
+        <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Access Permissions</h2>
         <p className="text-white/50 text-sm">Nothing is accessed without your explicit consent.</p>
       </div>
       <div className="grid grid-cols-2 gap-4">
         {['Documents', 'Downloads', 'Desktop', 'Projects', 'Notes', 'Browser Bookmarks', 'Browser History'].map(p => (
-          <label key={p} className="flex items-center gap-3 p-4 rounded-lg border border-white/5 bg-white/[0.02] cursor-pointer hover:bg-white/5 transition-colors">
+          <label key={p} className="flex items-center gap-3 p-4 rounded-lg border border-white/5 bg-white/[0.02] cursor-pointer hover:bg-white/5 transition-all duration-300 ease-out active:scale-95">
             <input type="checkbox" checked={permissions.includes(p)} onChange={() => toggle(p)} className="accent-primary w-4 h-4" />
             <span className="text-sm text-white/80">{p}</span>
           </label>
         ))}
       </div>
-      <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 transition-all self-end mt-4">
+      <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 self-end mt-4 transition-all duration-300 ease-out active:scale-95">
         Confirm Access
       </button>
     </motion.div>
@@ -217,12 +217,12 @@ const Step5Voice = ({ next, updateSettings, settings }: any) => {
   return (
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
-        <h2 className="text-2xl font-bold mb-2">Voice & Communication</h2>
+        <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Voice & Communication</h2>
         <p className="text-white/50 text-sm">How should Primnox listen and respond?</p>
       </div>
       
       <div className="space-y-4">
-        <h3 className="text-xs font-mono text-primary uppercase tracking-wider">Interaction Mode</h3>
+        <h3 className="font-bold lowercase italic tracking-wide text-xs font-mono text-primary uppercase">Interaction Mode</h3>
         <div className="flex gap-2">
           {['VAD (Always Listening)', 'Push To Talk', 'Hybrid', 'Disabled'].map(m => (
             <button key={m} onClick={() => setInteractionMode(m)} className={`flex-1 py-3 px-2 text-[10px] uppercase tracking-wider font-bold rounded border ${interactionMode === m ? 'bg-primary/20 border-primary' : 'bg-transparent border-white/10 text-white/50 hover:bg-white/5'}`}>
@@ -233,7 +233,7 @@ const Step5Voice = ({ next, updateSettings, settings }: any) => {
       </div>
 
       <div className="space-y-4">
-        <h3 className="text-xs font-mono text-primary uppercase tracking-wider">Communication Learning</h3>
+        <h3 className="font-bold lowercase italic tracking-wide text-xs font-mono text-primary uppercase">Communication Learning</h3>
         <p className="text-[10px] text-white/40">Allow Primnox to learn your vocabulary, writing style, slang, and response preferences over time.</p>
         <div className="flex items-center gap-3 p-4 rounded-lg border border-primary/30 bg-primary/5">
           <input type="checkbox" checked={adaptiveComm} onChange={e => setAdaptiveComm(e.target.checked)} className="accent-primary w-4 h-4" />
@@ -241,7 +241,7 @@ const Step5Voice = ({ next, updateSettings, settings }: any) => {
         </div>
       </div>
 
-      <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 transition-all self-end mt-4">
+      <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 self-end mt-4 transition-all duration-300 ease-out active:scale-95">
         Next Step
       </button>
     </motion.div>
@@ -293,7 +293,7 @@ const Step6Learning = ({ next, activity, profile, scanEnvironment, setProfile }:
   return (
     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} className="flex flex-col gap-8 h-[60vh]">
       <div className="text-center">
-        <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">Learning About You</h2>
+        <h2 className="font-bold lowercase italic tracking-wide text-3xl mb-2 bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">Learning About You</h2>
         <p className="text-white/50 text-sm">Primnox is mapping your digital environment.</p>
       </div>
 
@@ -357,7 +357,7 @@ const Step7UserModel = ({ next, updateSettings, settings, profile }: any) => {
         <Brain className="absolute inset-0 w-full h-full text-primary animate-pulse" />
         <div className="absolute inset-0 w-full h-full border-4 border-t-primary rounded-full animate-spin" />
       </div>
-      <h2 className="text-2xl font-bold">Constructing User Model</h2>
+      <h2 className="font-bold lowercase italic tracking-wide text-2xl">Constructing User Model</h2>
       <div className="flex gap-4 text-xs font-mono text-white/40">
         <span className="animate-pulse">Interests</span>
         <span className="animate-pulse delay-75">Knowledge Areas</span>
@@ -370,7 +370,7 @@ const Step7UserModel = ({ next, updateSettings, settings, profile }: any) => {
 const Step8ProfileReview = ({ next, profile }: any) => (
   <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col gap-8">
     <div>
-      <h2 className="text-2xl font-bold mb-2">Profile Review</h2>
+      <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Profile Review</h2>
       <p className="text-white/50 text-sm">Transparency is mandatory. Is this accurate?</p>
     </div>
 
@@ -400,8 +400,8 @@ const Step8ProfileReview = ({ next, profile }: any) => (
     </div>
 
     <div className="flex gap-4 justify-end">
-      <button className="px-6 py-2 bg-white/5 text-white/70 font-bold text-sm rounded-lg hover:bg-white/10 border border-white/10 transition-colors">Edit Profile</button>
-      <button onClick={next} className="px-8 py-2 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 transition-all shadow-[0_0_20px_rgba(79,70,229,0.3)]">Looks Good</button>
+      <button className="px-6 py-2 bg-white/5 text-white/70 font-bold text-sm rounded-lg hover:bg-white/10 border border-white/10 transition-all duration-300 ease-out active:scale-95">Edit Profile</button>
+      <button onClick={next} className="px-8 py-2 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">Looks Good</button>
     </div>
   </motion.div>
 );
@@ -415,7 +415,7 @@ const Step9Memory = ({ next, updateSettings, settings }: any) => {
   return (
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
-        <h2 className="text-2xl font-bold mb-2">Memory Preferences</h2>
+        <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Memory Preferences</h2>
         <p className="text-white/50 text-sm">How should Primnox retain context?</p>
       </div>
       
@@ -425,11 +425,11 @@ const Step9Memory = ({ next, updateSettings, settings }: any) => {
           { id: 'ask', title: 'Ask Before Saving', desc: 'Primnox will prompt you before committing to long-term memory.' },
           { id: 'never', title: 'Never Remember', desc: 'Amnesia mode. Sessions are completely ephemeral.' }
         ].map(opt => (
-          <button key={opt.id} onClick={() => handleSelect(opt.id)} className="flex items-center gap-4 text-left p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all relative overflow-hidden">
+          <button key={opt.id} onClick={() => handleSelect(opt.id)} className="flex items-center gap-4 text-left p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 relative overflow-hidden transition-all duration-300 ease-out active:scale-95">
             {opt.recommended && <div className="absolute top-0 right-0 bg-primary text-white text-[8px] font-bold uppercase px-2 py-1 rounded-bl">Recommended</div>}
             <div className={`w-4 h-4 rounded-full border ${opt.recommended ? 'border-primary border-4' : 'border-white/30'}`} />
             <div>
-              <h3 className="font-bold text-sm">{opt.title}</h3>
+              <h3 className="font-bold lowercase italic tracking-wide text-sm">{opt.title}</h3>
               <p className="text-[10px] text-white/50">{opt.desc}</p>
             </div>
           </button>
@@ -453,20 +453,20 @@ const Step10Personalization = ({ next, updateSettings, settings }: any) => {
   return (
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
-        <h2 className="text-2xl font-bold mb-2">Personalization Evolution</h2>
+        <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Personalization Evolution</h2>
         <p className="text-white/50 text-sm">The assistant should gradually adapt to you through actual usage patterns.</p>
       </div>
       
       <div className="grid grid-cols-2 gap-4">
         {defaultOptions.map(p => (
-          <label key={p} className="flex items-center gap-3 p-4 rounded-lg border border-white/5 bg-white/[0.02] cursor-pointer hover:bg-white/5 transition-colors">
+          <label key={p} className="flex items-center gap-3 p-4 rounded-lg border border-white/5 bg-white/[0.02] cursor-pointer hover:bg-white/5 transition-all duration-300 ease-out active:scale-95">
             <input type="checkbox" checked={options.includes(p)} onChange={() => toggle(p)} className="accent-primary w-4 h-4" />
             <span className="text-sm text-white/80">{p}</span>
           </label>
         ))}
       </div>
       
-      <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 transition-all self-end mt-4">
+      <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 self-end mt-4 transition-all duration-300 ease-out active:scale-95">
         Confirm Evolution Options
       </button>
     </motion.div>
@@ -490,7 +490,7 @@ const Step11Workspace = ({ next, updateSettings, settings }: any) => {
   return (
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
-        <h2 className="text-2xl font-bold mb-2">Workspace Creation</h2>
+        <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Workspace Creation</h2>
         <p className="text-white/50 text-sm">Suggested workspaces based on your profile.</p>
       </div>
       
@@ -503,7 +503,7 @@ const Step11Workspace = ({ next, updateSettings, settings }: any) => {
         ))}
       </div>
 
-      <button onClick={handleNext} className="px-8 py-3 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 transition-all self-end mt-4 shadow-[0_0_20px_rgba(79,70,229,0.3)]">
+      <button onClick={handleNext} className="px-8 py-3 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 self-end mt-4 shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">
         Create Workspaces
       </button>
     </motion.div>
@@ -522,7 +522,7 @@ const Step12AssistantGen = ({ next }: any) => {
         <div className="absolute inset-0 border-t-2 border-primary rounded-full animate-spin" style={{ animationDuration: '3s' }} />
       </div>
       <div>
-        <h2 className="text-2xl font-bold">Generating Assistant</h2>
+        <h2 className="font-bold lowercase italic tracking-wide text-2xl">Generating Assistant</h2>
         <p className="text-white/40 text-sm mt-2">Compiling Knowledge Graph & Memory System...</p>
       </div>
     </motion.div>
@@ -536,7 +536,7 @@ const Step13Completion = ({ onComplete, profile: _profile }: any) => (
     </div>
     
     <div>
-      <h2 className="text-4xl font-bold mb-4">Welcome.</h2>
+      <h2 className="font-bold lowercase italic tracking-wide text-4xl mb-4">Welcome.</h2>
       <p className="text-white/60">Primnox has initialized your personalized environment.</p>
     </div>
     
@@ -548,11 +548,11 @@ const Step13Completion = ({ onComplete, profile: _profile }: any) => (
     </div>
 
     <div className="grid grid-cols-2 gap-4 mt-4">
-      <button onClick={onComplete} className="p-4 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary transition-all flex flex-col items-center gap-2 group">
+      <button onClick={onComplete} className="p-4 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary flex flex-col items-center gap-2 group transition-all duration-300 ease-out active:scale-95">
         <MessageSquare size={24} className="group-hover:scale-110 transition-transform" />
         <span className="font-bold text-sm">Open Chat</span>
       </button>
-      <button onClick={onComplete} className="p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white transition-all flex flex-col items-center gap-2 group">
+      <button onClick={onComplete} className="p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white flex flex-col items-center gap-2 group transition-all duration-300 ease-out active:scale-95">
         <Compass size={24} className="group-hover:scale-110 transition-transform" />
         <span className="font-bold text-sm">Explore Workspace</span>
       </button>

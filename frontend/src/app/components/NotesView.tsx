@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Search, Plus, FileText, ChevronRight, Trash2, Sparkles, X, Loader2, Folder, Pin } from 'lucide-react';
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
@@ -166,7 +166,8 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
     return () => window.removeEventListener('primnox:open-note', handleOpenNote);
   }, [notes]);
 
-  const editor = useCreateBlockNote({ schema });
+  const editorOptions = useMemo(() => ({ schema }), []);
+  const editor = useCreateBlockNote(editorOptions);
 
   useEffect(() => {
     async function loadContent() {
@@ -229,22 +230,37 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
     }
   };
 
-  // Keyboard shortcut: Ctrl+S
+  // ─── New Note ───────────────────────────────────────────────
+  const handleNewNote = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:8000/notes/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace })
+      });
+      const data = await res.json();
+      if (data.id) setActiveNoteId(data.id);
+    } catch (e) {
+      console.error("Failed to create note:", e);
+    }
+  }, [activeWorkspace]);
+
+  // Keyboard shortcut: Ctrl+S and Ctrl+N
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         persistNote(editTitle, editText, activeNote?.id ?? 0, activeWorkspace);
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         handleNewNote();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [editTitle, editText, activeNote?.id, persistNote]);
+  }, [editTitle, editText, activeNote?.id, persistNote, handleNewNote, activeWorkspace]);
 
   const onTitleChange = (val: string) => {
     setEditTitle(val);
@@ -290,20 +306,7 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
     }
   };
 
-  // ─── New Note ───────────────────────────────────────────────
-  const handleNewNote = async () => {
-    try {
-      const res = await fetch('http://localhost:8000/notes/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace })
-      });
-      const data = await res.json();
-      if (data.id) setActiveNoteId(data.id);
-    } catch (e) {
-      console.error("Failed to create note:", e);
-    }
-  };
+
 
   const handleNewSubNote = async (parentId: number) => {
     try {
@@ -350,7 +353,7 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
       <div key={note.id || `temp-${note.originalIdx}`} className="w-full">
         <div 
           onClick={() => setActiveNoteId(note.id ?? null)}
-          className={`px-3 py-1.5 text-sm cursor-pointer rounded flex items-center justify-between group transition-colors ${activeNoteId === note.id ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white/90'}`}
+          className={`px-3 py-1.5 text-sm cursor-pointer rounded flex items-center justify-between group transition-colors duration-300 ${activeNoteId === note.id ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white/90'}`}
           style={{ paddingLeft: `${0.75 + depth * 1.5}rem` }}
         >
           <div className="flex items-center gap-2 overflow-hidden">
@@ -399,7 +402,7 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
         <div className="p-4 space-y-4 pt-8">
           <div className="flex justify-between items-center mb-2">
             <div className="flex gap-2 bg-black/40 p-1 rounded-lg w-full text-xs overflow-x-auto custom-scrollbar flex-nowrap shrink-0">
-              {['General', ...Array.from(new Set(notes.map(n => n.project).filter(Boolean))).filter(p => p !== 'General')].map(ws => (
+              {['General', ...Array.from(new Set(notes.map(n => n.project).filter((p): p is string => Boolean(p)))).filter(p => p !== 'General')].map(ws => (
                 <button
                   key={ws}
                   onClick={() => setActiveWorkspace(ws)}
@@ -439,7 +442,7 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
           <div className="relative group">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-white/80 transition-colors" />
             <input 
-              className="w-full bg-black/20 border border-transparent pl-9 pr-3 py-1.5 text-xs focus:ring-1 focus:ring-white/20 outline-none transition-all placeholder-white/30 rounded" 
+              className="w-full bg-black/20 border border-transparent pl-9 pr-3 py-1.5 text-xs focus-visible:ring-1 focus-visible:ring-emerald-500/50 outline-none transition-all placeholder-white/30 rounded" 
               placeholder="Search notes..." 
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -512,7 +515,7 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
                 onChange={e => setAiQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleAskAI()}
                 placeholder="e.g. 'What are the action items?' or 'Summarize in 3 bullets'"
-                className="flex-1 bg-black/30 border border-white/10 px-3 py-2 text-sm rounded outline-none focus:ring-1 focus:ring-purple-500/30 placeholder-white/20"
+                className="flex-1 bg-black/30 border border-white/10 px-3 py-2 text-sm rounded outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50 placeholder-white/20"
               />
               <button 
                 onClick={handleAskAI} 
@@ -538,20 +541,20 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
         )}
 
         {/* Editor Content */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar flex justify-center pb-32 relative">
+        <div className="flex-1 overflow-y-auto custom-scrollbar relative">
           {activeNote ? (
-            <article className="max-w-3xl w-full px-8 py-16 flex flex-col">
+            <div className="notion-page-wrapper">
               <input
                 value={editTitle}
                 onChange={e => onTitleChange(e.target.value)}
-                className="bg-transparent border-none outline-none text-4xl font-bold text-white w-full placeholder-white/20 mb-2"
+                className="bg-transparent border-none outline-none text-4xl font-bold text-white w-full placeholder-white/20 mb-3"
                 placeholder="Untitled"
               />
-              <p className="text-[10px] text-white/20 font-mono mb-8">
+              <p className="text-[10px] text-white/20 font-mono mb-10">
                 {wordCount} words · {readingTime} min read · {activeNote.timestamp ? new Date(activeNote.timestamp).toLocaleDateString() : 'just now'}
               </p>
               
-              <div className="relative">
+              <div className="notion-editor-wrapper">
                 <BlockNoteView 
                   editor={editor} 
                   theme="dark" 
@@ -571,14 +574,30 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
                   />
                 </BlockNoteView>
               </div>
-            </article>
+            </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-white/20 gap-4">
-              <FileText size={48} className="opacity-30" />
-              <p className="text-sm">Select or create a page</p>
-              <button onClick={handleNewNote} className="mt-2 px-4 py-2 bg-white/5 border border-white/10 rounded text-xs text-white/50 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-2">
-                <Plus size={14} /> New Page
-              </button>
+            <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
+              <div className="relative flex items-center justify-center w-24 h-24">
+                <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-2xl animate-pulse" />
+                <div className="relative bg-white/5 border border-emerald-500/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(16,185,129,0.15)] flex items-center justify-center">
+                  <FileText size={40} className="text-emerald-400/80 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                </div>
+              </div>
+              
+              <div className="text-center space-y-2">
+                <h3 className="text-xl font-bold text-white tracking-wide">Workspace Empty</h3>
+                <p className="text-sm text-white/40 max-w-sm">Select a page from the sidebar to view its contents, or create a new one to start writing.</p>
+              </div>
+              
+              <div className="flex gap-4 mt-2">
+                <button 
+                  onClick={handleNewNote} 
+                  className="px-6 py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:border-emerald-500/60 rounded-xl text-sm font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 transition-all duration-300 flex items-center gap-2 group shadow-[0_0_15px_rgba(16,185,129,0.05)] hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+                >
+                  <Plus size={16} className="group-hover:scale-110 transition-transform" /> 
+                  Create New Page
+                </button>
+              </div>
             </div>
           )}
         </div>

@@ -45,9 +45,9 @@ def init_chat_db():
     
     # Check if folders exist, if not create default
     c.execute('SELECT COUNT(*) FROM folders')
-    if c.fetchone()[0] == 0:
-        c.execute("INSERT INTO folders (id, title) VALUES ('f_research', 'Research')")
-        c.execute("INSERT INTO folders (id, title) VALUES ('f_projects', 'Projects')")
+    c.execute("INSERT OR IGNORE INTO folders (id, title) VALUES ('f_research', 'Research')")
+    c.execute("INSERT OR IGNORE INTO folders (id, title) VALUES ('f_projects', 'Projects')")
+    c.execute("INSERT OR IGNORE INTO folders (id, title) VALUES ('f_archive', 'Archive')")
         
     conn.commit()
     conn.close()
@@ -209,5 +209,12 @@ def delete_session(session_id):
     c.execute('DELETE FROM messages WHERE session_id = ?', (session_id,))
     conn.commit()
     conn.close()
+    
+    try:
+        from memory import delete_memories_by_session
+        delete_memories_by_session(session_id)
+    except Exception as e:
+        print(f"Failed to delete memories for session {session_id}: {e}")
+        
     return True
 

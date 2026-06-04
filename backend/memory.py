@@ -29,9 +29,14 @@ def init_db():
             text TEXT NOT NULL,
             category TEXT,
             timestamp TEXT,
-            stale INTEGER DEFAULT 0
+            stale INTEGER DEFAULT 0,
+            session_id TEXT
         )
     ''')
+    try:
+        c.execute("ALTER TABLE memories ADD COLUMN session_id TEXT")
+    except sqlite3.OperationalError:
+        pass
     # Create FTS5 virtual table for full-text search
     c.execute('''
         CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -80,8 +85,8 @@ def _migrate_old_memory():
         for m in old_memories:
             try:
                 c.execute(
-                    "INSERT INTO memories (key, text, category, timestamp, stale) VALUES (?, ?, ?, ?, ?)",
-                    (m.get("key"), m.get("text"), m.get("category", "session"), m.get("timestamp", datetime.now().isoformat()), int(m.get("stale", False)))
+                    "INSERT INTO memories (key, text, category, timestamp, stale, session_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    (m.get("key"), m.get("text"), m.get("category", "session"), m.get("timestamp", datetime.now().isoformat()), int(m.get("stale", False)), None)
                 )
                 count += 1
             except sqlite3.IntegrityError:
@@ -125,6 +130,19 @@ def delete_memory(key_or_text):
     else:
         log.warning(f"No memory found matching: {key_or_text}")
 
+def delete_memories_by_session(session_id):
+    if not session_id:
+        return
+    log.info(f"Deleting memories for session: {session_id}")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM memories WHERE session_id = ?", (session_id,))
+    rows_deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    if rows_deleted > 0:
+        log.info(f"Deleted {rows_deleted} memories for session {session_id}.")
+
 def list_memories(category=None, include_stale=False):
     log.debug(f"Listing memories (category={category}, include_stale={include_stale})...")
     conn = get_db()
@@ -162,7 +180,7 @@ def is_duplicate(new, existing_memories, threshold=0.85):
             return True
     return False
 
-def add_memory(text, category="session"):
+def add_memory(text, category="session", session_id=None):
     log.info(f"Adding new memory: {text[:50]}...")
     conn = get_db()
     c = conn.cursor()
@@ -181,7 +199,7 @@ def add_memory(text, category="session"):
     ts = datetime.now().isoformat()
     cat = category if category in CATEGORIES else "session"
     
-    c.execute("INSERT INTO memories (key, text, category, timestamp, stale) VALUES (?, ?, ?, ?, 0)", (key, text, cat, ts))
+    c.execute("INSERT INTO memories (key, text, category, timestamp, stale, session_id) VALUES (?, ?, ?, ?, 0, ?)", (key, text, cat, ts, session_id))
     conn.commit()
     conn.close()
     
