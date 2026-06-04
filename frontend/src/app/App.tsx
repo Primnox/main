@@ -63,10 +63,10 @@ export default function App() {
     currentTranscript,
     lastAttachedFile,
     settings,
-    micMuted,
+
     connectionLost,
     manualReconnect,
-    toggleMic,
+
     sendMessage,
     updateSettings,
     exportNotes,
