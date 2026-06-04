@@ -10,33 +10,21 @@ load_dotenv()
 def web_search(query):
     """
     Primnox's Web Search Tool.
-    Uses Tavily API by default (can be swapped).
+    Uses duckduckgo-search (DDGS) for unlimited, free web search.
     """
-    log.info(f"Performing web search: {query}")
-    api_key = os.getenv("TAVILY_API_KEY")
-    if not api_key:
-        log.error("Tavily API key missing!")
-        return "error: search api key missing."
-
+    log.info(f"Performing web search via DuckDuckGo: {query}")
     try:
-        resp = requests.post(
-            "https://api.tavily.com/search",
-            json={
-                "api_key": api_key,
-                "query": query,
-                "search_depth": "advanced",
-                "max_results": 100
-            },
-            timeout=15
-        )
-        data = resp.json()
-        results = data.get("results", [])
+        from duckduckgo_search import DDGS
+        
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=10))
+            
         if not results:
             log.info("No search results found.")
             return "no results found."
         
         log.info(f"Found {len(results)} results.")
-        formatted = "\n".join([f"- {r['title']}: {r['url']}\n  {r['content']}...\n" for r in results])
+        formatted = "\n".join([f"- {r.get('title', 'No Title')}: {r.get('href', '')}\n  {r.get('body', '')}...\n" for r in results])
         return formatted
     except Exception as e:
         log.error(f"Search API crash: {e}")

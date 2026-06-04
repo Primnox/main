@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle, Mic, MicOff, Terminal } from 'lucide-react';
+import { CheckCircle, Terminal } from 'lucide-react';
 
 type AppMode = 'chat' | 'notes' | 'research';
 type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy';
@@ -12,9 +12,7 @@ export const DynamicIsland = ({
   onProfileClick,
   vadLevel = 0,
   transcript = "",
-  attachedFile = null,
-  micMuted = false,
-  onMicClick
+  attachedFile = null
 }: { 
   mode: AppMode, 
   setMode: (m: AppMode) => void, 
@@ -23,9 +21,7 @@ export const DynamicIsland = ({
   onProfileClick: () => void,
   vadLevel?: number,
   transcript?: string,
-  attachedFile?: any,
-  micMuted?: boolean,
-  onMicClick?: () => void
+  attachedFile?: any
 }) => {
   return (
     <div className="fixed top-12 left-0 right-0 z-[100] pointer-events-auto flex justify-center items-start">
@@ -140,16 +136,7 @@ export const DynamicIsland = ({
                 </button>
               </div>
 
-              <div className="w-px h-5 bg-white/10 shrink-0" />
 
-              {/* Mic Toggle Button */}
-              <button 
-                onClick={onMicClick}
-                className={`p-2 rounded-full hover:bg-white/10 transition-all flex items-center justify-center shrink-0 cursor-pointer ${micMuted ? 'text-red-500' : 'text-primary'}`}
-                title={micMuted ? "Unmute Mic" : "Mute Mic"}
-              >
-                {micMuted ? <MicOff size={16} /> : <Mic size={16} />}
-              </button>
 
               <div className="w-px h-5 bg-white/10 shrink-0" />
 

@@ -66,8 +66,6 @@ export const Layout = ({
   vadLevel = 0,
   transcript = "",
   attachedFile = null,
-  micMuted = false,
-  onMicClick,
   isZenMode = false
 }: { 
   children: ReactNode, 
@@ -88,8 +86,6 @@ export const Layout = ({
   vadLevel?: number,
   transcript?: string,
   attachedFile?: any,
-  micMuted?: boolean,
-  onMicClick?: () => void,
   isZenMode?: boolean
 }) => {
   const [localSidebar, setLocalSidebar] = useState<SidebarState>(sidebarState);
@@ -112,8 +108,6 @@ export const Layout = ({
             vadLevel={vadLevel}
             transcript={transcript}
             attachedFile={attachedFile}
-            micMuted={micMuted}
-            onMicClick={onMicClick}
           />
         )}
       </AnimatePresence>

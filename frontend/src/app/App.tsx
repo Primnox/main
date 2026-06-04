@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { usePrimnox } from '../hooks/usePrimnox';
-import { Mic, MicOff, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 // Components
 import { Layout } from './components/Layout';
@@ -233,21 +233,7 @@ export default function App() {
     return 'notes';
   };
 
-  const headerActions = (
-    <div className="flex items-center gap-4">
-      <button 
-        onClick={toggleMic}
-        className={`px-4 py-2 rounded-xl border font-mono text-[9px] uppercase tracking-widest font-bold flex items-center gap-2 active:scale-95 transition-all cursor-pointer
-          ${micMuted 
-            ? 'bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20' 
-            : 'bg-primary/10 border-primary/20 text-primary hover:bg-primary/20'}`}
-        title={micMuted ? "Unmute Microphone" : "Mute Microphone"}
-      >
-        {micMuted ? <MicOff size={12} /> : <Mic size={12} />}
-        <span>{micMuted ? "Mic_Off" : "Mic_On"}</span>
-      </button>
-    </div>
-  );
+  const headerActions = (<div />);
 
   return (
     <div className={`bg-black text-on-surface h-screen w-full relative selection:bg-primary/30 selection:text-white`}>
@@ -298,8 +284,6 @@ export default function App() {
         vadLevel={vadLevel}
         transcript={currentTranscript}
         attachedFile={lastAttachedFile}
-        micMuted={micMuted}
-        onMicClick={toggleMic}
         actions={headerActions}
       >
         <AnimatePresence mode="wait">
