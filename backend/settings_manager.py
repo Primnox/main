@@ -7,7 +7,18 @@ from logger import get_logger
 
 log = get_logger("settings")
 
-SETTINGS_PATH = Path(__file__).parent / "settings.json"
+import os
+
+def get_appdata_dir():
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        base = Path(appdata) / "primnox_extension"
+    else:
+        base = Path.home() / ".primnox_extension"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+SETTINGS_PATH = get_appdata_dir() / "settings.json"
 _settings_lock = threading.Lock()
 DEFAULT_SETTINGS = {
     "groq_api_key": "",
