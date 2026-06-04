@@ -14,6 +14,29 @@ def get_db():
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        text TEXT,
+        key_points TEXT,
+        action_items TEXT,
+        timestamp TEXT,
+        project TEXT,
+        parent_id INTEGER,
+        pinned INTEGER DEFAULT 0
+    )''')
+    try:
+        c.execute("ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
+    conn.close()
+
+init_db()
+
 def add_note(text, title=None, key_points=None, action_items=None, timestamp=None, project=None, parent_id=None):
     log.info(f"Adding note: {title or 'Untitled'}")
     title = title or "Untitled Note"
@@ -51,6 +74,15 @@ def delete_note(index):
     conn.close()
     return success
 
+def toggle_pin_note(index, pinned_status):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE notes SET pinned=? WHERE id=?", (1 if pinned_status else 0, index))
+    success = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return success
+
 def get_notes():
     conn = get_db()
     c = conn.cursor()
@@ -66,7 +98,8 @@ def get_notes():
             "action_items": json.loads(r["action_items"]) if r["action_items"] else [],
             "timestamp": r["timestamp"],
             "project": r["project"],
-            "parent_id": r["parent_id"]
+            "parent_id": r["parent_id"],
+            "pinned": bool(r.get("pinned", 0))
         })
     conn.close()
     return notes

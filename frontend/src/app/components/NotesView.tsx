@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, FileText, ChevronRight, Trash2, Sparkles, X, Loader2, Folder } from 'lucide-react';
+import { Search, Plus, FileText, ChevronRight, Trash2, Sparkles, X, Loader2, Folder, Pin } from 'lucide-react';
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { BlockNoteView } from "@blocknote/mantine";
@@ -319,6 +319,18 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
     }
   };
 
+  const togglePin = async (id: number, currentStatus: boolean) => {
+    try {
+      await fetch('http://localhost:8000/notes/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, pinned: !currentStatus })
+      });
+    } catch (e) {
+      console.error("Failed to pin note:", e);
+    }
+  };
+
   const renderNoteTree = (parentId: number | undefined | null = null, depth: number = 0) => {
     const children = notes
       .map((n, i) => ({ ...n, originalIdx: i }))
@@ -327,7 +339,12 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
       .filter(n => 
         (n.title?.toLowerCase() || "").includes(search.toLowerCase()) || 
         (n.text?.toLowerCase() || "").includes(search.toLowerCase())
-      );
+      )
+      .sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return 0;
+      });
 
     return children.map(note => (
       <div key={note.id || `temp-${note.originalIdx}`} className="w-full">
@@ -342,6 +359,17 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
           </div>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             {note.id && (
+              <>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePin(note.id!, note.pinned || false);
+                  }} 
+                  className={`p-1 hover:bg-white/20 rounded transition-colors ${note.pinned ? 'text-yellow-400 opacity-100' : 'text-white/50 hover:text-white'}`} 
+                  title={note.pinned ? "Unpin" : "Pin to top"}
+                >
+                  <Pin size={12} className={note.pinned ? "fill-yellow-400" : ""} />
+                </button>
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
@@ -351,6 +379,7 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
               >
                 <Plus size={12} />
               </button>
+              </>
             )}
           </div>
         </div>
@@ -369,16 +398,28 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
       <aside className="w-full md:w-64 h-auto md:h-full border-r border-white/10 flex flex-col bg-white/5 backdrop-blur-2xl pb-20 shrink-0 z-10">
         <div className="p-4 space-y-4 pt-8">
           <div className="flex justify-between items-center mb-2">
-            <div className="flex gap-2 bg-black/40 p-1 rounded-lg w-full text-xs">
-              {['General', 'Work', 'Personal'].map(ws => (
+            <div className="flex gap-2 bg-black/40 p-1 rounded-lg w-full text-xs overflow-x-auto custom-scrollbar flex-nowrap shrink-0">
+              {['General', ...Array.from(new Set(notes.map(n => n.project).filter(Boolean))).filter(p => p !== 'General')].map(ws => (
                 <button
                   key={ws}
                   onClick={() => setActiveWorkspace(ws)}
-                  className={`flex-1 py-1 rounded transition-colors ${activeWorkspace === ws ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/80'}`}
+                  className={`flex-1 min-w-[max-content] px-3 py-1 rounded transition-colors ${activeWorkspace === ws ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/80'}`}
                 >
                   {ws}
                 </button>
               ))}
+              <button 
+                onClick={() => {
+                  const newWs = window.prompt("Enter new project name:");
+                  if (newWs && newWs.trim() !== "") {
+                    setActiveWorkspace(newWs.trim());
+                  }
+                }}
+                className="px-2 py-1 rounded transition-colors text-white/40 hover:text-white hover:bg-white/10 flex items-center shrink-0"
+                title="Add Project"
+              >
+                <Plus size={12} />
+              </button>
             </div>
           </div>
           <div className="flex justify-between items-center">

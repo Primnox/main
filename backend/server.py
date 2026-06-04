@@ -368,6 +368,18 @@ async def delete_notes(index: int):
     broadcast("note_added", {}) # tell frontend to reload notes
     return {"success": success}
 
+@app.post("/notes/pin")
+async def post_notes_pin(request: Request):
+    from notes_manager import toggle_pin_note
+    body = await request.json()
+    index = body.get("id")
+    pinned = body.get("pinned", True)
+    if index is not None:
+        success = toggle_pin_note(index, pinned)
+        broadcast("note_added", {})
+        return {"success": success}
+    return {"success": False, "error": "Missing id"}
+
 @app.post("/notes/export")
 async def export_notes():
     from notes_manager import get_notes
