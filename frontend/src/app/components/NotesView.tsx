@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Search, Plus, FileText, ChevronRight, Trash2, Sparkles, X, Loader2, Folder, Pin } from 'lucide-react';
+import { Search, Plus, FileText, ChevronRight, Trash2, Sparkles, X, Loader2, Folder, Pin, Clock, Hash, AlignLeft, PanelRightOpen, PanelRightClose } from 'lucide-react';
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { BlockNoteView } from "@blocknote/mantine";
@@ -130,6 +130,7 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
   const [aiLoading, setAiLoading] = useState(false);
   const [activeWorkspace, setActiveWorkspace] = useState<string>("General");
   const [showGenerator, setShowGenerator] = useState(false);
+  const [showContextPanel, setShowContextPanel] = useState(true);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -140,6 +141,11 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
   // Sync editor state when switching notes
   useEffect(() => {
     if (activeNote && prevNoteIdRef.current !== activeNote?.id) {
+      // Cancel any pending save from the PREVIOUS note before switching
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
       setEditTitle(activeNote.title || "");
       setEditText(activeNote.text || "");
       prevNoteIdRef.current = activeNote?.id;
@@ -187,11 +193,15 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
   const onEditorChange = async () => {
     const markdown = await editor.blocksToMarkdownLossy(editor.document);
     setEditText(markdown);
-    debouncedSave(editTitle, markdown, activeNote?.id ?? 0, activeWorkspace);
+    // Capture the current note ID at the moment of the edit, not lazily
+    const currentNoteId = activeNote?.id ?? 0;
+    const currentTitle = editTitle;
+    debouncedSave(currentTitle, markdown, currentNoteId, activeWorkspace);
   };
 
   // ─── Auto-Save with Debounce ────────────────────────────────
   const persistNote = useCallback(async (title: string, text: string, id: number, project: string) => {
+    if (id === 0) return; // Don't save if there's no valid note ID
     setSaveStatus('saving');
     try {
       const res = await fetch('http://localhost:8000/notes/update', {
@@ -461,156 +471,271 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
         </div>
       </aside>
 
-      {/* ─── Main Editor ─────────────────────────────────────── */}
-      <section className="flex-1 h-full flex flex-col bg-transparent relative z-0">
-        
-        {/* Top bar */}
-        <div className="h-12 border-b border-white/10 flex items-center px-6 justify-between bg-transparent shrink-0">
-          <div className="flex items-center gap-4 text-xs text-white/50">
-            <span>Workspace</span>
-            <ChevronRight size={12} />
-            <span className="text-white/80">{activeNote?.title || "Untitled"}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Auto-save indicator */}
-            <div className="flex items-center gap-1.5 text-[10px] font-mono mr-2">
-              {saveStatus === 'saving' && (
-                <span className="text-yellow-400/80 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Saving...</span>
-              )}
-              {saveStatus === 'saved' && (
-                <span className="text-emerald-400/80">✓ Saved</span>
-              )}
-              {saveStatus === 'idle' && activeNote && (
-                <span className="text-white/20">Auto-save on</span>
-              )}
-            </div>
-            
-            {/* Ask AI Button */}
-            <button 
-              onClick={() => setShowAskAI(!showAskAI)} 
-              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded transition-colors ${showAskAI ? 'bg-purple-500/20 text-purple-400' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
-              title="Ask AI about this note"
-            >
-              <Sparkles size={14} /> Ask AI
-            </button>
-            <button onClick={onExport} className="text-xs text-white/60 hover:text-white px-3 py-1.5 rounded hover:bg-white/5 transition-colors">
-              Export
-            </button>
-            <button onClick={deleteNote} className="text-white/40 hover:text-red-400 p-1.5 rounded hover:bg-red-400/10 transition-colors" title="Delete note">
-              <Trash2 size={14} />
-            </button>
-          </div>
-        </div>
+      {/* ─── Main Editor + Context Panel ────────────────────── */}
+      <div className="flex-1 h-full flex overflow-hidden">
 
-        {/* Ask AI Panel */}
-        {showAskAI && (
-          <div className="border-b border-white/5 bg-purple-500/[0.03] px-6 py-4 flex flex-col gap-3 shrink-0">
-            <div className="flex items-center gap-2 text-xs text-purple-300/80 font-semibold">
-              <Sparkles size={14} /> Ask Primnox about "{activeNote?.title}"
-              <button onClick={() => { setShowAskAI(false); setAiAnswer(""); }} className="ml-auto text-white/40 hover:text-white"><X size={14} /></button>
+        {/* ─── Editor Area ───────────────────────────────────── */}
+        <section className="flex-1 h-full flex flex-col bg-transparent relative z-0 min-w-0">
+          
+          {/* Top bar */}
+          <div className="h-12 border-b border-white/10 flex items-center px-6 justify-between bg-transparent shrink-0">
+            <div className="flex items-center gap-4 text-xs text-white/50">
+              <span>{activeWorkspace}</span>
+              <ChevronRight size={12} />
+              <span className="text-white/80">{activeNote?.title || "Untitled"}</span>
             </div>
-            <div className="flex gap-2">
-              <input
-                value={aiQuery}
-                onChange={e => setAiQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAskAI()}
-                placeholder="e.g. 'What are the action items?' or 'Summarize in 3 bullets'"
-                className="flex-1 bg-black/30 border border-white/10 px-3 py-2 text-sm rounded outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50 placeholder-white/20"
-              />
+            <div className="flex items-center gap-2">
+              {/* Auto-save indicator */}
+              <div className="flex items-center gap-1.5 text-[10px] font-mono mr-2">
+                {saveStatus === 'saving' && (
+                  <span className="text-yellow-400/80 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Saving...</span>
+                )}
+                {saveStatus === 'saved' && (
+                  <span className="text-emerald-400/80">✓ Saved</span>
+                )}
+                {saveStatus === 'idle' && activeNote && (
+                  <span className="text-white/20">Auto-save on</span>
+                )}
+              </div>
+              
+              {/* Ask AI Button */}
               <button 
-                onClick={handleAskAI} 
-                disabled={aiLoading || !aiQuery.trim()}
-                className="px-4 py-2 bg-purple-500/20 text-purple-300 rounded text-xs font-bold hover:bg-purple-500/30 transition-colors disabled:opacity-40"
+                onClick={() => setShowAskAI(!showAskAI)} 
+                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded transition-colors ${showAskAI ? 'bg-purple-500/20 text-purple-400' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+                title="Ask AI about this note"
               >
-                {aiLoading ? <Loader2 size={14} className="animate-spin" /> : 'Ask'}
+                <Sparkles size={14} /> Ask AI
+              </button>
+              <button onClick={onExport} className="text-xs text-white/60 hover:text-white px-3 py-1.5 rounded hover:bg-white/5 transition-colors">
+                Export
+              </button>
+              <button onClick={deleteNote} className="text-white/40 hover:text-red-400 p-1.5 rounded hover:bg-red-400/10 transition-colors" title="Delete note">
+                <Trash2 size={14} />
+              </button>
+              <div className="w-px h-5 bg-white/10 mx-1" />
+              <button 
+                onClick={() => setShowContextPanel(!showContextPanel)} 
+                className="text-white/40 hover:text-white p-1.5 rounded hover:bg-white/5 transition-colors" 
+                title={showContextPanel ? 'Hide details' : 'Show details'}
+              >
+                {showContextPanel ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
               </button>
             </div>
-            {aiAnswer && (
-              <div className="bg-black/30 border border-purple-500/10 rounded p-3 text-sm text-white/70 leading-relaxed">
-                {aiAnswer}
-              </div>
-            )}
-            <div className="flex gap-2 flex-wrap">
-              {['Summarize this note', 'What are the action items?', 'Key takeaways'].map(q => (
-                <button key={q} onClick={() => { setAiQuery(q); }} className="text-[10px] px-2 py-1 bg-white/5 border border-white/10 rounded text-white/50 hover:text-white/80 hover:bg-white/10 transition-colors">
-                  {q}
-                </button>
-              ))}
-            </div>
           </div>
-        )}
 
-        {/* Editor Content */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar relative" style={{ background: 'transparent' }}>
-          {activeNote ? (
-            <div style={{
-              maxWidth: '900px',
-              width: '100%',
-              margin: '0 auto',
-              padding: '80px 96px 160px 96px',
-              minHeight: '100%',
-              display: 'flex',
-              flexDirection: 'column' as const,
-            }}>
-              <input
-                value={editTitle}
-                onChange={e => onTitleChange(e.target.value)}
-                style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: '2.25rem', fontWeight: 700, color: '#fff', width: '100%', marginBottom: '0.5rem', fontFamily: 'var(--font-sans)' }}
-                placeholder="Untitled"
-              />
-              <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.2)', fontFamily: 'var(--font-mono)', marginBottom: '2.5rem' }}>
-                {wordCount} words · {readingTime} min read · {activeNote.timestamp ? new Date(activeNote.timestamp).toLocaleDateString() : 'just now'}
-              </p>
-              
-              <div className="notion-editor-wrapper" style={{ flex: 1 }}>
-                <BlockNoteView 
-                  editor={editor} 
-                  theme="dark" 
-                  onChange={onEditorChange}
-                >
-                  <SuggestionMenuController
-                    triggerCharacter={"/"}
-                    getItems={async (query: string) =>
-                      [
-                        // insertAiItem(editor),
-                        ...getDefaultReactSlashMenuItems(editor),
-                      ].filter((item) =>
-                        item.title.toLowerCase().includes(query.toLowerCase()) ||
-                        (item.aliases && item.aliases.some((a: string) => a.toLowerCase().includes(query.toLowerCase())))
-                      )
-                    }
-                  />
-                </BlockNoteView>
+          {/* Ask AI Panel */}
+          {showAskAI && (
+            <div className="border-b border-white/5 bg-purple-500/[0.03] px-6 py-4 flex flex-col gap-3 shrink-0">
+              <div className="flex items-center gap-2 text-xs text-purple-300/80 font-semibold">
+                <Sparkles size={14} /> Ask Primnox about "{activeNote?.title}"
+                <button onClick={() => { setShowAskAI(false); setAiAnswer(""); }} className="ml-auto text-white/40 hover:text-white"><X size={14} /></button>
               </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
-              <div className="relative flex items-center justify-center w-24 h-24">
-                <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-2xl animate-pulse" />
-                <div className="relative bg-white/5 border border-emerald-500/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(16,185,129,0.15)] flex items-center justify-center">
-                  <FileText size={40} className="text-emerald-400/80 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                </div>
-              </div>
-              
-              <div className="text-center space-y-2">
-                <h3 className="text-xl font-bold text-white tracking-wide">Workspace Empty</h3>
-                <p className="text-sm text-white/40 max-w-sm">Select a page from the sidebar to view its contents, or create a new one to start writing.</p>
-              </div>
-              
-              <div className="flex gap-4 mt-2">
+              <div className="flex gap-2">
+                <input
+                  value={aiQuery}
+                  onChange={e => setAiQuery(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAskAI()}
+                  placeholder="e.g. 'What are the action items?' or 'Summarize in 3 bullets'"
+                  className="flex-1 bg-black/30 border border-white/10 px-3 py-2 text-sm rounded outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50 placeholder-white/20"
+                />
                 <button 
-                  onClick={handleNewNote} 
-                  className="px-6 py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:border-emerald-500/60 rounded-xl text-sm font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 transition-all duration-300 flex items-center gap-2 group shadow-[0_0_15px_rgba(16,185,129,0.05)] hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+                  onClick={handleAskAI} 
+                  disabled={aiLoading || !aiQuery.trim()}
+                  className="px-4 py-2 bg-purple-500/20 text-purple-300 rounded text-xs font-bold hover:bg-purple-500/30 transition-colors disabled:opacity-40"
                 >
-                  <Plus size={16} className="group-hover:scale-110 transition-transform" /> 
-                  Create New Page
+                  {aiLoading ? <Loader2 size={14} className="animate-spin" /> : 'Ask'}
                 </button>
+              </div>
+              {aiAnswer && (
+                <div className="bg-black/30 border border-purple-500/10 rounded p-3 text-sm text-white/70 leading-relaxed">
+                  {aiAnswer}
+                </div>
+              )}
+              <div className="flex gap-2 flex-wrap">
+                {['Summarize this note', 'What are the action items?', 'Key takeaways'].map(q => (
+                  <button key={q} onClick={() => { setAiQuery(q); }} className="text-[10px] px-2 py-1 bg-white/5 border border-white/10 rounded text-white/50 hover:text-white/80 hover:bg-white/10 transition-colors">
+                    {q}
+                  </button>
+                ))}
               </div>
             </div>
           )}
-        </div>
 
-      </section>
+          {/* Editor Content — fills full width, padding controls reading width */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar relative w-full">
+            {activeNote ? (
+              <div className="w-full px-16 lg:px-28 xl:px-36 pt-20 pb-40 flex flex-col min-h-full">
+                <input
+                  value={editTitle}
+                  onChange={e => onTitleChange(e.target.value)}
+                  className="bg-transparent border-none outline-none text-4xl font-bold text-white w-full placeholder-white/20 mb-2"
+                  placeholder="Untitled"
+                />
+                <p className="text-[10px] text-white/20 font-mono mb-10">
+                  {wordCount} words · {readingTime} min read · {activeNote.timestamp ? new Date(activeNote.timestamp).toLocaleDateString() : 'just now'}
+                </p>
+                
+                <div className="notion-editor-wrapper flex-1">
+                  <BlockNoteView 
+                    editor={editor} 
+                    theme="dark" 
+                    onChange={onEditorChange}
+                  >
+                    <SuggestionMenuController
+                      triggerCharacter={"/"}
+                      getItems={async (query: string) =>
+                        [
+                          // insertAiItem(editor),
+                          ...getDefaultReactSlashMenuItems(editor),
+                        ].filter((item) =>
+                          item.title.toLowerCase().includes(query.toLowerCase()) ||
+                          (item.aliases && item.aliases.some((a: string) => a.toLowerCase().includes(query.toLowerCase())))
+                        )
+                      }
+                    />
+                  </BlockNoteView>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
+                <div className="relative flex items-center justify-center w-24 h-24">
+                  <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-2xl animate-pulse" />
+                  <div className="relative bg-white/5 border border-emerald-500/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(16,185,129,0.15)] flex items-center justify-center">
+                    <FileText size={40} className="text-emerald-400/80 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                  </div>
+                </div>
+                
+                <div className="text-center space-y-2">
+                  <h3 className="text-xl font-bold text-white tracking-wide">Workspace Empty</h3>
+                  <p className="text-sm text-white/40 max-w-sm">Select a page from the sidebar to view its contents, or create a new one to start writing.</p>
+                </div>
+                
+                <div className="flex gap-4 mt-2">
+                  <button 
+                    onClick={handleNewNote} 
+                    className="px-6 py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:border-emerald-500/60 rounded-xl text-sm font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 transition-all duration-300 flex items-center gap-2 group shadow-[0_0_15px_rgba(16,185,129,0.05)] hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+                  >
+                    <Plus size={16} className="group-hover:scale-110 transition-transform" /> 
+                    Create New Page
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+        </section>
+
+        {/* ─── Context / Details Panel ───────────────────────── */}
+        {showContextPanel && activeNote && (
+          <aside className="w-[280px] h-full border-l border-white/10 bg-white/[0.02] flex flex-col shrink-0 overflow-y-auto custom-scrollbar">
+            
+            {/* Panel Header */}
+            <div className="h-12 border-b border-white/10 flex items-center px-5 shrink-0">
+              <h3 className="text-xs font-semibold text-white/60 tracking-wide uppercase">Page Details</h3>
+            </div>
+
+            <div className="p-5 space-y-6 text-xs">
+
+              {/* Properties Section */}
+              <div className="space-y-3">
+                <h4 className="text-white/40 uppercase tracking-widest text-[10px] font-semibold">Properties</h4>
+                
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-3">
+                    <Clock size={13} className="text-white/30 shrink-0" />
+                    <span className="text-white/40 w-16 shrink-0">Created</span>
+                    <span className="text-white/70">{activeNote.timestamp ? new Date(activeNote.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Folder size={13} className="text-white/30 shrink-0" />
+                    <span className="text-white/40 w-16 shrink-0">Project</span>
+                    <span className="text-white/70">{activeNote.project || 'General'}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Hash size={13} className="text-white/30 shrink-0" />
+                    <span className="text-white/40 w-16 shrink-0">ID</span>
+                    <span className="text-white/50 font-mono">{activeNote.id}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Pin size={13} className="text-white/30 shrink-0" />
+                    <span className="text-white/40 w-16 shrink-0">Pinned</span>
+                    <span className="text-white/70">{activeNote.pinned ? 'Yes' : 'No'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-px bg-white/5" />
+
+              {/* Stats Section */}
+              <div className="space-y-3">
+                <h4 className="text-white/40 uppercase tracking-widest text-[10px] font-semibold">Statistics</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/[0.03] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-white/80">{wordCount}</div>
+                    <div className="text-[10px] text-white/30">Words</div>
+                  </div>
+                  <div className="bg-white/[0.03] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-white/80">{readingTime}</div>
+                    <div className="text-[10px] text-white/30">Min read</div>
+                  </div>
+                  <div className="bg-white/[0.03] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-white/80">{editText.split('\n').filter(Boolean).length}</div>
+                    <div className="text-[10px] text-white/30">Lines</div>
+                  </div>
+                  <div className="bg-white/[0.03] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-white/80">{editText.length}</div>
+                    <div className="text-[10px] text-white/30">Characters</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-px bg-white/5" />
+
+              {/* Outline Section */}
+              <div className="space-y-3">
+                <h4 className="text-white/40 uppercase tracking-widest text-[10px] font-semibold flex items-center gap-2">
+                  <AlignLeft size={12} /> Outline
+                </h4>
+                <div className="space-y-1">
+                  {editText.split('\n').filter(l => l.startsWith('#')).length > 0 ? (
+                    editText.split('\n').filter(l => l.startsWith('#')).map((heading, i) => {
+                      const level = heading.match(/^#+/)?.[0].length || 1;
+                      const text = heading.replace(/^#+\s*/, '');
+                      return (
+                        <div key={i} className="text-white/50 hover:text-white/80 cursor-pointer transition-colors py-0.5 truncate" style={{ paddingLeft: `${(level - 1) * 12}px` }}>
+                          {text}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="text-white/20 italic">No headings found</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="h-px bg-white/5" />
+
+              {/* Quick Actions */}
+              <div className="space-y-3">
+                <h4 className="text-white/40 uppercase tracking-widest text-[10px] font-semibold">Quick Actions</h4>
+                <div className="space-y-1">
+                  <button onClick={() => setShowAskAI(true)} className="w-full text-left px-3 py-2 rounded hover:bg-white/5 text-white/50 hover:text-white/80 transition-colors flex items-center gap-2">
+                    <Sparkles size={13} /> Ask AI about this note
+                  </button>
+                  <button onClick={onExport} className="w-full text-left px-3 py-2 rounded hover:bg-white/5 text-white/50 hover:text-white/80 transition-colors flex items-center gap-2">
+                    <FileText size={13} /> Export as Markdown
+                  </button>
+                  <button onClick={deleteNote} className="w-full text-left px-3 py-2 rounded hover:bg-red-500/10 text-white/50 hover:text-red-400 transition-colors flex items-center gap-2">
+                    <Trash2 size={13} /> Delete page
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </aside>
+        )}
+
+      </div>
     </div>
   );
 };
