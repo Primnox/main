@@ -2,11 +2,35 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
+const fs = require('fs');
 
 const envPath = app.isPackaged ? path.join(process.resourcesPath, '.env') : path.join(app.getAppPath(), '.env');
 require('dotenv').config({ path: envPath });
+
+const logFilePath = path.join(app.getPath('userData'), 'updater.log');
+function logUpdater(message) {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] ${message}\n`;
+  try {
+    fs.appendFileSync(logFilePath, logMessage, 'utf8');
+  } catch (e) {
+    console.error('Failed to write to updater log file:', e);
+  }
+  console.log(logMessage);
+}
+
+// Log updater events
+autoUpdater.logger = {
+  info: (msg) => logUpdater(`INFO: ${msg}`),
+  warn: (msg) => logUpdater(`WARN: ${msg}`),
+  error: (msg) => logUpdater(`ERROR: ${msg}`)
+};
+
 if (process.env.GH_TOKEN) {
+  logUpdater('GH_TOKEN found in env, setting requestHeaders');
   autoUpdater.requestHeaders = { Authorization: 'Bearer ' + process.env.GH_TOKEN };
+} else {
+  logUpdater('No GH_TOKEN found in env, checking publicly');
 }
 
 // Hardening: Disable Chromium remote debugging switches
@@ -103,15 +127,34 @@ app.whenReady().then(() => {
   startBackend();
   createWindow();
 
-  autoUpdater.on('update-available', () => {
+  autoUpdater.on('checking-for-update', () => {
+    logUpdater('Checking for update...');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    logUpdater(`Update available: ${JSON.stringify(info)}`);
     if (mainWindow) mainWindow.webContents.send('update-available');
   });
 
-  autoUpdater.on('update-downloaded', () => {
+  autoUpdater.on('update-not-available', (info) => {
+    logUpdater(`Update not available: ${JSON.stringify(info)}`);
+  });
+
+  autoUpdater.on('error', (err) => {
+    logUpdater(`Error in auto-updater: ${err.stack || err.message || err}`);
+  });
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    logUpdater(`Download progress: ${progressObj.percent}% (${progressObj.transferred}/${progressObj.total})`);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    logUpdater(`Update downloaded: ${JSON.stringify(info)}`);
     if (mainWindow) mainWindow.webContents.send('update-downloaded');
   });
 
   // Check for updates quietly
+  logUpdater('Triggering checkForUpdatesAndNotify()...');
   autoUpdater.checkForUpdatesAndNotify();
 
   app.on('activate', () => {

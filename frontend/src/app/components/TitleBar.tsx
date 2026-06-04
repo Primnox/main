@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Minus, Square, X, MessageSquare, DownloadCloud } from 'lucide-react';
 import { FeedbackModal } from './FeedbackModal';
 
-export const APP_VERSION = "0.0.4-alpha";
+export const APP_VERSION = "0.0.6-alpha";
 
 export const TitleBar = () => {
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
