@@ -541,20 +541,28 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
         )}
 
         {/* Editor Content */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar relative">
+        <div className="flex-1 overflow-y-auto custom-scrollbar relative" style={{ background: 'transparent' }}>
           {activeNote ? (
-            <div className="notion-page-wrapper">
+            <div style={{
+              maxWidth: '900px',
+              width: '100%',
+              margin: '0 auto',
+              padding: '80px 96px 160px 96px',
+              minHeight: '100%',
+              display: 'flex',
+              flexDirection: 'column' as const,
+            }}>
               <input
                 value={editTitle}
                 onChange={e => onTitleChange(e.target.value)}
-                className="bg-transparent border-none outline-none text-4xl font-bold text-white w-full placeholder-white/20 mb-3"
+                style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: '2.25rem', fontWeight: 700, color: '#fff', width: '100%', marginBottom: '0.5rem', fontFamily: 'var(--font-sans)' }}
                 placeholder="Untitled"
               />
-              <p className="text-[10px] text-white/20 font-mono mb-10">
+              <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.2)', fontFamily: 'var(--font-mono)', marginBottom: '2.5rem' }}>
                 {wordCount} words · {readingTime} min read · {activeNote.timestamp ? new Date(activeNote.timestamp).toLocaleDateString() : 'just now'}
               </p>
               
-              <div className="notion-editor-wrapper">
+              <div className="notion-editor-wrapper" style={{ flex: 1 }}>
                 <BlockNoteView 
                   editor={editor} 
                   theme="dark" 

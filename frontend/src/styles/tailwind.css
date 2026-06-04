@@ -134,49 +134,42 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* ─── Notion-style Editor Layout ─────────────────────────── */
-.notion-page-wrapper {
-  max-width: 900px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 80px 96px 160px 96px;
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-@media (max-width: 1024px) {
-  .notion-page-wrapper {
-    padding: 60px 48px 120px 48px;
-  }
-}
-
-@media (max-width: 640px) {
-  .notion-page-wrapper {
-    padding: 40px 24px 80px 24px;
-  }
-}
-
-/* BlockNote Seamless Integration */
+/* ─── BlockNote Seamless Integration ─────────────────────── */
+/* These MUST override @blocknote/mantine/style.css dark theme */
 .notion-editor-wrapper .bn-container,
+.notion-editor-wrapper .bn-container[data-theme="dark"],
 .notion-editor-wrapper .bn-editor,
 .bn-container[data-theme="dark"],
+.bn-container,
 .bn-editor {
   background-color: transparent !important;
   background: transparent !important;
+  color: #D4D4D4 !important;
+}
+
+/* Kill the grey background on the root blocknote wrapper */
+[data-theming-css-variables-demo],
+.bn-container[data-color-scheme="dark"],
+div[class*="bn-container"] {
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 .notion-editor-wrapper .bn-container {
-  height: 100%;
+  height: 100% !important;
   min-height: 40vh;
 }
 
-/* Remove BlockNote's default side-menu gutter so text aligns with title */
+/* Align block text flush with the title (remove side-menu gutter) */
 .notion-editor-wrapper .bn-block-group > .bn-block-outer {
   margin-left: 0 !important;
 }
 
-/* Make BlockNote text match the page font */
-.notion-editor-wrapper .bn-editor .bn-block-content {
-  font-family: var(--font-sans);
+/* Font consistency */
+.notion-editor-wrapper .bn-editor .bn-block-content,
+.notion-editor-wrapper .bn-inline-content {
+  font-family: var(--font-sans) !important;
+  font-size: 1rem !important;
+  line-height: 1.75 !important;
 }
+
