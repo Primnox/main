@@ -24,10 +24,13 @@
 
 ### 📝 Notion-Style Notes Editor
 - Redesigned notes editor to match Notion's centered, full-width layout.
-- Content column is horizontally centered (max-width 900px) with generous padding.
 - Full black canvas background — no grey container boxes.
-- Responsive padding scales gracefully across screen sizes (96px → 48px → 24px).
+- Responsive padding scales gracefully across screen sizes.
 - BlockNote editor background forced transparent for seamless integration.
+- Content area dynamically expands to fill the entire horizontal space when the right panel is collapsed.
+
+### 📋 Note Context Panel
+- Added a collapsible right-side context details panel displaying properties (date, project, ID, pin state), real-time document stats (word count, character count, lines, read time), an interactive table of contents/outline, and quick action options (Ask AI, Export, Delete).
 
 ### 📌 Notes Pinning & Folder Filtering
 - Notes can now be pinned (persisted to database).
@@ -42,6 +45,9 @@
 - Fixed `sqlite3.Row.get()` crash in `notes_manager.py` that was silently 500'ing every GET `/notes` call.
 - Fixed `Ctrl+N` (new page) shortcut — stale React closure prevented it from firing.
 - Fixed duplicate "Archive" buttons appearing in the chat sidebar.
+- Fixed auto-save race condition: switches between pages now cancel the active debounced auto-save timer and capture the note ID at edit time to prevent cross-file overrides.
+- Fixed auto-updater connection issues: updated GitHub publish configuration in `package.json` to `private: false` to allow token-free queries for public release assets.
+- Added developer-mode auto-updater configuration (`dev-app-update.yml`) and detailed main-process logging redirecting to `%APPDATA%/Primnox/updater.log`.
 
 ### ⌨️ Keyboard Shortcuts
 - Added `Ctrl+=` / `Ctrl+-` / `Ctrl+0` zoom controls in Electron (frameless window strips default browser zoom).
