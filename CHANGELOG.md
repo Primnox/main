@@ -1,15 +1,46 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## v0.0.5-alpha (2026-06-04)
 
-## [0.0.4-alpha] - 2026-06-03
+### 🔍 Unlimited Web Search
+- Replaced Tavily (API key required) with **DuckDuckGo** via the `ddgs` library.
+- No API key needed. No rate limits. Unlimited searches out of the box.
 
-### Added
-- **Global Project Scanner:** The onboarding environment scan now performs a full deep recursive search (up to 4 levels deep) originating from the root of the user's home directory to discover all programming projects across the system.
+### 🎙️ Microphone Disconnected
+- Removed the microphone toggle from the header bar and Dynamic Island.
+- VAD (Voice Activity Detection) listener is fully disabled — Primnox never touches your mic.
 
-### Changed
-- **Scanner Filtering:** Replaced hardcoded target directories with an aggressive ignore list (excluding `Downloads`, `Music`, `Documents`, `Pictures`, `Videos`, `Desktop`, `OneDrive`, `AppData`, `node_modules`, etc.) to prevent the scanner from hanging on system files and polluting the AI profile with consumer downloads.
+### 🛠️ Onboarding Now Actually Works
+- All onboarding steps now **persist your choices** to settings instead of being cosmetic placeholders:
+  - Permissions (Step 4)
+  - Voice & Interaction Mode (Step 5)
+  - User Profile Scan (Step 7)
+  - Memory Mode (Step 9)
+  - Personalization Options (Step 10)
+  - Workspace Names (Step 11)
 
-### Fixed
-- **PyInstaller HTTP 500 Crash:** Fixed a critical bug where the compiled PyInstaller executable was throwing silent `500 Internal Server Error` exceptions on all API routes due to `orjson` serialization failures. The backend now falls back to native JSON serialization ensuring cross-platform stability.
-- **Compiler Missing Files:** Fixed an issue where PyInstaller would fail to compile due to missing configuration `*.json` test stubs.
+### 🧹 Code Cleanup
+- Fixed all TypeScript compilation errors (zero errors).
+- Removed unused imports across `App.tsx`, `DynamicIsland.tsx`, `Layout.tsx`, `TitleBar.tsx`.
+- Updated Llama model label from "Llama 3" → "Llama 3.3" in Settings UI.
+
+### 🔄 Auto-Updater
+- Fixed target repository name (`primox_extension`) for GitHub releases.
+- This is the first release that can be delivered via the built-in auto-updater.
+
+---
+
+## v0.0.4-alpha (2026-06-03)
+
+### Initial Release
+- Primnox desktop app with Electron + Python backend.
+- AI chat with streaming responses (Groq / OpenAI / Anthropic).
+- Dynamic Island UI with status indicators.
+- Onboarding flow with Groq API key validation.
+- Notes editor with BlockNote integration.
+- Research view placeholder.
+- Meeting recorder (system audio capture via WASAPI).
+- Memory system with semantic search.
+- Screen reader and vision tools.
+- Feedback loop system.
+- Auto-updater infrastructure.
