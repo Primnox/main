@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { motion, useDragControls } from 'framer-motion';
 import { Scissors, Zap, Waves, FastForward, Maximize } from 'lucide-react';
 
@@ -17,6 +18,10 @@ export const TimelineClip = ({
   id, name, duration, startPos, trackIndex, effects = [], type, onDragEnd, pixelsPerSecond = 50 
 }: TimelineClipProps) => {
   const width = duration * pixelsPerSecond;
+
+  const waveformHeights = useMemo(() => {
+    return Array.from({ length: 20 }).map(() => Math.random() * 80 + 20);
+  }, [id]);
 
   const effectIcons: Record<string, any> = {
     'zoom_punch': <Maximize size={10} className="text-pink-500" />,
@@ -62,8 +67,8 @@ export const TimelineClip = ({
         {type === 'audio' ? (
           // Mock Waveform SVG
           <svg width="100%" height="60%" preserveAspectRatio="none" viewBox="0 0 100 100">
-            {Array.from({ length: 20 }).map((_, i) => (
-              <rect key={i} x={i * 5} y={50 - Math.random() * 40} width="2" height={Math.random() * 80 + 20} fill="currentColor" className="text-emerald-500/50" />
+            {waveformHeights.map((height, i) => (
+              <rect key={i} x={i * 5} y={50 - height / 2} width="2" height={height} fill="currentColor" className="text-emerald-500/50" />
             ))}
           </svg>
         ) : (

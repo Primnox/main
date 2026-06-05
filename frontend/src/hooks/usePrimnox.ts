@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Message, Note, Session } from '../types/primnox';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export interface Toast {
   id: string;
@@ -9,14 +10,14 @@ export interface Toast {
 }
 
 export function usePrimnox() {
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [state, setState] = useState('idle');
   const [micMuted, setMicMuted] = useState(false);
   const [vadLevel, setVadLevel] = useState(0);
-  const [notes, setNotes] = useState<any[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [tasks] = useState<any[]>([]);
   const [memory, setMemory] = useState<any[]>([]);
-  const [chatSessions, setChatSessions] = useState<any[]>([]);
+  const [chatSessions, setChatSessions] = useState<Session[]>([]);
   const [chatFolders, setChatFolders] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<string>('current');
   

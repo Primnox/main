@@ -33,6 +33,7 @@ mss
 opencv-python
 pygetwindow
 ultralytics
+mediapipe
 easyocr
 
 # ————— MEMORY + DATA —————————————————————

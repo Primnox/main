@@ -1,25 +1,9 @@
 # backend/settings_manager.py
-from pathlib import Path
-import json
-import os
-import threading
+from database import db_load_settings, db_save_settings
 from logger import get_logger
 
 log = get_logger("settings")
 
-import os
-
-def get_appdata_dir():
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        base = Path(appdata) / "primnox_extension"
-    else:
-        base = Path.home() / ".primnox_extension"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
-
-SETTINGS_PATH = get_appdata_dir() / "settings.json"
-_settings_lock = threading.Lock()
 DEFAULT_SETTINGS = {
     "groq_api_key": "",
     "openai_api_key": "",
@@ -61,32 +45,26 @@ DEFAULT_SETTINGS = {
 }
 
 def load_settings():
-    with _settings_lock:
-        if not SETTINGS_PATH.exists():
-            log.info("Settings file not found, using defaults.")
+    try:
+        saved_settings = db_load_settings()
+        if not saved_settings:
+            log.info("Settings not found in database, using defaults.")
             return DEFAULT_SETTINGS.copy()
-        try:
-            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            log.debug("Settings loaded from disk.")
-            return {**DEFAULT_SETTINGS, **data}
-        except Exception as e:
-            log.error(f"Failed to load settings: {e}")
-            return DEFAULT_SETTINGS.copy()
+        
+        log.debug("Settings loaded from database.")
+        return {**DEFAULT_SETTINGS, **saved_settings}
+    except Exception as e:
+        log.error(f"Failed to load settings: {e}")
+        return DEFAULT_SETTINGS.copy()
 
 def save_settings(settings: dict):
-    with _settings_lock:
-        log.info("Saving settings to disk...")
+    log.info("Saving settings to database...")
+    try:
         merged = {**DEFAULT_SETTINGS, **settings}
-        try:
-            # Atomic write: write to temp file first, then replace
-            tmp_path = str(SETTINGS_PATH) + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(merged, f, indent=2)
-            os.replace(tmp_path, SETTINGS_PATH)
-            log.info("Settings saved successfully.")
-        except Exception as e:
-            log.error(f"Failed to save settings: {e}")
+        db_save_settings(merged)
+        log.info("Settings saved successfully.")
+    except Exception as e:
+        log.error(f"Failed to save settings: {e}")
 
 if __name__ == "__main__":
     s = load_settings()

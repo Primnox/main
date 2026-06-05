@@ -1,26 +1,10 @@
 import json
-import os
-from pathlib import Path
 from logger import get_logger
 from brain import think
 from memory import list_memories
+from settings_manager import load_settings, save_settings
 
 log = get_logger("profiler")
-
-SETTINGS_DIR = Path(os.getenv("APPDATA", "")) / "primnox_extension"
-SETTINGS_FILE = SETTINGS_DIR / "settings.json"
-
-def load_settings():
-    if SETTINGS_FILE.exists():
-        try:
-            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
-
-def save_settings(settings):
-    SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text(json.dumps(settings, indent=4), encoding="utf-8")
 
 def run_background_profiler():
     """

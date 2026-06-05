@@ -44,6 +44,10 @@ export const EditorView = () => {
     setClips(prev => prev.map(c => c.id === id ? { ...c, startPos: Math.max(0, newPos) } : c));
   };
 
+  // Dynamically calculate the track width based on the furthest clip
+  const maxClipEnd = Math.max(...clips.map(c => c.startPos + c.duration * 50));
+  const dynamicTrackWidth = Math.max(2000, maxClipEnd + 500);
+
   const handleRender = async () => {
     try {
       const res = await fetch('http://localhost:8000/api/video/export/openshot', {
@@ -150,23 +154,23 @@ export const EditorView = () => {
         </div>
 
         {/* Tracks */}
-        <TimelineTrack id="t0" name="Main Camera" type="video">
+        <TimelineTrack id="t0" name="Main Camera" type="video" trackWidth={dynamicTrackWidth}>
           {clips.filter(c => c.trackIndex === 0).map(c => (
              <TimelineClip key={c.id} {...c} type={c.type as 'video'} onDragEnd={handleDragEnd} />
           ))}
         </TimelineTrack>
         
-        <TimelineTrack id="t1" name="B-Roll / Effects" type="video">
+        <TimelineTrack id="t1" name="B-Roll / Effects" type="video" trackWidth={dynamicTrackWidth}>
           {/* Empty Track */}
         </TimelineTrack>
 
-        <TimelineTrack id="t2" name="Dialogue" type="audio">
+        <TimelineTrack id="t2" name="Dialogue" type="audio" trackWidth={dynamicTrackWidth}>
            {clips.filter(c => c.trackIndex === 1).map(c => (
              <TimelineClip key={c.id} {...c} type={c.type as 'audio'} onDragEnd={handleDragEnd} />
           ))}
         </TimelineTrack>
 
-        <TimelineTrack id="t3" name="SFX / Music" type="audio">
+        <TimelineTrack id="t3" name="SFX / Music" type="audio" trackWidth={dynamicTrackWidth}>
            {clips.filter(c => c.trackIndex === 2).map(c => (
              <TimelineClip key={c.id} {...c} type={c.type as 'audio'} onDragEnd={handleDragEnd} />
           ))}

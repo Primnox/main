@@ -6,9 +6,10 @@ interface TimelineTrackProps {
   name: string;
   type: 'video' | 'audio';
   children?: ReactNode;
+  trackWidth?: number;
 }
 
-export const TimelineTrack = ({ id, name, type, children }: TimelineTrackProps) => {
+export const TimelineTrack = ({ id, name, type, children, trackWidth = 2000 }: TimelineTrackProps) => {
   return (
     <div className="flex h-20 w-full border-b border-white/5 bg-black/20 group">
       {/* Track Header */}
@@ -25,7 +26,7 @@ export const TimelineTrack = ({ id, name, type, children }: TimelineTrackProps) 
       {/* Track Canvas (Where clips live) */}
       <div className="flex-1 relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTAgMjBWMGgxdjIwaC0xeiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjAyKSIvPjwvc3ZnPg==')]">
         {/* Horizontal scroll container for the clips */}
-        <div className="absolute inset-y-0 left-0 w-[5000px] flex items-center py-2">
+        <div className="absolute inset-y-0 left-0 flex items-center py-2" style={{ width: trackWidth }}>
           {children}
         </div>
       </div>
