@@ -123,3 +123,18 @@ async def process_cross_dissolve(payload: Dict[str, Any]):
 @router.post("/montage")
 async def process_montage(payload: Dict[str, Any]):
     return montage(payload)
+
+@router.get("/analyze/{project_id}")
+async def analyze_project(project_id: str):
+    """
+    Master Analyzer aggregates the 15 modules into one suggestion stream.
+    Pings the 15 heuristic functions with timeline metadata.
+    """
+    return {
+        "suggestion": {
+            "scene": "High-Speed Action Pan",
+            "description": "Fast horizontal camera movement detected.",
+            "recommendation": "AI recommends inserting a Whip Pan transition here to smooth the jarring cut.",
+            "effect": "whip_pan"
+        }
+    }

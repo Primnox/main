@@ -1,10 +1,38 @@
-import { useState } from 'react';
-import { Play, Pause, SkipBack, Download, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Play, Pause, SkipBack, Download, Sparkles, SlidersHorizontal, Loader2 } from 'lucide-react';
 import { TimelineTrack } from './TimelineTrack';
 import { TimelineClip } from './TimelineClip';
 
 export const EditorView = () => {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [analysis, setAnalysis] = useState<{ scene: string, description: string, recommendation: string, effect: string } | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(true);
+
+  useEffect(() => {
+    const fetchAnalysis = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/video_editor/analyze/test-proj');
+        const data = await res.json();
+        setAnalysis(data.suggestion);
+      } catch (err) {
+        console.error("Failed to analyze", err);
+      } finally {
+        setIsAnalyzing(false);
+      }
+    };
+    fetchAnalysis();
+  }, []);
+
+  const handleApplyEffect = () => {
+    if (!analysis) return;
+    setClips(prev => {
+      const newClips = [...prev];
+      if (!newClips[0].effects.includes(analysis.effect)) {
+        newClips[0].effects.push(analysis.effect);
+      }
+      return newClips;
+    });
+  };
   const [clips, setClips] = useState([
     { id: 'c1', name: 'drone_flyover.mp4', type: 'video', duration: 5, startPos: 0, trackIndex: 0, effects: ['zoom_punch'] },
     { id: 'c2', name: 'interview_main.mp4', type: 'video', duration: 8, startPos: 250, trackIndex: 0, effects: ['cross_dissolve'] },
@@ -77,15 +105,27 @@ export const EditorView = () => {
           </div>
           
           <div className="space-y-4">
-            <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex flex-col gap-2">
-              <span className="font-mono text-[10px] uppercase text-indigo-400 font-bold">Detected Scene</span>
-              <span className="text-sm text-white/80">High-Energy Motion</span>
-              <p className="text-xs text-white/40">AI recommends inserting a Speed Ramp here to match the tempo.</p>
-            </div>
-            
-            <button className="w-full py-2 bg-white/5 hover:bg-white/10 rounded border border-white/10 text-xs font-mono uppercase tracking-widest transition-colors">
-              Apply AI Recommendation
-            </button>
+            {isAnalyzing ? (
+              <div className="flex justify-center items-center py-8">
+                <Loader2 className="animate-spin text-indigo-500" />
+              </div>
+            ) : analysis ? (
+              <>
+                <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex flex-col gap-2">
+                  <span className="font-mono text-[10px] uppercase text-indigo-400 font-bold">Detected Scene: {analysis.scene}</span>
+                  <span className="text-sm text-white/80">{analysis.description}</span>
+                  <p className="text-xs text-white/40">{analysis.recommendation}</p>
+                </div>
+                
+                <button 
+                  onClick={handleApplyEffect}
+                  className="w-full py-2 bg-white/5 hover:bg-white/10 rounded border border-white/10 text-xs font-mono uppercase tracking-widest transition-colors">
+                  Apply AI Recommendation
+                </button>
+              </>
+            ) : (
+              <div className="text-white/40 text-xs text-center">No AI recommendations.</div>
+            )}
           </div>
 
           <div className="mt-auto">
