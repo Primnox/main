@@ -19,6 +19,7 @@ import { DataVaultPage } from './components/MemoryView';
 import { KnowledgePage } from './components/AboutView';
 import { OnboardingView } from './components/OnboardingView';
 import { GraphView } from './components/GraphView';
+import { EditorView } from './components/EditorView';
 
 // --- Types ---
 
@@ -217,6 +218,8 @@ export default function App() {
         );
       case 'research_workspace':
         return <ResearchWorkspace />;
+      case 'editor_view':
+        return <EditorView />;
       default:
         return <SummariesExpanded onNavigate={setCurrentScreen} />;
     }
@@ -230,6 +233,7 @@ export default function App() {
     if (currentScreen === 'logs') return 'logs';
     if (currentScreen === 'archive') return 'archive';
     if (currentScreen === 'knowledge') return 'knowledge';
+    if (currentScreen === 'editor_view') return 'editor';
     if (appMode === 'chat') return 'transcripts';
     return 'notes';
   };
@@ -258,6 +262,7 @@ export default function App() {
           currentScreen === 'archive' ? 'Data_Vault' :
           currentScreen === 'knowledge' ? 'Knowledge_Nexus' :
           currentScreen === 'graph_view' ? 'Knowledge_Graph' :
+          currentScreen === 'editor_view' ? 'Video_Timeline' :
           currentScreen.includes('summaries') ? 'Neural_Nodes' : 
           appMode === 'research' ? 'Deep_Research' :
           appMode === 'chat' ? 'Synapse_Stream' : 'Neural_Nodes'
@@ -267,6 +272,7 @@ export default function App() {
           currentScreen === 'archive' ? 'COLD_STORAGE' :
           currentScreen === 'knowledge' ? 'SYSTEM_CORE_DOCS' :
           currentScreen === 'graph_view' ? 'VISUALIZE_CONNECTIONS' :
+          currentScreen === 'editor_view' ? 'AI_KEYFRAME_EDITOR' :
           currentScreen.includes('summaries') ? 'SYNTHETIC_PROCESSING' : 
           appMode === 'research' ? 'KNOWLEDGE_SYNTHESIS' :
           appMode === 'chat' ? 'NEURAL_INTERFACE' : 'WORKSPACE_v2'
@@ -278,6 +284,7 @@ export default function App() {
           if (mode === 'notes') setCurrentScreen('notes_icon_sidebar');
           if (mode === 'chat') setCurrentScreen('chat_expanded_sidebar');
           if (mode === 'research') setCurrentScreen('research_workspace');
+          if (mode === 'editor') setCurrentScreen('editor_view');
         }}
         status={status}
         setStatus={setStatus}
