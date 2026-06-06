@@ -113,6 +113,8 @@ export default function App() {
   const [vadSensitivity, setVadSensitivity] = useState(0.5);
   const [wakeWord, setWakeWord] = useState('hey primnox');
   const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
+  const [ollamaModel, setOllamaModel] = useState('llama3.2');
+  const [ollamaBaseUrl, setOllamaBaseUrl] = useState('http://localhost:11434');
 
   // Sync settings to local state
   useEffect(() => {
@@ -125,6 +127,8 @@ export default function App() {
     if (settings.vad_sensitivity !== undefined) setVadSensitivity(settings.vad_sensitivity);
     if (settings.wake_word !== undefined) setWakeWord(settings.wake_word);
     if (settings.wake_word_enabled !== undefined) setWakeWordEnabled(settings.wake_word_enabled);
+    if (settings.ollama_model !== undefined) setOllamaModel(settings.ollama_model);
+    if (settings.ollama_base_url !== undefined) setOllamaBaseUrl(settings.ollama_base_url);
   }, [settings]);
 
   const handleSync = () => {
@@ -138,7 +142,9 @@ export default function App() {
       anthropic_api_key: anthropicApiKey,
       vad_sensitivity: vadSensitivity,
       wake_word: wakeWord,
-      wake_word_enabled: wakeWordEnabled
+      wake_word_enabled: wakeWordEnabled,
+      ollama_model: ollamaModel,
+      ollama_base_url: ollamaBaseUrl
     });
     setCurrentScreen('summaries_expanded');
   };
@@ -192,6 +198,10 @@ export default function App() {
             setWakeWord={setWakeWord}
             wakeWordEnabled={wakeWordEnabled}
             setWakeWordEnabled={setWakeWordEnabled}
+            ollamaModel={ollamaModel}
+            setOllamaModel={setOllamaModel}
+            ollamaBaseUrl={ollamaBaseUrl}
+            setOllamaBaseUrl={setOllamaBaseUrl}
             onSync={handleSync}
           />
         );

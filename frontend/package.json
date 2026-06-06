@@ -1,7 +1,7 @@
 {
   "name": "primnox-ui",
   "private": true,
-  "version": "0.0.6-alpha",
+  "version": "0.0.8-alpha",
   "type": "module",
   "main": "public/electron.cjs",
   "scripts": {
@@ -42,6 +42,12 @@
     "linux": {
       "target": "AppImage",
       "category": "Utility"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ],
+      "category": "public.app-category.productivity"
     },
     "nsis": {
       "oneClick": false,

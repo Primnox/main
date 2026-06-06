@@ -63,7 +63,7 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
       <div className="w-full max-w-3xl relative z-10 px-8">
         <AnimatePresence mode="wait">
           {step === 1 && <Step1Welcome key="step1" next={nextStep} skip={skipSetup} />}
-          {step === 2 && <Step2Privacy key="step2" next={nextStep} />}
+          {step === 2 && <Step2Privacy key="step2" next={nextStep} updateSettings={updateSettings} settings={settings} />}
           {step === 3 && <Step3AIProvider key="step3" next={nextStep} updateSettings={updateSettings} settings={settings} />}
           {step === 4 && <Step4Permissions key="step4" next={nextStep} updateSettings={updateSettings} settings={settings} />}
           {step === 5 && <Step5Voice key="step5" next={nextStep} updateSettings={updateSettings} settings={settings} />}
@@ -106,31 +106,78 @@ const Step1Welcome = ({ next, skip }: any) => (
   </motion.div>
 );
 
-const Step2Privacy = ({ next }: any) => (
-  <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
-    <div>
-      <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Privacy Architecture</h2>
-      <p className="text-white/50 text-sm">Note: This version currently only supports the Cloud Assisted model.</p>
-    </div>
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {[
-        { id: 'local', icon: Shield, title: 'Local Only', desc: 'Everything remains on device. (Coming Soon)', disabled: true },
-        { id: 'hybrid', icon: ShieldAlert, title: 'Hybrid', desc: 'Local memory with cloud AI assistance. (Coming Soon)', disabled: true },
-        { id: 'cloud', icon: Eye, title: 'Cloud Assisted', desc: 'Maximum AI capabilities. Currently active.', disabled: false }
-      ].map(opt => (
-        <button key={opt.id} onClick={!opt.disabled ? next : undefined} className={`flex flex-col items-start text-left p-6 rounded-xl border transition-all group ${opt.disabled ? 'border-white/5 bg-white/5 opacity-50 cursor-not-allowed' : 'border-primary/50 bg-primary/10 hover:bg-primary/20 hover:scale-105'}`}>
-          <opt.icon size={24} className={`${opt.disabled ? 'text-white/30' : 'text-primary'} mb-4 group-hover:scale-110 transition-transform`} />
-          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">{opt.title}</h3>
-          <p className="text-[10px] text-white/50 leading-relaxed">{opt.desc}</p>
+const Step2Privacy = ({ next, updateSettings, settings }: any) => {
+  const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch('http://localhost:8000/api/ollama/status')
+      .then(r => r.json())
+      .then(d => setOllamaRunning(d.running))
+      .catch(() => setOllamaRunning(false));
+  }, []);
+
+  const selectCloud = () => next();
+  const selectHybrid = () => {
+    updateSettings({ ...settings, active_model: 'Ollama_Local' });
+    next();
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
+      <div>
+        <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Privacy Architecture</h2>
+        <p className="text-white/50 text-sm">Choose how Primnox thinks. You can change this any time in Settings.</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Local Only — future */}
+        <div className="flex flex-col items-start text-left p-6 rounded-xl border border-white/5 bg-white/5 opacity-40 cursor-not-allowed">
+          <Shield size={24} className="text-white/30 mb-4" />
+          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Local Only</h3>
+          <p className="text-[10px] text-white/50 leading-relaxed">100% on-device. Coming soon.</p>
+        </div>
+
+        {/* Hybrid — Ollama */}
+        <button
+          onClick={ollamaRunning ? selectHybrid : undefined}
+          className={`flex flex-col items-start text-left p-6 rounded-xl border transition-all group relative ${
+            ollamaRunning
+              ? 'border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10 hover:scale-105 cursor-pointer'
+              : 'border-white/5 bg-white/5 opacity-50 cursor-not-allowed'
+          }`}
+        >
+          <ShieldAlert size={24} className={`${ollamaRunning ? 'text-emerald-400' : 'text-white/30'} mb-4 group-hover:scale-110 transition-transform`} />
+          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Hybrid — Ollama</h3>
+          <p className="text-[10px] text-white/50 leading-relaxed">Local AI via Ollama. No cloud for chat.</p>
+          <div className={`absolute top-3 right-3 flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-mono ${
+            ollamaRunning === null ? 'bg-white/10 text-white/30' :
+            ollamaRunning ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-white/20'
+          }`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${ollamaRunning === null ? 'bg-white/20 animate-pulse' : ollamaRunning ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
+            {ollamaRunning === null ? 'checking...' : ollamaRunning ? 'detected' : 'not running'}
+          </div>
         </button>
-      ))}
-    </div>
-  </motion.div>
-);
+
+        {/* Cloud */}
+        <button onClick={selectCloud} className="flex flex-col items-start text-left p-6 rounded-xl border border-primary/50 bg-primary/10 hover:bg-primary/20 hover:scale-105 transition-all group cursor-pointer">
+          <Eye size={24} className="text-primary mb-4 group-hover:scale-110 transition-transform" />
+          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Cloud Assisted</h3>
+          <p className="text-[10px] text-white/50 leading-relaxed">Groq / OpenAI / Anthropic. Maximum speed.</p>
+        </button>
+      </div>
+      {ollamaRunning === false && (
+        <p className="text-[10px] text-white/30 font-mono text-center">
+          To enable Hybrid: install Ollama at <span className="text-primary">ollama.ai</span> and run <span className="bg-white/5 px-1 rounded">ollama serve</span>
+        </p>
+      )}
+    </motion.div>
+  );
+};
 
 const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
   const [key, setKey] = useState('');
   const [status, setStatus] = useState<'idle'|'testing'|'success'|'error'>('idle');
+  // If user already picked Ollama_Local in step 2, skip the cloud key prompt
+  const isOllamaMode = settings?.active_model === 'Ollama_Local';
 
   const testKey = async () => {
     setStatus('testing');
@@ -140,7 +187,6 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
       });
       if (resp.ok) {
         setStatus('success');
-        // Actually save the key to settings
         await updateSettings({ ...settings, groq_api_key: key });
         setTimeout(next, 1000);
       } else {
@@ -155,24 +201,38 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">AI Provider Connect</h2>
-        <p className="text-white/50 text-sm">Primnox currently utilizes Groq for ultra-fast reasoning.</p>
+        {isOllamaMode ? (
+          <p className="text-white/50 text-sm">
+            You chose Ollama — no cloud key needed for chat. Optionally add a Groq key for voice transcription (Whisper).
+          </p>
+        ) : (
+          <p className="text-white/50 text-sm">
+            Add a Groq API key to get started. Free at <span className="text-primary">console.groq.com</span>. You can add OpenAI / Anthropic keys in Settings later.
+          </p>
+        )}
       </div>
       <div className="p-6 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-4">
-        <label className="text-xs font-mono text-white/70 uppercase tracking-wider">Groq API Key</label>
+        <label className="text-xs font-mono text-white/70 uppercase tracking-wider">
+          Groq API Key {isOllamaMode && <span className="text-white/30">(optional — for transcription)</span>}
+        </label>
         <div className="flex gap-2">
-          <input 
-            type="password" 
-            value={key} 
+          <input
+            type="password"
+            value={key}
             onChange={e => setKey(e.target.value)}
-            className="flex-1 bg-black/50 border border-white/10 rounded px-4 py-2 text-sm focus:border-primary/50 outline-none" 
+            onKeyDown={e => { if (e.key === 'Enter' && key) testKey(); }}
+            className="flex-1 bg-black/50 border border-white/10 rounded px-4 py-2 text-sm focus:border-primary/50 outline-none"
             placeholder="gsk_..."
           />
-          <button onClick={testKey} disabled={!key || status === 'testing'} className="px-6 bg-primary text-white text-sm font-bold rounded hover:bg-primary/90 disabled:opacity-50 min-w-[120px] transition-all duration-300 ease-out active:scale-95">
-            {status === 'testing' ? <Loader2 size={16} className="animate-spin mx-auto" /> : status === 'success' ? 'Connected' : 'Test Connection'}
+          <button onClick={testKey} disabled={!key || status === 'testing'} className="px-6 bg-primary text-black text-sm font-bold rounded hover:bg-white disabled:opacity-50 min-w-[120px] transition-all duration-300 ease-out active:scale-95">
+            {status === 'testing' ? <Loader2 size={16} className="animate-spin mx-auto" /> : status === 'success' ? '✓ Connected' : 'Test Key'}
           </button>
         </div>
         {status === 'error' && <p className="text-red-400 text-xs">Invalid key or connection failed.</p>}
       </div>
+      <button onClick={next} className="text-sm text-white/30 hover:text-white/60 transition-colors text-center">
+        {isOllamaMode ? 'Skip — using Ollama only →' : 'Skip for now — add in Settings later →'}
+      </button>
     </motion.div>
   );
 };

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.0.8-alpha (2026-06-06)
+
+### 🎛️ Analytical Dashboard Overhaul
+- Completely redesigned the main interface into a sleek, grid-based "Tech-Noir" analytical dashboard.
+- Replaced the old scrolling broadcast nodes with dedicated UI widgets: System Vitals, Note Library, Memories tracking, Live Activity Feed, Current Focus, and Recent Meetings.
+- Built a new backend endpoint (`/api/system/dash/stats`) that dynamically pulls live metrics from the SQLite database.
+- Added a dedicated "Dashboard" tab to the main sidebar navigation.
+- Fixed a fatal React import crash caused by a missing icon.
+
 ## v0.0.6-alpha (2026-06-04)
 
 ### 🧠 Persona Overhaul

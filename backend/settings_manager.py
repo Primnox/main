@@ -25,6 +25,8 @@ DEFAULT_SETTINGS = {
     "openai_api_key": "",
     "anthropic_api_key": "",
     "active_model": "Groq_Llama_3",
+    "ollama_model": "llama3.2",
+    "ollama_base_url": "http://localhost:11434",
     "nickname": "primnox",
     "operator_alias": "ANIKETH_P_01",
     "ai_codename": "PRIMNOX",
@@ -60,33 +62,91 @@ DEFAULT_SETTINGS = {
     }
 }
 
+# Keys stored in Windows Credential Manager / keyring as a backup layer
+_KEYRING_KEYS = ["groq_api_key", "openai_api_key", "anthropic_api_key"]
+_KEYRING_SERVICE = "primnox"
+
+
+def _keyring_set(key: str, value: str):
+    try:
+        import keyring
+        if value:
+            keyring.set_password(_KEYRING_SERVICE, key, value)
+        else:
+            try:
+                keyring.delete_password(_KEYRING_SERVICE, key)
+            except Exception as del_err:
+                # Log — don't swallow silently. If delete fails, the old key
+                # remains in the keyring and will be restored on next load,
+                # overriding the user's explicit clear.
+                log.warning(f"keyring delete failed for {key}: {del_err}. Old key may persist.")
+    except Exception as e:
+        log.debug(f"keyring write skipped ({key}): {e}")
+
+
+def _keyring_get(key: str) -> str:
+    try:
+        import keyring
+        return keyring.get_password(_KEYRING_SERVICE, key) or ""
+    except Exception:
+        return ""
+
+
 def load_settings():
     with _settings_lock:
-        if not SETTINGS_PATH.exists():
-            log.info("Settings file not found, using defaults.")
-            return DEFAULT_SETTINGS.copy()
-        try:
-            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            log.debug("Settings loaded from disk.")
-            return {**DEFAULT_SETTINGS, **data}
-        except Exception as e:
-            log.error(f"Failed to load settings: {e}")
-            return DEFAULT_SETTINGS.copy()
+        data = {}
+        # Track whether settings.json exists BEFORE we read it.
+        # A missing file means a fresh or fully-wiped install — we should NOT
+        # auto-complete onboarding just because a stale keyring key exists.
+        settings_file_existed = SETTINGS_PATH.exists()
+
+        if not settings_file_existed:
+            log.info("Settings file not found in APPDATA — checking keyring for API keys.")
+        else:
+            try:
+                with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                log.debug("Settings loaded from APPDATA.")
+            except Exception as e:
+                log.error(f"Failed to load settings from APPDATA: {e}")
+
+        merged = {**DEFAULT_SETTINGS, **data}
+
+        # Fill in any missing API keys from keyring (survives app updates / reinstalls)
+        for k in _KEYRING_KEYS:
+            if not merged.get(k):
+                val = _keyring_get(k)
+                if val:
+                    log.info(f"Restored {k} from keyring.")
+                    merged[k] = val
+
+        # Only auto-complete onboarding when settings.json existed on disk (partial key loss
+        # after a minor update). Do NOT fire on a fully-wiped reinstall — that should show
+        # onboarding fresh even if the keyring still has an old API key.
+        any_api_key = any(merged.get(k) for k in _KEYRING_KEYS)
+        if settings_file_existed and any_api_key and not merged.get("onboarding_completed"):
+            log.info("API key present but onboarding_completed=False — marking complete (post-update recovery).")
+            merged["onboarding_completed"] = True
+
+        return merged
+
 
 def save_settings(settings: dict):
     with _settings_lock:
-        log.info("Saving settings to disk...")
+        log.info("Saving settings to APPDATA...")
         merged = {**DEFAULT_SETTINGS, **settings}
         try:
-            # Atomic write: write to temp file first, then replace
             tmp_path = str(SETTINGS_PATH) + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(merged, f, indent=2)
             os.replace(tmp_path, SETTINGS_PATH)
-            log.info("Settings saved successfully.")
+            log.info("Settings saved to APPDATA.")
         except Exception as e:
-            log.error(f"Failed to save settings: {e}")
+            log.error(f"Failed to save settings to APPDATA: {e}")
+
+        # Mirror API keys to keyring — these survive NSIS reinstalls and APPDATA resets
+        for k in _KEYRING_KEYS:
+            _keyring_set(k, merged.get(k, ""))
 
 if __name__ == "__main__":
     s = load_settings()

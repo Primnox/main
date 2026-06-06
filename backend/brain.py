@@ -80,6 +80,18 @@ def get_api_key(provider):
 def get_groq_api_key():
     return get_api_key("groq")
 
+def get_ollama_status(base_url: str = "http://localhost:11434") -> dict:
+    """Returns {'running': bool, 'models': [str, ...]}"""
+    try:
+        resp = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            models = [m["name"] for m in data.get("models", [])]
+            return {"running": True, "models": models}
+        return {"running": False, "models": []}
+    except Exception:
+        return {"running": False, "models": []}
+
 def transcribe(audio_bytes):
     log.info("Requesting transcription from Groq Whisper...")
     api_key = get_groq_api_key()
@@ -208,7 +220,7 @@ def think(prompt, context=None, image_base64=None):
             )
             res = resp.json()
             # Map Anthropic response structure to OpenAI compatibility
-            content = res.get("content", [{}])[0].get("text", "ERROR")
+            content = res.get("content", [{}])[0].get("text", "")
             mapped_res = {
                 "choices": [{
                     "message": {
@@ -217,6 +229,33 @@ def think(prompt, context=None, image_base64=None):
                 }]
             }
             return mapped_res
+
+        elif active_model == "Ollama_Local":
+            ollama_url = settings.get("ollama_base_url", "http://localhost:11434").rstrip("/")
+            ollama_model = settings.get("ollama_model", "llama3.2")
+            log.info(f"Routing think() → Ollama ({ollama_model} @ {ollama_url})")
+            try:
+                resp = requests.post(
+                    f"{ollama_url}/v1/chat/completions",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": ollama_model,
+                        "messages": [
+                            {"role": "system", "content": system_content},
+                            {"role": "user", "content": user_content}
+                        ],
+                        "stream": False
+                    },
+                    timeout=120   # local models can be slow
+                )
+                res = resp.json()
+                return res
+            except requests.exceptions.Timeout:
+                log.error("Ollama timed out — model may be loading. Try again shortly.")
+                return {"choices": [{"message": {"content": "ollama timed out — the model might still be loading. try again in a few seconds."}}]}
+            except requests.exceptions.ConnectionError:
+                log.error("Ollama not reachable — is it running? (ollama serve)")
+                return {"choices": [{"message": {"content": "ollama isn't running bro. start it with `ollama serve`."}}]}
 
         else: # Default/Groq_Llama_3
             api_key = get_api_key("groq")
@@ -327,18 +366,26 @@ def think_stream(prompt, context="", session_id=""):
     url = ""
     model_name = ""
     headers = {}
-    
+    is_ollama = False
+
     if active_model == "OpenAI_GPT_4o":
         api_key = get_api_key("openai")
         url = "https://api.openai.com/v1/chat/completions"
         model_name = "gpt-4o"
         headers = {"Authorization": f"Bearer {api_key}"}
     elif active_model == "Anthropic_Claude_3":
-        # Anthropic tool calling is different, we'll skip for now and fallback
         api_key = get_api_key("anthropic")
         url = "https://api.anthropic.com/v1/messages"
         model_name = "claude-3-5-sonnet-20241022"
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+    elif active_model == "Ollama_Local":
+        ollama_url = settings.get("ollama_base_url", "http://localhost:11434").rstrip("/")
+        model_name = settings.get("ollama_model", "llama3.2")
+        url = f"{ollama_url}/v1/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        api_key = "ollama"   # sentinel — Ollama needs no real key
+        is_ollama = True
+        log.info(f"Routing think_stream() → Ollama ({model_name} @ {ollama_url})")
     else:
         api_key = get_api_key("groq")
         url = "https://api.groq.com/openai/v1/chat/completions"
@@ -347,6 +394,37 @@ def think_stream(prompt, context="", session_id=""):
 
     if not api_key:
         yield "Sorry, cannot process this request without AI. Please add your Groq API key in Settings."
+        return
+
+    # ── Ollama fast-path: no tool-calling loop, direct streaming ─────────────
+    if is_ollama:
+        try:
+            resp_stream = requests.post(
+                url, headers=headers,
+                json={"model": model_name, "messages": messages, "stream": True},
+                stream=True, timeout=120
+            )
+            if resp_stream.status_code != 200:
+                yield f"[Ollama error {resp_stream.status_code}]: {resp_stream.text}"
+                return
+            for line in resp_stream.iter_lines():
+                if line:
+                    decoded = line.decode("utf-8")
+                    if decoded.startswith("data: "):
+                        data_str = decoded[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            token = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            if token:
+                                yield token
+                        except Exception:
+                            pass
+        except requests.exceptions.Timeout:
+            yield "ollama timed out — the model might still be loading. try again in a few seconds."
+        except requests.exceptions.ConnectionError:
+            yield "ollama isn't running bro. start it with `ollama serve`."
         return
 
     try:
@@ -518,13 +596,16 @@ def think_stream(prompt, context="", session_id=""):
                             pass
                     
         else:
-            # Fallback for Anthropic
+            # Anthropic streaming — pass full conversation history.
+            # Anthropic requires system prompt in its own "system" field,
+            # and messages must only contain role=user/assistant (no system).
+            anthropic_messages = [m for m in messages if m["role"] != "system"]
             resp = requests.post(
                 url,
                 headers=headers,
                 json={
                     "model": model_name,
-                    "messages": [{"role": "user", "content": user_content}],
+                    "messages": anthropic_messages,
                     "system": system_content,
                     "stream": True,
                     "max_tokens": 1024

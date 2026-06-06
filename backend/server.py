@@ -166,7 +166,91 @@ async def auto_assign_chat(session_id: str):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.0.2-alpha"}
+    return {"status": "ok", "version": "0.0.7-alpha"}
+
+@app.get("/api/dashboard")
+async def get_dashboard():
+    from pathlib import Path
+    import datetime
+    from notes_manager import get_notes
+    from memory import list_memories
+
+    # Feed data — ambient + window events
+    history = list(core.feed.history[-25:])
+    ambient_events = [h for h in core.feed.history if "Ambient:" in h]
+    # Rough word count from ambient chunks (strip timestamp + label)
+    words_heard = 0
+    for e in ambient_events:
+        parts = e.split("Ambient:", 1)
+        if len(parts) > 1:
+            words_heard += len(parts[1].split())
+
+    # Current focus
+    active_window = core.feed.active_window_title or "Unknown"
+    active_process = core.feed.active_process_name or "Unknown"
+
+    # Meetings from disk
+    meetings_dir = Path.home() / "Documents" / "Primnox" / "Meetings"
+    meetings = []
+    if meetings_dir.exists():
+        for d in sorted(meetings_dir.iterdir(), reverse=True)[:5]:
+            if not d.is_dir():
+                continue
+            summary_file = d / "summary.txt"
+            has_summary = summary_file.exists()
+            preview = None
+            if has_summary:
+                try:
+                    preview = summary_file.read_text(encoding="utf-8")[:250]
+                except Exception:
+                    pass
+            meetings.append({
+                "name": d.name,
+                "has_summary": has_summary,
+                "summary_preview": preview
+            })
+
+    # Counts
+    try:
+        notes_count = len(get_notes())
+    except Exception:
+        notes_count = 0
+    try:
+        memories_count = len(list_memories())
+    except Exception:
+        memories_count = 0
+
+    # Flag whether the primary AI key is configured (don't expose the key itself)
+    has_api_key = bool(core.settings.get("groq_api_key") or
+                       core.settings.get("openai_api_key") or
+                       core.settings.get("anthropic_api_key"))
+
+    return {
+        "active_window": active_window,
+        "active_process": active_process,
+        "feed_history": history,
+        "ambient_count": len(ambient_events),
+        "words_heard_today": max(0, words_heard),
+        "meetings": meetings,
+        "notes_count": notes_count,
+        "memories_count": memories_count,
+        "has_api_key": has_api_key,
+    }
+
+@app.get("/api/ollama/status")
+async def ollama_status():
+    """Returns Ollama running status + list of installed models."""
+    from brain import get_ollama_status
+    from settings_manager import load_settings
+    s = load_settings()
+    base_url = s.get("ollama_base_url", "http://localhost:11434")
+    return get_ollama_status(base_url)
+
+@app.post("/api/daily_brief")
+async def post_daily_brief(background_tasks: BackgroundTasks):
+    """Trigger daily debrief generation — result is broadcast via WS."""
+    background_tasks.add_task(core.feed.generate_daily_debrief)
+    return {"status": "generating"}
 
 @app.get("/logs")
 async def get_logs(limit: int = 200, level: str = "all"):

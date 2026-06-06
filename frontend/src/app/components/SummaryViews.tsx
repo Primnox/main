@@ -1,7 +1,7 @@
-import { motion } from 'motion/react';
-import { Maximize2, Activity, Info, ExternalLink, Database, MessageSquare, FileText, CheckCircle, Terminal } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Database, MessageSquare, FileText, CheckCircle, Terminal, Mic, Brain, FileEdit, Video, Monitor, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
 
-type ScreenId = 
+type ScreenId =
   | 'summaries_expanded'
   | 'notes_icon_sidebar'
   | 'summaries_sidebar_hidden'
@@ -17,141 +17,220 @@ const StatusDot = ({ color = 'bg-primary' }: { color?: string }) => (
   <div className={`w-2 h-2 rounded-full ${color} shadow-[0_0_12px_rgba(79,70,229,0.4)] animate-pulse`} />
 );
 
-export const SummariesExpanded = ({ onNavigate, activity = [] }: { onNavigate: (id: ScreenId) => void, activity?: any[] }) => {
-  const latestActivity = activity.slice(0, 3);
-  
+// ── Stat Card ────────────────────────────────────────────────────────────────
+const StatCard = ({ label, value, icon: Icon, sub }: { label: string, value: string | number, icon: any, sub?: string }) => (
+  <div className="bg-zinc-900/40 border border-white/5 rounded-2xl p-6 flex flex-col gap-3 hover:border-primary/20 transition-all">
+    <div className="flex items-center justify-between">
+      <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.4em]">{label}</span>
+      <Icon size={14} className="text-white/20" />
+    </div>
+    <p className="text-3xl font-bold text-white tracking-tight">{value}</p>
+    {sub && <p className="text-[10px] text-white/30 font-mono">{sub}</p>}
+  </div>
+);
+
+// ── Activity Row ─────────────────────────────────────────────────────────────
+const FeedRow = ({ event }: { event: string }) => {
+  const isAmbient = event.includes('Ambient:');
+  const parts = event.split(' - ', 2);
+  const time = parts[0] || '';
+  const content = parts[1] || event;
+
   return (
-    <div className="p-8 lg:p-12 space-y-16 animate-in fade-in slide-in-from-bottom-8 duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)]">
-      <div className="grid grid-cols-12 gap-10">
-        <div 
-          onClick={() => onNavigate('summaries_sidebar_hidden')}
-          className="col-span-12 lg:col-span-8 bg-zinc-900/40 backdrop-blur-md border border-white/5 group hover:border-primary/40 transition-all duration-700 overflow-hidden relative cursor-pointer shadow-[0_32px_128px_rgba(0,0,0,0.6)] rounded-2xl"
-        >
-          <div className="h-1.5 bg-gradient-to-r from-primary/30 via-primary/10 to-transparent w-full" />
-          <div className="p-12">
-            <div className="flex justify-between items-start mb-12">
-              <div className="flex gap-8 items-center">
-                <div className="w-16 h-16 bg-white/5 border border-white/10 flex items-center justify-center rotate-6 group-hover:rotate-0 transition-transform duration-700 rounded-xl relative">
-                  <div className="absolute inset-0 bg-primary/10 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <Maximize2 size={32} className="text-white relative z-10" />
-                </div>
-                <div>
-                  <h3 className="font-bold lowercase italic tracking-wide text-white text-xl mb-2 text-left">
-                    {activity[0]?.module || 'system_core_active'}
-                  </h3>
-                  <p className="font-mono text-white/30 text-[9px] uppercase tracking-[0.4em] font-medium text-left">
-                    INDEX: 0x{activity[0]?.ts ? Math.floor(activity[0].ts).toString(16).toUpperCase() : 'NULL'} // REAL_TIME_STREAM
-                  </p>
-                </div>
-              </div>
-              <span className="bg-primary/10 text-primary font-mono text-[8px] px-4 py-1.5 border border-primary/20 tracking-[0.3em] font-bold rounded-full lowercase">
-                STATUS_{activity[0]?.level || 'STABLE'}
-              </span>
-            </div>
-            <p className="text-white/60 mb-12 leading-relaxed max-w-2xl text-sm font-light text-left line-clamp-2">
-              {activity[0]?.msg || 'The Primnox kernel is monitoring all neural pathways. No anomalies detected in the current orchestration cycle.'}
-            </p>
-            <div className="grid grid-cols-3 gap-12 pt-12 border-t border-white/5">
-              <div>
-                <span className="font-mono text-[9px] text-white/20 block mb-4 uppercase tracking-[0.4em] font-bold text-left">Active_Clusters</span>
-                <div className="flex -space-x-4">
-                  {[1,2,3].map(i => (
-                    <div key={i} className="w-10 h-10 rounded-full border-4 border-zinc-950 bg-zinc-900 flex items-center justify-center shadow-2xl transition-transform hover:scale-110 hover:z-10 cursor-default">
-                       <Terminal size={14} className="text-primary/40" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <span className="font-mono text-[9px] text-white/20 block mb-4 uppercase tracking-[0.4em] font-bold text-left">Process_Buffer</span>
-                <p className="text-white font-mono text-sm font-bold tracking-tighter text-left uppercase">{activity.length}_nodes</p>
-              </div>
-              <div>
-                <span className="font-mono text-[9px] text-white/20 block mb-4 uppercase tracking-[0.4em] font-bold text-left">Health_Index</span>
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse" />
-                  <p className="text-white font-mono text-sm font-bold tracking-tighter uppercase">99.9_NOMINAL</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+    <div className="flex items-start gap-3 py-2 border-b border-white/[0.03] last:border-0">
+      <span className="font-mono text-[9px] text-white/20 mt-0.5 shrink-0 w-14">{time}</span>
+      <span className={`shrink-0 px-1.5 py-0.5 rounded text-[8px] font-mono uppercase tracking-wider ${
+        isAmbient ? 'bg-primary/10 text-primary' : 'bg-white/5 text-white/30'
+      }`}>
+        {isAmbient ? 'heard' : 'focus'}
+      </span>
+      <p className="text-xs text-white/60 leading-relaxed line-clamp-1 font-light">
+        {isAmbient ? content.replace('Ambient:', '').trim() : content}
+      </p>
+    </div>
+  );
+};
 
-        <div className="col-span-12 lg:col-span-4 space-y-10">
-          <div className="bg-zinc-900/40 backdrop-blur-md border border-white/5 p-10 relative overflow-hidden shadow-[0_32px_128px_rgba(0,0,0,0.6)] rounded-2xl">
-            <Activity size={120} className="absolute -top-8 -right-8 text-white/[0.02] rotate-12" />
-            <h4 className="font-mono text-[10px] text-white/40 uppercase mb-10 tracking-[0.5em] font-bold text-left">System_Telemetry</h4>
-            <div className="space-y-10 relative z-10">
-              <div>
-                <div className="flex justify-between mb-4 uppercase font-mono text-[10px] tracking-widest leading-none">
-                  <span className="text-white/40">Data_Throughput</span>
-                  <span className="text-primary font-bold">124.3 GB/s</span>
-                </div>
-                <div className="w-full bg-white/5 h-[3px] rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: '75%' }}
-                    transition={{ duration: 1.5, ease: "easeOut" }}
-                    className="bg-primary h-full shadow-[0_0_20px_rgba(79,70,229,0.8)]" 
-                  />
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between mb-4 uppercase font-mono text-[10px] tracking-widest leading-none">
-                  <span className="text-white/40">Neural_Latency</span>
-                  <span className="text-primary font-bold">0.42ms</span>
-                </div>
-                <div className="w-full bg-white/5 h-[3px] rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: '94%' }}
-                    transition={{ duration: 1.5, delay: 0.2, ease: "easeOut" }}
-                    className="bg-primary h-full shadow-[0_0_20px_rgba(79,70,229,0.8)]" 
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+// ── Dashboard (SummariesExpanded) ────────────────────────────────────────────
+export const SummariesExpanded = ({ onNavigate, activity: _activity = [] }: { onNavigate: (id: ScreenId) => void, activity?: any[] }) => {
+  const [dash, setDash] = useState<any>(null);
+  const [briefStatus, setBriefStatus] = useState<'idle' | 'generating' | 'done'>('idle');
 
-          <div className="bg-primary/5 border border-primary/10 p-8 rounded-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-[0.03]">
-              <Info size={48} className="text-primary" />
-            </div>
-            <div className="flex items-center gap-3 mb-4">
-              <StatusDot />
-              <p className="text-[10px] text-primary font-mono uppercase tracking-[0.4em] font-bold">Observer_Feed</p>
-            </div>
-            <p className="text-sm text-white/70 leading-relaxed italic font-light text-left lowercase">
-              "{activity[1]?.msg || 'Awaiting further instructions from the operator. Kernel remains in high-availability state.'}"
-            </p>
-          </div>
-        </div>
-      </div>
+  const fetchDash = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/dashboard');
+      if (res.ok) setDash(await res.json());
+    } catch (_) {}
+  };
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 text-left">
-        {latestActivity.length === 0 ? (
-          <div className="col-span-full py-10 text-center text-white/10 font-mono text-xs uppercase tracking-widest">No broadcast nodes available</div>
-        ) : (
-          latestActivity.map((item, id) => (
-            <div 
-              key={id}
-              onClick={() => onNavigate('summaries_icon_sidebar')} 
-              className="bg-zinc-900/20 backdrop-blur-sm border border-white/5 p-10 hover:border-primary/40 transition-all group cursor-pointer shadow-2xl relative overflow-hidden rounded-2xl"
+  useEffect(() => {
+    fetchDash();
+    const id = setInterval(fetchDash, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const triggerBrief = async () => {
+    setBriefStatus('generating');
+    try {
+      await fetch('http://localhost:8000/api/daily_brief', { method: 'POST' });
+      setBriefStatus('done');
+      setTimeout(() => setBriefStatus('idle'), 4000);
+    } catch (_) {
+      setBriefStatus('idle');
+    }
+  };
+
+  const feed: string[] = dash?.feed_history ?? [];
+  const meetings: any[] = dash?.meetings ?? [];
+
+  return (
+    <div className="h-full overflow-y-auto custom-scrollbar">
+      <div className="p-8 lg:p-10 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]">
+
+        {/* ── API Key Banner ── */}
+        {dash && !dash.has_api_key && (
+          <div className="flex items-center justify-between gap-4 px-5 py-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+              <p className="text-sm text-amber-300/90 font-light">
+                No API key set — Primnox won't be able to think or transcribe.
+              </p>
+            </div>
+            <button
+              onClick={() => onNavigate('island_settings')}
+              className="shrink-0 px-4 py-1.5 bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg font-mono text-[10px] uppercase tracking-widest hover:bg-amber-500/30 transition-all"
             >
-               <div className="absolute top-0 right-0 p-6 opacity-0 group-hover:opacity-100 transition-opacity translate-x-4 group-hover:translate-x-0 duration-500">
-              <ExternalLink size={16} className="text-primary" />
+              Add Key →
+            </button>
+          </div>
+        )}
+
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-bold lowercase italic text-white text-xl tracking-tight">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            </h2>
+            <p className="font-mono text-[10px] text-white/30 uppercase tracking-[0.4em] mt-1">Primnox_Dashboard // Live</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={fetchDash}
+              className="p-2 rounded-lg text-white/20 hover:text-primary hover:bg-primary/10 transition-all"
+              title="Refresh"
+            >
+              <RefreshCw size={14} />
+            </button>
+            <button
+              onClick={triggerBrief}
+              disabled={briefStatus === 'generating'}
+              className="flex items-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 text-primary rounded-xl font-mono text-[10px] uppercase tracking-widest hover:bg-primary hover:text-black transition-all disabled:opacity-40"
+            >
+              <Zap size={12} />
+              {briefStatus === 'generating' ? 'Generating...' : briefStatus === 'done' ? 'Sent to chat ✓' : 'Daily Brief'}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Stat Cards ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard label="Words_Heard" value={dash?.words_heard_today ?? '—'} icon={Mic} sub={`${dash?.ambient_count ?? 0} moments`} />
+          <StatCard label="Meetings" value={dash?.meetings?.length ?? '—'} icon={Video} sub="recorded today" />
+          <StatCard label="Notes" value={dash?.notes_count ?? '—'} icon={FileEdit} sub="in workspace" />
+          <StatCard label="Memories" value={dash?.memories_count ?? '—'} icon={Brain} sub="stored" />
+        </div>
+
+        {/* ── Main Grid ── */}
+        <div className="grid grid-cols-12 gap-6">
+
+          {/* Activity Feed */}
+          <div className="col-span-12 lg:col-span-8 bg-zinc-900/40 border border-white/5 rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <StatusDot />
+                <span className="font-mono text-[10px] text-white/40 uppercase tracking-[0.4em]">Activity_Feed</span>
+              </div>
+              <span className="font-mono text-[9px] text-white/20">{feed.length} events</span>
             </div>
-            <div className="flex justify-between mb-8 uppercase font-mono text-[9px] tracking-[0.4em] font-medium">
-              <span className="text-white/20">{new Date(item.ts * 1000).toLocaleTimeString()}</span>
-            </div>
-            <h3 className="font-bold lowercase italic tracking-wide text-white text-base mb-4 group-hover:text-primary transition-colors leading-tight truncate">{item.module}</h3>
-            <p className="text-white/30 text-xs line-clamp-2 mb-10 leading-relaxed font-light">{item.msg}</p>
-            <div className="flex gap-3">
-              <span className="px-3 py-1 bg-white/[0.03] border border-white/10 text-white/30 font-mono text-[9px] uppercase tracking-widest rounded-sm">{item.level}</span>
+            <div className="px-6 py-4 max-h-72 overflow-y-auto custom-scrollbar">
+              {feed.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="font-mono text-[10px] text-white/20 uppercase tracking-widest">no activity yet — primnox is listening</p>
+                </div>
+              ) : (
+                [...feed].reverse().map((e) => <FeedRow key={e} event={e} />)
+              )}
             </div>
           </div>
-          ))
-        )}
+
+          {/* Right column */}
+          <div className="col-span-12 lg:col-span-4 space-y-4">
+
+            {/* Current Focus */}
+            <div className="bg-zinc-900/40 border border-white/5 rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Monitor size={12} className="text-white/30" />
+                <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.4em]">Current_Focus</span>
+              </div>
+              {dash ? (
+                <>
+                  <p className="text-white font-bold text-sm truncate">{dash.active_process || 'Unknown'}</p>
+                  <p className="text-white/40 text-xs font-mono truncate mt-1">{dash.active_window || '—'}</p>
+                </>
+              ) : (
+                <p className="text-white/20 text-xs font-mono">connecting...</p>
+              )}
+            </div>
+
+            {/* Recent Meetings */}
+            <div className="bg-zinc-900/40 border border-white/5 rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-white/5 flex items-center gap-2">
+                <Video size={12} className="text-white/30" />
+                <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.4em]">Recent_Meetings</span>
+              </div>
+              <div className="divide-y divide-white/[0.04]">
+                {meetings.length === 0 ? (
+                  <p className="px-5 py-4 font-mono text-[10px] text-white/20">no meetings recorded</p>
+                ) : (
+                  meetings.slice(0, 3).map((m, i) => (
+                    <div key={i} className="px-5 py-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs text-white/70 font-mono truncate">{m.name}</p>
+                        {m.summary_preview && (
+                          <p className="text-[10px] text-white/30 mt-1 line-clamp-2 font-light">{m.summary_preview}</p>
+                        )}
+                      </div>
+                      <span className={`shrink-0 text-[8px] font-mono px-2 py-0.5 rounded-full ${
+                        m.has_summary ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-white/20'
+                      }`}>
+                        {m.has_summary ? 'summary' : 'raw'}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Quick Nav ── */}
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: 'Open_Chat', icon: MessageSquare, screen: 'chat_expanded_sidebar' as ScreenId },
+            { label: 'View_Notes', icon: FileText, screen: 'notes_icon_sidebar' as ScreenId },
+            { label: 'Data_Vault', icon: Database, screen: 'archive' as ScreenId },
+          ].map(({ label, icon: Icon, screen }) => (
+            <button
+              key={screen}
+              onClick={() => onNavigate(screen)}
+              className="flex items-center justify-center gap-3 p-4 bg-zinc-900/20 border border-white/5 rounded-2xl hover:border-primary/30 hover:bg-primary/5 transition-all group"
+            >
+              <Icon size={14} className="text-white/30 group-hover:text-primary transition-colors" />
+              <span className="font-mono text-[10px] text-white/40 group-hover:text-white uppercase tracking-widest transition-colors">{label}</span>
+            </button>
+          ))}
+        </div>
+
       </div>
     </div>
   );

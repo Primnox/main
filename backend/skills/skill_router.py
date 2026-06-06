@@ -1,31 +1,62 @@
+# skills/skill_router.py
 import os
 import importlib
 import inspect
 from pathlib import Path
-from skills.base_skill import BaseSkill
+from skills.base_skill import BaseSkill, SkillContext, SkillResult
 from logger import get_logger
 
 log = get_logger("skills")
 
-SKILL_REGISTRY = {}
-TRIGGER_MAP = {}
+SKILL_REGISTRY: dict = {}   # ext → skill class
+TRIGGER_MAP: dict = {}       # trigger word → skill class
+
+
+# ── Dependency validation ─────────────────────────────────────────────────────
+
+def _check_pip_deps(skill_cls) -> list[str]:
+    """Return a list of REQUIRES_PIP packages that are not importable."""
+    missing = []
+    for pkg in getattr(skill_cls, "REQUIRES_PIP", []):
+        try:
+            importlib.import_module(pkg)
+        except ImportError:
+            missing.append(pkg)
+    return missing
+
+
+# ── Registration ──────────────────────────────────────────────────────────────
 
 def register_skill(skill_cls):
+    missing = _check_pip_deps(skill_cls)
+    if missing:
+        log.warning(
+            f"Skipping skill '{skill_cls.name}' — missing pip packages: "
+            f"{', '.join(missing)}. Run: pip install {' '.join(missing)}"
+        )
+        return
+
     skill = skill_cls()
-    log.info(f"Registering skill: {skill.name}")
+    log.info(f"Registered skill: {skill.name}")
     for ext in skill.supported_extensions:
         SKILL_REGISTRY[ext.lower()] = skill_cls
     for word in skill.trigger_words:
         TRIGGER_MAP[word.lower()] = skill_cls
 
+
+# ── Auto-discovery ────────────────────────────────────────────────────────────
+
 def discover_skills():
-    """Auto-discover all skill classes in the skills/ directory."""
+    """
+    Drop a *_skill.py file in skills/ and it auto-registers — no manual wiring.
+    Missing REQUIRES_PIP packages cause a warning skip instead of a crash.
+    """
     skills_dir = Path(__file__).parent
-    
+
     for file_path in skills_dir.glob("*_skill.py"):
         if file_path.name == "base_skill.py":
             continue
-            
+
         module_name = f"skills.{file_path.stem}"
         try:
             module = importlib.import_module(module_name)
@@ -35,13 +66,17 @@ def discover_skills():
         except Exception as e:
             log.error(f"Failed to load skill module {module_name}: {e}")
 
-# Import and register skills dynamically
+
 discover_skills()
 
-def get_skill_for_extension(ext):
+
+# ── Lookup helpers ────────────────────────────────────────────────────────────
+
+def get_skill_for_extension(ext: str):
     return SKILL_REGISTRY.get(ext.lower())
 
-def get_skill_for_trigger(text):
+
+def get_skill_for_trigger(text: str):
     if not text:
         return None
     text = text.lower()
@@ -50,19 +85,73 @@ def get_skill_for_trigger(text):
             return skill_cls
     return None
 
-def route_skill(file_path=None, user_message=None):
-    log.info(f"Routing skill for path={file_path}, message='{user_message}'")
+
+def list_skills() -> list[dict]:
+    """Return describe() dicts for every registered skill (deduped by name)."""
+    seen = set()
+    out = []
+    for skill_cls in list(SKILL_REGISTRY.values()) + list(TRIGGER_MAP.values()):
+        if skill_cls.name not in seen:
+            seen.add(skill_cls.name)
+            try:
+                out.append(skill_cls().describe())
+            except Exception as e:
+                log.warning(f"Skipping skill '{skill_cls.name}' in list — failed to instantiate: {e}")
+    return out
+
+
+# ── Main router ───────────────────────────────────────────────────────────────
+
+def route_skill(
+    file_path: str | None = None,
+    user_message: str | None = None,
+    session_id: str | None = None,
+    chat_history: list | None = None,
+    metadata: dict | None = None
+) -> dict:
+    """
+    Route to the right skill, build a SkillContext, call skill.run(), and
+    return a plain dict for backward compatibility with server.py.
+    """
+    log.info(f"Routing skill — path={file_path!r}, message={str(user_message)[:60]!r}")
+
     skill_cls = None
     if file_path:
-        ext = Path(file_path).suffix.lstrip('.').lower()
+        ext = Path(file_path).suffix.lstrip(".").lower()
         skill_cls = get_skill_for_extension(ext)
+        # Do NOT fall through to trigger lookup when a file is attached —
+        # an unrecognised extension should return no-match, not accidentally
+        # fire a trigger-word skill using the user's message text.
+        if not skill_cls:
+            log.warning(f"No skill registered for extension '.{ext}'.")
+            return {"success": False, "error": f"No skill available for .{ext} files."}
     else:
         skill_cls = get_skill_for_trigger(user_message)
 
     if not skill_cls:
-        log.warning("No matching skill found for input.")
-        return {"error": "No matching skill found."}
-    
+        log.warning("No matching skill found.")
+        return {"success": False, "error": "No matching skill found."}
+
     skill = skill_cls()
     log.info(f"Executing skill: {skill.name}")
-    return skill.execute(file_path, user_message)
+
+    ctx = SkillContext(
+        file_path=file_path,
+        user_message=user_message,
+        session_id=session_id,
+        chat_history=chat_history or [],
+        metadata=metadata or {}
+    )
+
+    result: SkillResult = skill.run(ctx)
+
+    return {
+        "success": result.success,
+        "output_text": result.output_text,
+        "output_path": result.output_path,
+        "confidence": result.confidence,
+        "elapsed_ms": result.elapsed_ms,
+        "skill_name": skill.name,
+        "error": result.error,
+        **result.extras
+    }

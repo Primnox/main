@@ -1,120 +1,118 @@
 # backend/skills/pdf_skill.py
-from pypdf import PdfReader
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
 import time
 from pathlib import Path
-from brain import think
-from skills.base_skill import BaseSkill
+from skills.base_skill import BaseSkill, SkillContext, SkillResult
 from logger import get_logger
 
 log = get_logger("skill.pdf")
 
+
 class PDFSkill(BaseSkill):
     name = "PDF Specialist"
+    description = "Read, summarize, and generate PDF documents."
     supported_extensions = ["pdf"]
     trigger_words = [
         "summarize this pdf", "read this pdf", "what's in this pdf",
         "create pdf", "generate pdf", "make a pdf", "create a pdf", "make pdf"
     ]
+    REQUIRES_PIP = ["pypdf", "reportlab"]
 
-    def execute(self, file_path=None, user_message=None):
-        # Determine if we are reading or creating
-        intent = user_message.lower() if user_message else ""
+    @property
+    def input_schema(self) -> dict:
+        schema = super().input_schema
+        schema["properties"]["intent"] = {
+            "type": "string",
+            "enum": ["read", "generate"],
+            "description": "Whether to read an existing PDF or generate a new one"
+        }
+        return schema
+
+    def execute(self, ctx: SkillContext) -> SkillResult:
+        from pypdf import PdfReader
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        from brain import think
+
+        intent = ctx.user_message.lower() if ctx.user_message else ""
         if any(w in intent for w in ["create pdf", "generate pdf", "make a pdf", "create a pdf", "make pdf"]):
-            return self._generate_pdf(user_message)
-        
-        if not file_path:
-            return {"success": False, "error": "no pdf file provided for reading."}
-            
-        return self._read_pdf(file_path, user_message)
+            return self._generate_pdf(ctx, think, SimpleDocTemplate, Paragraph, Spacer, getSampleStyleSheet, letter)
 
-    def _read_pdf(self, file_path, user_message):
-        log.info(f"Executing PDF Specialist (Read) for {file_path}")
+        if not ctx.file_path:
+            return SkillResult(success=False, error="no pdf file provided for reading.")
+
+        return self._read_pdf(ctx, PdfReader, think)
+
+    def _read_pdf(self, ctx: SkillContext, PdfReader, think) -> SkillResult:
+        log.info(f"PDF Specialist (Read): {ctx.file_path}")
         try:
-            reader = PdfReader(file_path)
+            reader = PdfReader(ctx.file_path)
             text = ""
             for i, page in enumerate(reader.pages):
-                log.debug(f"Extracting text from page {i+1}...")
+                log.debug(f"Extracting page {i+1}...")
                 text += page.extract_text() + "\n"
-            
-            truncated_text = text[:10000] 
-            prompt = user_message if user_message else "Summarize this PDF."
-            resp = think(f"PDF TEXT:\n{truncated_text}\n\nTASK: {prompt}")
-            
-            content = resp.get("choices", [{}])[0].get("message", {}).get("content", "failed to read pdf.")
-            return {"success": True, "output_text": content, "skill_name": self.name}
-        except Exception as e:
-            log.error(f"PDF Specialist (Read) failed: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
 
-    def _generate_pdf(self, user_message):
-        log.info("Executing PDF Specialist (Generate)")
+            prompt = ctx.user_message or "Summarize this PDF."
+            resp = think(f"PDF TEXT:\n{text[:10000]}\n\nTASK: {prompt}")
+            content = resp.get("choices", [{}])[0].get("message", {}).get("content", "failed to read pdf.")
+            return SkillResult(success=True, output_text=content)
+        except Exception as e:
+            log.error(f"PDF read failed: {e}", exc_info=True)
+            return SkillResult(success=False, error=str(e))
+
+    def _generate_pdf(self, ctx: SkillContext, think, SimpleDocTemplate, Paragraph, Spacer, getSampleStyleSheet, letter) -> SkillResult:
+        log.info("PDF Specialist (Generate)")
         try:
             output_dir = Path.home() / "Documents" / "Primnox" / "Generated"
             output_dir.mkdir(parents=True, exist_ok=True)
-            
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            pdf_path = output_dir / f"doc_{timestamp}.pdf"
-            
-            # Use Brain to structure the content
-            log.debug("Asking brain to generate content for PDF...")
+            pdf_path = output_dir / f"doc_{time.strftime('%Y%m%d_%H%M%S')}.pdf"
+
             gen_prompt = (
-                f"TASK: Write the raw content for a PDF based on: '{user_message}'. "
+                f"TASK: Write the raw content for a PDF based on: '{ctx.user_message}'. "
                 "CRITICAL CONSTRAINTS: "
                 "1. Output ONLY the document content. "
-                "2. NO conversational filler (e.g., 'here is your pdf', 'i will generate'). "
+                "2. NO conversational filler. "
                 "3. NO meta-talk about the process. "
                 "4. Use '#' for section headers. "
                 "5. Maintain your persona: lowercase only, no periods."
             )
             resp = think(gen_prompt)
-            
             if "error" in resp:
-                log.error(f"Brain failed to generate content: {resp['error']}")
-                return {"success": False, "error": f"brain failed: {resp['error']}"}
+                return SkillResult(success=False, error=f"brain failed: {resp['error']}")
 
             content = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-            
-            if not content or content == "ERROR":
-                 return {"success": False, "error": "no content generated by brain."}
+            if not content:
+                return SkillResult(success=False, error="no content generated by brain.")
 
-            # Create PDF
             doc = SimpleDocTemplate(str(pdf_path), pagesize=letter)
             styles = getSampleStyleSheet()
             story = []
-            
-            # Split content into paragraphs for reportlab
-            for line in content.split('\n'):
+            for line in content.split("\n"):
                 if line.strip():
-                    # Basic Markdown-ish header detection
-                    if line.startswith('#'):
-                        story.append(Paragraph(line.replace('#', '').strip(), styles['Heading1']))
+                    if line.startswith("#"):
+                        story.append(Paragraph(line.replace("#", "").strip(), styles["Heading1"]))
                     else:
-                        story.append(Paragraph(line.strip(), styles['BodyText']))
+                        story.append(Paragraph(line.strip(), styles["BodyText"]))
                     story.append(Spacer(1, 12))
-            
             doc.build(story)
-            log.info(f"PDF generated successfully: {pdf_path}")
-            
-            return {
-                "success": True, 
-                "output_text": f"pdf generated successfully. saved to {pdf_path}",
-                "output_path": str(pdf_path),
-                "skill_name": self.name
-            }
+
+            log.info(f"PDF generated: {pdf_path}")
+            return SkillResult(
+                success=True,
+                output_text=f"pdf generated successfully. saved to {pdf_path}",
+                output_path=str(pdf_path)
+            )
         except Exception as e:
-            log.error(f"PDF Specialist (Generate) failed: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
+            log.error(f"PDF generate failed: {e}", exc_info=True)
+            return SkillResult(success=False, error=str(e))
+
 
 if __name__ == "__main__":
     import sys
     skill = PDFSkill()
-    if len(sys.argv) > 1:
-        # Check if first arg is a path or a prompt
-        arg = sys.argv[1]
-        if arg.endswith(".pdf"):
-            print(skill.execute(file_path=arg))
-        else:
-            print(skill.execute(user_message=arg))
+    arg = sys.argv[1] if len(sys.argv) > 1 else None
+    ctx = SkillContext(
+        file_path=arg if arg and arg.endswith(".pdf") else None,
+        user_message=None if (arg and arg.endswith(".pdf")) else arg
+    )
+    print(skill.run(ctx))

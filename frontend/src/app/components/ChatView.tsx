@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
-import { Paperclip, ArrowRight, Sparkles, X, Plus, MessageSquare, Pin, Folder, ChevronDown, ChevronRight, Trash2, Bot } from 'lucide-react';
+import { Paperclip, ArrowRight, Sparkles, X, Plus, MessageSquare, Pin, Folder, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy';
@@ -44,12 +44,21 @@ export const ChatExpandedSidebar = ({
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, chat: any } | null>(null);
 
+  // Rename State
+  const [renameState, setRenameState] = useState<{ chatId: string, value: string } | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
   // Close context menu on click outside
   useEffect(() => {
     const handleClick = () => setContextMenu(null);
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
   }, []);
+
+  // Focus rename input when it opens
+  useEffect(() => {
+    if (renameState) setTimeout(() => renameInputRef.current?.select(), 50);
+  }, [renameState]);
 
   const handleContextMenu = (e: React.MouseEvent, chat: any) => {
     e.preventDefault();
@@ -66,6 +75,9 @@ export const ChatExpandedSidebar = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ isPinned: !chat.isPinned })
         });
+      } else if (action === 'rename') {
+        setRenameState({ chatId: chat.id, value: chat.title });
+        return;
       } else if (action === 'move') {
         await fetch(`http://localhost:8000/api/chats/${chat.id}`, {
           method: 'PUT',
@@ -80,6 +92,25 @@ export const ChatExpandedSidebar = ({
       refreshChats();
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const submitRename = async () => {
+    if (!renameState || !renameState.value.trim()) {
+      setRenameState(null); // always close the modal, even on an empty/blank submit
+      return;
+    }
+    try {
+      await fetch(`http://localhost:8000/api/chats/${renameState.chatId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: renameState.value.trim() })
+      });
+      refreshChats();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRenameState(null);
     }
   };
 
@@ -128,6 +159,9 @@ export const ChatExpandedSidebar = ({
           <button onClick={() => handleMenuAction('pin', contextMenu.chat)} className="w-full text-left px-4 py-2 hover:bg-white/10 text-white/80 flex items-center gap-2">
             <Pin size={14} /> {contextMenu.chat.isPinned ? 'Unpin' : 'Pin'}
           </button>
+          <button onClick={() => handleMenuAction('rename', contextMenu.chat)} className="w-full text-left px-4 py-2 hover:bg-white/10 text-white/80 flex items-center gap-2">
+            <Pencil size={14} /> Rename
+          </button>
           
           <div className="group/submenu relative">
             <button className="w-full text-left px-4 py-2 hover:bg-white/10 text-white/80 flex items-center justify-between">
@@ -151,6 +185,31 @@ export const ChatExpandedSidebar = ({
           <button onClick={() => handleMenuAction('delete', contextMenu.chat)} className="w-full text-left px-4 py-2 hover:bg-red-500/20 text-red-400 flex items-center gap-2">
             <Trash2 size={14} /> Delete Chat
           </button>
+        </div>,
+        document.body
+      )}
+
+      {/* Rename Modal */}
+      {renameState && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setRenameState(null)}>
+          <div className="bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl p-5 w-80" onClick={(e) => e.stopPropagation()}>
+            <p className="text-[10px] font-mono text-white/40 uppercase tracking-widest mb-3">Rename Chat</p>
+            <input
+              ref={renameInputRef}
+              value={renameState.value}
+              onChange={(e) => setRenameState({ ...renameState, value: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenameState(null); }}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+            <div className="flex gap-2 mt-3">
+              <button onClick={submitRename} className="flex-1 flex items-center justify-center gap-2 bg-primary text-black font-bold px-4 py-2 rounded-xl text-sm hover:bg-white transition-all">
+                <Check size={14} /> Save
+              </button>
+              <button onClick={() => setRenameState(null)} className="px-4 py-2 rounded-xl text-sm text-white/50 hover:text-white hover:bg-white/10 transition-all">
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>,
         document.body
       )}
