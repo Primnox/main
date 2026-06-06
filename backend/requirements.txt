@@ -15,10 +15,10 @@ requests
 # ————— SECURITY + STORAGE ————————————————
 cryptography
 keyring
-pywin32
+pywin32; sys_platform == 'win32'
 
 # ————— AUDIO + VOICE —————————————————————
-pyaudiowpatch
+pyaudiowpatch; sys_platform == 'win32'
 sounddevice
 numpy
 resemblyzer
@@ -27,11 +27,11 @@ torchaudio
 pydub
 
 # ————— SCREEN + VISION ———————————————————
-uiautomation
+uiautomation; sys_platform == 'win32'
 Pillow
 mss
 opencv-python
-pygetwindow
+pygetwindow; sys_platform == 'win32'
 ultralytics
 easyocr
 
@@ -59,7 +59,7 @@ py7zr
 pygments
 black
 isort
-comtypes
+comtypes; sys_platform == 'win32'
 edge-tts
 pyttsx3
 pyperclip
