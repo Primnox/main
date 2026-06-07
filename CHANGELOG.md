@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.0.10 (2026-06-07)
+## v0.0.9 (2026-06-07)
 
 ### 🏝️ Native Dynamic Island
 - Re-architected the Electron main process to render a transparent, floating desktop overlay window for ambient data.
