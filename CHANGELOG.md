@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.0.9 (2026-06-07)
+## v0.0.10 (2026-06-07)
 
 ### 🏝️ Native Dynamic Island
 - Re-architected the Electron main process to render a transparent, floating desktop overlay window for ambient data.
@@ -18,7 +18,7 @@
 - Optimized prompt parsing to gracefully handle markdown code fences in JSON responses.
 
 ### 🛠️ UX Improvements
-- Removed Groq API key step from the Onboarding flow to speed up initialization.
+- Removed the Groq API key prompt from the Windows `.exe` installer wizard so users can install freely.
 
 ## v0.0.8-alpha (2026-06-06)
 

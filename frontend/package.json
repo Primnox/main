@@ -1,7 +1,7 @@
 {
   "name": "primnox-ui",
   "private": true,
-  "version": "0.0.9",
+  "version": "0.0.10",
   "type": "module",
   "main": "public/electron.cjs",
   "scripts": {
@@ -54,8 +54,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": false,
-      "include": "installer.nsh"
+      "deleteAppDataOnUninstall": false
     },
     "asar": true,
     "asarUnpack": [
