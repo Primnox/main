@@ -6,7 +6,7 @@ import { TitleBar } from './TitleBar';
 
 type SidebarState = 'expanded' | 'icon' | 'hidden';
 type AppMode = 'chat' | 'notes' | 'research';
-type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy';
+type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy' | 'error';
 
 type ScreenId = 
   | 'summaries_expanded'
@@ -47,11 +47,11 @@ const SidebarLink = ({ icon: Icon, label, active, onClick }: { icon: any, label:
   </div>
 );
 
-export const Layout = ({ 
-  children, 
-  sidebarState, 
+export const Layout = ({
+  children,
+  sidebarState,
   onNavigate,
-  activeLink, 
+  activeLink,
   title = "",
   subtitle = "",
   actions = null,
@@ -66,11 +66,21 @@ export const Layout = ({
   vadLevel = 0,
   transcript = "",
   attachedFile = null,
-  isZenMode = false
-}: { 
-  children: ReactNode, 
-  sidebarState: SidebarState, 
-  onNavigate: (id: ScreenId) => void, 
+  errorPayload = null,
+  onClearError,
+  flowState = null,
+  errorStreak = null,
+  nowPlaying = null,
+  productivityScore = 100,
+  parallelTasks = [],
+  onSmartPaste,
+  isZenMode = false,
+  isIslandMode = false,
+  onRestoreWindow,
+}: {
+  children: ReactNode,
+  sidebarState: SidebarState,
+  onNavigate: (id: ScreenId) => void,
   activeLink: string,
   title?: string,
   subtitle?: string,
@@ -86,7 +96,17 @@ export const Layout = ({
   vadLevel?: number,
   transcript?: string,
   attachedFile?: any,
-  isZenMode?: boolean
+  errorPayload?: { summary: string; fix: string; hover_text: string } | null,
+  onClearError?: () => void,
+  flowState?: { duration_minutes: number; started_at: number; app: string } | null,
+  errorStreak?: { error: string; duration_minutes: number } | null,
+  nowPlaying?: { title: string; artist: string; source: string } | null,
+  productivityScore?: number,
+  parallelTasks?: { id: string; label: string; color: string }[],
+  onSmartPaste?: () => void,
+  isZenMode?: boolean,
+  isIslandMode?: boolean,
+  onRestoreWindow?: () => void,
 }) => {
   const [localSidebar, setLocalSidebar] = useState<SidebarState>(sidebarState);
 
@@ -94,20 +114,59 @@ export const Layout = ({
     setLocalSidebar(sidebarState);
   }, [sidebarState]);
 
+  // ── Island-pill mode: render ONLY the Dynamic Island ──────────────────────
+  // The Electron main process has already shrunk the window to 900×200 and
+  // positioned it at the top-centre of the screen. We just need to clear
+  // everything except the pill so nothing leaks around it.
+  if (isIslandMode) {
+    return (
+      <div className="w-full h-screen bg-transparent overflow-hidden pointer-events-none">
+        <DynamicIsland
+          mode={appMode}
+          setMode={setAppMode}
+          status={status}
+          setStatus={setStatus}
+          onProfileClick={onRestoreWindow || (() => {})}
+          vadLevel={vadLevel}
+          transcript={transcript}
+          attachedFile={attachedFile}
+          errorPayload={errorPayload}
+          onClearError={onClearError}
+          flowState={flowState}
+          errorStreak={errorStreak}
+          nowPlaying={nowPlaying}
+          productivityScore={productivityScore}
+          parallelTasks={parallelTasks}
+          onSmartPaste={onSmartPaste}
+          isWindowIsland={true}
+          onRestoreWindow={onRestoreWindow}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={`flex flex-col w-full h-screen bg-black text-white font-sans overflow-hidden`}>
       <TitleBar />
       <AnimatePresence mode="wait">
           {isIslandVisible && (
-          <DynamicIsland 
-            mode={appMode} 
-            setMode={setAppMode} 
-            status={status} 
+          <DynamicIsland
+            mode={appMode}
+            setMode={setAppMode}
+            status={status}
             setStatus={setStatus}
             onProfileClick={() => onNavigate('island_settings')}
             vadLevel={vadLevel}
             transcript={transcript}
             attachedFile={attachedFile}
+            errorPayload={errorPayload}
+            onClearError={onClearError}
+            flowState={flowState}
+            errorStreak={errorStreak}
+            nowPlaying={nowPlaying}
+            productivityScore={productivityScore}
+            parallelTasks={parallelTasks}
+            onSmartPaste={onSmartPaste}
           />
         )}
       </AnimatePresence>

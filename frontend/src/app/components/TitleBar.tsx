@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Minus, Square, X, MessageSquare, DownloadCloud } from 'lucide-react';
 import { FeedbackModal } from './FeedbackModal';
 
-export const APP_VERSION = "0.0.6-alpha";
+export const APP_VERSION = "0.0.9";
 
 export const TitleBar = () => {
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
@@ -83,10 +83,10 @@ export const TitleBar = () => {
             <MessageSquare size={12} />
             <span className="font-mono text-[9px] uppercase tracking-widest">Feedback</span>
           </button>
-          <button 
+          <button
             onClick={handleMinimize}
             className="h-full px-4 text-white/40 hover:text-white hover:bg-white/10 transition-colors"
-            title="Minimize"
+            title="Island mode  ·  click tray icon to restore"
           >
             <Minus size={14} />
           </button>
@@ -97,10 +97,10 @@ export const TitleBar = () => {
           >
             <Square size={12} />
           </button>
-          <button 
+          <button
             onClick={handleClose}
-            className="h-full px-4 text-white/40 hover:text-white hover:bg-red-500 transition-colors"
-            title="Close"
+            className="h-full px-4 text-white/40 hover:text-white hover:bg-red-500/80 transition-colors"
+            title="Minimize to tray  ·  Right-click tray → Quit to exit"
           >
             <X size={14} />
           </button>

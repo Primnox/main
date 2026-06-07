@@ -11,7 +11,11 @@ MEETINGS_DIR = Path.home() / "Documents" / "Primnox" / "Meetings"
 def _get_latest_meeting_dir() -> Path | None:
     if not MEETINGS_DIR.exists():
         return None
-    dirs = sorted([d for d in MEETINGS_DIR.iterdir() if d.is_dir()], reverse=True)
+    try:
+        dirs = sorted([d for d in MEETINGS_DIR.iterdir() if d.is_dir()], reverse=True)
+    except PermissionError as e:
+        log.warning(f"Cannot read meetings directory: {e}")
+        return None
     return dirs[0] if dirs else None
 
 

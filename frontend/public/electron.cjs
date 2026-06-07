@@ -1,44 +1,121 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 
-const envPath = app.isPackaged ? path.join(process.resourcesPath, '.env') : path.join(app.getAppPath(), '.env');
-require('dotenv').config({ path: envPath });
+// ── Load .env (GH_TOKEN for private-release auto-updater) ────────────────────
+try {
+  const envPath = app.isPackaged
+    ? path.join(process.resourcesPath, '.env')
+    : path.join(app.getAppPath(), '.env');
+  require('dotenv').config({ path: envPath });
+} catch (_) {}
 
+// ── Single instance lock ──────────────────────────────────────────────────────
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
+}
+
+// ── Updater logging ───────────────────────────────────────────────────────────
 const logFilePath = path.join(app.getPath('userData'), 'updater.log');
 function logUpdater(message) {
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${message}\n`;
-  try {
-    fs.appendFileSync(logFilePath, logMessage, 'utf8');
-  } catch (e) {
-    console.error('Failed to write to updater log file:', e);
-  }
-  console.log(logMessage);
+  const ts = new Date().toISOString();
+  const line = `[${ts}] ${message}\n`;
+  try { fs.appendFileSync(logFilePath, line, 'utf8'); } catch (_) {}
+  console.log(line.trim());
 }
-
-// Log updater events
 autoUpdater.logger = {
-  info: (msg) => logUpdater(`INFO: ${msg}`),
-  warn: (msg) => logUpdater(`WARN: ${msg}`),
-  error: (msg) => logUpdater(`ERROR: ${msg}`)
+  info:  (m) => logUpdater(`INFO: ${m}`),
+  warn:  (m) => logUpdater(`WARN: ${m}`),
+  error: (m) => logUpdater(`ERROR: ${m}`)
 };
-
 if (process.env.GH_TOKEN) {
-  logUpdater('GH_TOKEN found in env, setting requestHeaders');
   autoUpdater.requestHeaders = { Authorization: 'Bearer ' + process.env.GH_TOKEN };
-} else {
-  logUpdater('No GH_TOKEN found in env, checking publicly');
 }
-
-// Hardening: Disable Chromium remote debugging switches
 app.commandLine.appendSwitch('disable-http-cache');
 
-let mainWindow;
-let islandWindow;
-let pythonProcess;
+// ── State ─────────────────────────────────────────────────────────────────────
+let mainWindow   = null;
+let islandWindow = null;   // small always-on-top overlay
+let tray         = null;
+let pythonProcess = null;
+let forceQuit     = false; // true only when quitting via tray menu
+let isIslandMode  = false;
+
+// ── Island overlay window ─────────────────────────────────────────────────────
+// This is a SEPARATE 900×220 window that loads the same React app with
+// ?primnox_island=1 — the React app detects that param and renders ONLY the
+// DynamicIsland pill. Body background is overridden to transparent before
+// React even mounts, so no black box.
+
+function getBaseUrl() {
+  if (!app.isPackaged) {
+    return process.env.ELECTRON_START_URL || 'http://localhost:5173';
+  }
+  return null; // prod: use loadFile
+}
+
+let islandReady = false; // true once the island window's React app has fully loaded
+
+function createIslandWindow() {
+  if (islandWindow && !islandWindow.isDestroyed()) return;
+  islandReady = false;
+
+  const { width } = screen.getPrimaryDisplay().workAreaSize;
+
+  islandWindow = new BrowserWindow({
+    width: 900,
+    height: 220,
+    x: Math.floor(width / 2 - 450),
+    y: 0,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    focusable: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  // Never destroy — just hide
+  islandWindow.on('close', (e) => {
+    if (!forceQuit) {
+      e.preventDefault();
+      islandWindow.hide();
+    }
+  });
+
+  islandWindow.webContents.once('did-finish-load', () => { islandReady = true; });
+
+  islandWindow.webContents.on('console-message', (_ev, _lvl, msg, line, src) => {
+    console.log(`[Island] ${msg} (${src}:${line})`);
+  });
+
+  const baseUrl = getBaseUrl();
+  if (baseUrl) {
+    // Dev: append query param
+    islandWindow.loadURL(baseUrl + '?primnox_island=1');
+  } else {
+    // Prod: loadFile supports a query object
+    islandWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
+      query: { primnox_island: '1' }
+    });
+  }
+
+  islandWindow.hide(); // starts hidden; shown when enterIslandMode() fires
+}
+
+// ── Main window ───────────────────────────────────────────────────────────────
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -48,6 +125,7 @@ function createWindow() {
     transparent: true,
     backgroundColor: '#00000000',
     hasShadow: false,
+    skipTaskbar: false,  // shows in taskbar while the full window is open
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -55,128 +133,214 @@ function createWindow() {
     }
   });
 
-  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => { console.log('[Browser Console] ' + message + ' (' + sourceId + ':' + line + ')'); });
+  // Close → hide to tray, not quit
+  mainWindow.on('close', (e) => {
+    if (!forceQuit) {
+      e.preventDefault();
+      mainWindow.hide();
+    }
+  });
 
-  const isDev = !app.isPackaged;
-  if (isDev) {
-    mainWindow.loadURL(process.env.ELECTRON_START_URL || 'http://localhost:5173');
+  mainWindow.webContents.on('console-message', (_ev, _lvl, msg, line, src) => {
+    console.log(`[Browser] ${msg} (${src}:${line})`);
+  });
+
+  const baseUrl = getBaseUrl();
+  if (baseUrl) {
+    mainWindow.loadURL(baseUrl);
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  // Handle Zooming since default menu is hidden (frame: false)
-  mainWindow.webContents.on('before-input-event', (event, input) => {
+  // Ctrl+= / Ctrl+- zoom
+  mainWindow.webContents.on('before-input-event', (_ev, input) => {
     if (input.control && input.type === 'keyDown') {
-      if (input.key === '=' || input.key === '+') {
-        let zoom = mainWindow.webContents.getZoomLevel();
-        mainWindow.webContents.setZoomLevel(zoom + 0.5);
-        event.preventDefault();
-      } else if (input.key === '-') {
-        let zoom = mainWindow.webContents.getZoomLevel();
-        mainWindow.webContents.setZoomLevel(zoom - 0.5);
-        event.preventDefault();
-      } else if (input.key === '0') {
-        mainWindow.webContents.setZoomLevel(0);
-        event.preventDefault();
-      }
+      const zl = mainWindow.webContents.getZoomLevel();
+      if (input.key === '=' || input.key === '+') { mainWindow.webContents.setZoomLevel(zl + 0.5); _ev.preventDefault(); }
+      else if (input.key === '-') { mainWindow.webContents.setZoomLevel(zl - 0.5); _ev.preventDefault(); }
+      else if (input.key === '0') { mainWindow.webContents.setZoomLevel(0); _ev.preventDefault(); }
     }
   });
 }
 
-// IPC Relays and Controls
-ipcMain.on('restart-app', () => {
-  autoUpdater.quitAndInstall();
-});
-ipcMain.on('set-window-mode', (event, mode) => {
-  if (!mainWindow) return;
-  const { screen } = require('electron');
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
-  
-  if (mode === 'island') {
-    mainWindow.setSize(800, 200, true);
-    mainWindow.setPosition(Math.floor(width / 2 - 400), 20, true);
-    mainWindow.setAlwaysOnTop(true, 'floating');
-  } else {
-    mainWindow.setSize(1200, 800, true);
-    mainWindow.center();
-    mainWindow.setAlwaysOnTop(false);
-  }
-});
+// ── Mode helpers ──────────────────────────────────────────────────────────────
 
-ipcMain.on('close-app', () => {
-  app.quit();
-});
+function enterIslandMode() {
+  if (!mainWindow) return;
+  isIslandMode = true;
+
+  // Remove from taskbar before hiding — island pill is the UI, not a taskbar entry
+  mainWindow.setSkipTaskbar(true);
+
+  // Ensure island window exists and is in the right position
+  createIslandWindow();
+  const { width } = screen.getPrimaryDisplay().workAreaSize;
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    islandWindow.setPosition(Math.floor(width / 2 - 450), 0);
+    if (islandReady) {
+      islandWindow.showInactive();
+    } else {
+      // React hasn't finished loading yet — show once it's ready
+      islandWindow.webContents.once('did-finish-load', () => {
+        if (isIslandMode && islandWindow && !islandWindow.isDestroyed()) {
+          islandWindow.setPosition(Math.floor(width / 2 - 450), 0);
+          islandWindow.showInactive();
+        }
+      });
+    }
+  }
+
+  mainWindow.hide();
+}
+
+function exitIslandMode() {
+  if (!mainWindow) return;
+  isIslandMode = false;
+
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    islandWindow.hide();
+  }
+
+  // Re-add to taskbar now that the full window is visible
+  mainWindow.setSkipTaskbar(false);
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+// ── System tray ───────────────────────────────────────────────────────────────
+
+async function createTray() {
+  let icon;
+  try {
+    icon = await app.getFileIcon(app.getPath('exe'), { size: 'small' });
+  } catch (_) {
+    icon = nativeImage.createEmpty();
+  }
+
+  tray = new Tray(icon);
+  tray.setToolTip('Primnox — running in background');
+
+  function buildMenu() {
+    return Menu.buildFromTemplate([
+      { label: 'Open Primnox',                       click: () => exitIslandMode() },
+      { label: isIslandMode ? 'Exit Island Mode' : 'Island Mode',
+        click: () => isIslandMode ? exitIslandMode() : enterIslandMode() },
+      { type: 'separator' },
+      { label: 'Quit Primnox',
+        click: () => { forceQuit = true; app.quit(); } }
+    ]);
+  }
+
+  // Left-click: show full window
+  tray.on('click', () => {
+    if (!mainWindow) return;
+    if (!mainWindow.isVisible() || isIslandMode) exitIslandMode();
+    else mainWindow.focus();
+  });
+
+  // Right-click: fresh menu so label reflects state
+  tray.on('right-click', () => {
+    tray.setContextMenu(buildMenu());
+    tray.popUpContextMenu();
+  });
+
+  tray.setContextMenu(buildMenu());
+}
+
+// ── IPC handlers ──────────────────────────────────────────────────────────────
 
 ipcMain.on('minimize-app', () => {
-  if (mainWindow) mainWindow.minimize();
+  if (!isIslandMode) enterIslandMode();
 });
 
 ipcMain.on('maximize-app', () => {
   if (!mainWindow) return;
-  if (mainWindow.isMaximized()) {
-    mainWindow.unmaximize();
-  } else {
-    mainWindow.maximize();
+  if (isIslandMode) { exitIslandMode(); return; }
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
+
+// Close → hide everything to tray (remove from taskbar while hidden)
+ipcMain.on('close-app', () => {
+  if (mainWindow) {
+    mainWindow.setSkipTaskbar(true);
+    mainWindow.hide();
+  }
+  if (islandWindow && !islandWindow.isDestroyed()) islandWindow.hide();
+  isIslandMode = false;
+});
+
+// Island pill logo / expand button → restore full window
+ipcMain.on('show-full-window', () => exitIslandMode());
+
+// Forward proactive alerts from main window to the island overlay
+ipcMain.on('friday:proactive', (_ev, data) => {
+  if (islandWindow && !islandWindow.isDestroyed() && isIslandMode) {
+    islandWindow.webContents.send('friday:proactive', data);
   }
 });
 
-// App lifecycle hooks
-app.whenReady().then(() => {
+// Legacy compat
+ipcMain.on('set-window-mode', (_ev, mode) => {
+  if (mode === 'island') enterIslandMode(); else exitIslandMode();
+});
+
+ipcMain.on('restart-app', () => autoUpdater.quitAndInstall());
+
+// ── App lifecycle ─────────────────────────────────────────────────────────────
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (!mainWindow.isVisible() || isIslandMode) exitIslandMode();
+    else mainWindow.focus();
+  }
+});
+
+app.whenReady().then(async () => {
   startBackend();
   createWindow();
+  // Pre-create the island window so it's fully loaded by the time the user
+  // clicks minimize. Without this, the first minimize would show a blank window
+  // for ~500ms while the React app loads.
+  createIslandWindow();
+  await createTray();
 
-  autoUpdater.on('checking-for-update', () => {
-    logUpdater('Checking for update...');
-  });
-
+  autoUpdater.on('checking-for-update',  ()    => logUpdater('Checking for update...'));
+  autoUpdater.on('update-not-available', ()    => logUpdater('No update.'));
+  autoUpdater.on('error',               (err)  => logUpdater(`Updater error: ${err.stack || err}`));
+  autoUpdater.on('download-progress',   (p)    => logUpdater(`Download: ${Math.round(p.percent)}%`));
   autoUpdater.on('update-available', (info) => {
     logUpdater(`Update available: ${JSON.stringify(info)}`);
     if (mainWindow) mainWindow.webContents.send('update-available');
   });
-
-  autoUpdater.on('update-not-available', (info) => {
-    logUpdater(`Update not available: ${JSON.stringify(info)}`);
-  });
-
-  autoUpdater.on('error', (err) => {
-    logUpdater(`Error in auto-updater: ${err.stack || err.message || err}`);
-  });
-
-  autoUpdater.on('download-progress', (progressObj) => {
-    logUpdater(`Download progress: ${progressObj.percent}% (${progressObj.transferred}/${progressObj.total})`);
-  });
-
   autoUpdater.on('update-downloaded', (info) => {
     logUpdater(`Update downloaded: ${JSON.stringify(info)}`);
     if (mainWindow) mainWindow.webContents.send('update-downloaded');
   });
 
-  // Check for updates quietly
-  logUpdater('Triggering checkForUpdatesAndNotify()...');
+  logUpdater('Calling checkForUpdatesAndNotify()...');
   autoUpdater.checkForUpdatesAndNotify();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindow || !mainWindow.isVisible()) exitIslandMode();
+    else mainWindow.focus();
   });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+// Don't quit when all windows close — lives in the tray
+app.on('window-all-closed', () => { /* intentional no-op */ });
 
 app.on('quit', () => {
-  if (pythonProcess) {
-    pythonProcess.kill();
-  }
+  if (pythonProcess) pythonProcess.kill();
+  if (tray) tray.destroy();
+  if (islandWindow && !islandWindow.isDestroyed()) islandWindow.destroy();
 });
+
+// ── Backend ────────────────────────────────────────────────────────────────────
 
 function startBackend() {
   const isDev = !app.isPackaged;
-  
   if (isDev) {
     const backendPath = path.join(__dirname, '../../backend/server.py');
     pythonProcess = spawn('python', [backendPath], {
@@ -189,14 +353,6 @@ function startBackend() {
       windowsHide: true
     });
   }
-
-  pythonProcess.stdout.on('data', (data) => {
-    console.log(`Backend stdout: ${data}`);
-  });
-
-  pythonProcess.stderr.on('data', (data) => {
-    console.error(`Backend stderr: ${data}`);
-  });
+  pythonProcess.stdout.on('data', (d) => console.log(`Backend: ${d}`));
+  pythonProcess.stderr.on('data', (d) => console.error(`Backend err: ${d}`));
 }
-
-

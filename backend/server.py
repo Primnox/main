@@ -252,6 +252,61 @@ async def post_daily_brief(background_tasks: BackgroundTasks):
     background_tasks.add_task(core.feed.generate_daily_debrief)
     return {"status": "generating"}
 
+@app.post("/api/error_explain")
+async def explain_error(request: Request):
+    """Feed an error string to the dynamic island error handler and return a structured payload."""
+    from brain import think
+    from system_prompts import ERROR_HANDLER_PROMPT
+    body = await request.json()
+    error_message = body.get("error_message", "")
+    context = body.get("context", "")
+    prompt = f"Error: {error_message}" + (f"\nContext: {context}" if context else "")
+    try:
+        response = think(prompt, system_override=ERROR_HANDLER_PROMPT)
+        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        # Strip markdown fences if the model wrapped its response anyway
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        payload = json.loads(content)
+        return payload
+    except Exception as e:
+        log = get_logger("error_explain")
+        log.error(f"error_explain failed: {e}")
+        return {
+            "summary": f"something broke and i can't even explain it properly: {str(e)[:80]}",
+            "fix": "check the logs bro",
+            "hover_text": "click to copy the fix"
+        }
+
+
+@app.post("/api/smart_paste")
+async def smart_paste(request: Request):
+    """Transform clipboard content via LLM to fit the current target application."""
+    from brain import think
+    from system_prompts import SMART_PASTE_PROMPT
+    body = await request.json()
+    content = body.get("content", "")
+    if not content.strip():
+        return {"transformed": content}
+    try:
+        from screen_reader import read_screen
+        uia = read_screen()
+        target_app = uia.get("window_title", "") if isinstance(uia, dict) else ""
+    except Exception:
+        target_app = ""
+    prompt = f"Target app: {target_app or 'unknown'}\nContent to transform:\n{content}"
+    try:
+        response = think(prompt, system_override=SMART_PASTE_PROMPT)
+        text = response.get("choices", [{}])[0].get("message", {}).get("content", content)
+        return {"transformed": text.strip() or content}
+    except Exception as e:
+        log = get_logger("smart_paste")
+        log.error(f"smart_paste failed: {e}")
+        return {"transformed": content}
+
+
 @app.get("/logs")
 async def get_logs(limit: int = 200, level: str = "all"):
     return get_log_buffer(limit=limit, level=level)
@@ -625,13 +680,16 @@ async def scan_onboarding():
     prompt = f"Given these projects: {', '.join(projects)} and skills: {', '.join(skills)}, infer 3 topics, 2 communication_styles, and 3 knowledge_areas. Output ONLY valid JSON matching this schema: {{\"topics\": [], \"communication_style\": [], \"knowledge_areas\": []}}"
     try:
         response = think(prompt)
-        # Extract JSON if it contains markdown formatting
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0].strip()
-        elif "```" in response:
-            response = response.split("```")[1].split("```")[0].strip()
-            
-        llm_data = json.loads(response)
+        # think() returns an OpenAI-compatible dict — extract the text content first
+        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            raise ValueError("Empty LLM response")
+        # Strip markdown code fences if the model wrapped the JSON
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        llm_data = json.loads(content)
     except Exception:
         llm_data = {
             "topics": ["Software Development", "System Architecture", "Open Source"],

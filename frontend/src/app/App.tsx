@@ -39,7 +39,7 @@ export type ScreenId =
 
 export type SidebarState = 'expanded' | 'icon' | 'hidden';
 export type AppMode = 'chat' | 'notes' | 'research';
-export type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy';
+export type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy' | 'error';
 
 const ResearchWorkspace = () => (
   <div className="h-full flex flex-col items-center justify-center p-10 text-center">
@@ -76,21 +76,55 @@ export default function App() {
     fetchChats,
     loadChat,
     createNewChat,
-    addToast
+    addToast,
+    islandError,
+    clearIslandError,
+    flowState,
+    errorStreak,
+    nowPlaying,
+    productivityScore,
+    parallelTasks,
+    triggerSmartPaste,
+    scanEnvironment,
   } = usePrimnox();
+
+  // Detect if this is the dedicated island-overlay BrowserWindow.
+  // electron.cjs creates a separate 900×220 always-on-top window and loads it
+  // with ?primnox_island=1. This is a permanent constant — the window is ALWAYS
+  // in island mode or always in full mode; it never switches at runtime.
+  const isIslandMode = new URLSearchParams(window.location.search).get('primnox_island') === '1';
 
   const [currentScreen, setCurrentScreen] = useState<ScreenId>('summaries_expanded');
   const [appMode, setAppMode] = useState<AppMode>('notes');
   const [status, setStatus] = useState<AiStatus>('idle');
   const [isIslandVisible, setIsIslandVisible] = useState(true);
-  
-  // Sync live state to UI status
+
+  // Send "restore full window" to Electron (island pill logo click / restore button)
+  const handleRestoreWindow = () => {
+    if ((window as any).electron) {
+      (window as any).electron.ipcRenderer.send('show-full-window');
+    }
+  };
+
+  // Sync live state + island error to UI status — error takes priority
   useEffect(() => {
-    if (liveState === 'thinking') setStatus('thinking');
-    else if (liveState === 'listening') setStatus('listening');
-    else if (liveState === 'speaking') setStatus('transcript');
-    else setStatus('idle');
-  }, [liveState]);
+    if (islandError) {
+      setStatus('error');
+    } else if (liveState === 'thinking') {
+      setStatus('thinking');
+    } else if (liveState === 'listening') {
+      setStatus('listening');
+    } else if (liveState === 'speaking') {
+      setStatus('transcript');
+    } else {
+      setStatus('idle');
+    }
+  }, [liveState, islandError]);
+
+  const handleClearError = () => {
+    clearIslandError();
+    setStatus('idle');
+  };
 
   // IPC listeners
   useEffect(() => {
@@ -99,7 +133,7 @@ export default function App() {
         setAppMode('notes');
         setCurrentScreen('notes_icon_sidebar');
       });
-      return cleanup;
+      return cleanup || (() => {});
     }
   }, []);
 
@@ -153,7 +187,13 @@ export default function App() {
     let targetScreen = currentScreen;
 
     if (settings && settings.onboarding_completed === false) {
-      return <OnboardingView onComplete={() => setCurrentScreen('summaries_expanded')} />;
+      return <OnboardingView
+        onComplete={() => setCurrentScreen('summaries_expanded')}
+        activity={activity}
+        updateSettings={updateSettings}
+        settings={settings}
+        scanEnvironment={scanEnvironment}
+      />;
     }
 
     switch (targetScreen) {
@@ -247,9 +287,9 @@ export default function App() {
   const headerActions = (<div />);
 
   return (
-    <div className={`bg-black text-on-surface h-screen w-full relative selection:bg-primary/30 selection:text-white`}>
-      {/* Disconnect Banner */}
-      {connectionLost && (
+    <div className={`${isIslandMode ? 'bg-transparent' : 'bg-black text-on-surface selection:bg-primary/30 selection:text-white'} h-screen w-full relative`}>
+      {/* Disconnect Banner — hidden in island-pill mode */}
+      {connectionLost && !isIslandMode && (
         <div className="fixed top-0 left-0 right-0 z-[300] bg-red-500/90 backdrop-blur-sm text-white text-center py-3 px-6 flex items-center justify-center gap-4 shadow-lg">
           <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
           <span className="font-mono text-xs uppercase tracking-widest font-bold">Connection Lost — Backend Unreachable</span>
@@ -295,6 +335,16 @@ export default function App() {
         vadLevel={vadLevel}
         transcript={currentTranscript}
         attachedFile={lastAttachedFile}
+        errorPayload={islandError}
+        onClearError={handleClearError}
+        flowState={flowState}
+        errorStreak={errorStreak}
+        nowPlaying={nowPlaying}
+        productivityScore={productivityScore}
+        parallelTasks={parallelTasks}
+        onSmartPaste={triggerSmartPaste}
+        isIslandMode={isIslandMode}
+        onRestoreWindow={handleRestoreWindow}
         actions={headerActions}
       >
         <AnimatePresence mode="wait">

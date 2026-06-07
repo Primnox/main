@@ -74,7 +74,13 @@ export const IslandSettings = ({
     setCheckingOllama(true);
     try {
       const res = await fetch('http://localhost:8000/api/ollama/status');
-      if (res.ok) setOllamaStatus(await res.json());
+      if (res.ok) {
+        setOllamaStatus(await res.json());
+      } else {
+        // Non-2xx (e.g. 503 during backend startup) — treat as not running so the
+        // icon doesn't stay in the spinning "checking..." state indefinitely.
+        setOllamaStatus({ running: false, models: [] });
+      }
     } catch (_) { setOllamaStatus({ running: false, models: [] }); }
     setCheckingOllama(false);
   };

@@ -13,12 +13,12 @@ load_dotenv()
 log = get_logger("brain")
 
 GROQ_FALLBACK_CHAIN = [
-    "openai/gpt-oss-120b",
-    "llama-3.3-70b-versatile",
-    "qwen/qwen3-32b",
-    "openai/gpt-oss-20b",
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "llama-3.1-8b-instant"
+    "llama-3.3-70b-versatile",                    # default — think_stream() starts here
+    "openai/gpt-oss-120b",                         # fallback 1
+    "qwen/qwen3-32b",                              # fallback 2
+    "openai/gpt-oss-20b",                          # fallback 3
+    "meta-llama/llama-4-scout-17b-16e-instruct",   # fallback 4
+    "llama-3.1-8b-instant"                         # fallback 5 — last resort
 ]
 
 def get_adaptive_system_prompt(settings):
@@ -120,7 +120,7 @@ def transcribe(audio_bytes):
         log.error(f"Transcription crash: {e}", exc_info=True)
         return {"error": str(e)}
 
-def think(prompt, context=None, image_base64=None):
+def think(prompt, context=None, image_base64=None, messages=None, system_override=None):
     """
     Primnox Thinking Engine (Dynamic Routing)
     Supports Groq, OpenAI, and Anthropic.
@@ -137,8 +137,8 @@ def think(prompt, context=None, image_base64=None):
         active_model = "Groq_Llama_3"
         settings = {}
 
-    system_content = get_adaptive_system_prompt(settings)
-    
+    system_content = system_override if system_override else get_adaptive_system_prompt(settings)
+
     import re
     # Check for context references
     refs = re.findall(r'#([a-fA-F0-9]{6})', prompt)
@@ -201,6 +201,16 @@ def think(prompt, context=None, image_base64=None):
                 return {"error": "Anthropic API key not set"}
                 
             msg_content = build_anthropic_vision(text_content, image_base64) if image_base64 else text_content
+            # Use caller-provided message history when available (strips system role as
+            # Anthropic requires it in the separate "system" field). Falls back to
+            # single-message for internal/skill calls that don't pass history.
+            if messages:
+                anthropic_messages = [m for m in messages if m["role"] != "system"]
+                if not anthropic_messages:
+                    # All entries were system-role; fall back to single user message
+                    anthropic_messages = [{"role": "user", "content": msg_content}]
+            else:
+                anthropic_messages = [{"role": "user", "content": msg_content}]
             resp = requests.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -212,9 +222,7 @@ def think(prompt, context=None, image_base64=None):
                     "model": "claude-3-5-sonnet-20241022",
                     "max_tokens": 1024,
                     "system": system_content,
-                    "messages": [
-                        {"role": "user", "content": msg_content}
-                    ]
+                    "messages": anthropic_messages
                 },
                 timeout=20
             )
@@ -277,7 +285,10 @@ def think(prompt, context=None, image_base64=None):
             else:
                 models_to_try = GROQ_FALLBACK_CHAIN
                 
-            last_res = None
+            last_res = {
+                "error": "all_models_failed",
+                "choices": [{"message": {"content": "all AI models unavailable right now — please try again in a moment."}}]
+            }
             for groq_model in models_to_try:
                 resp = requests.post(
                     "https://api.groq.com/openai/v1/chat/completions",
@@ -291,13 +302,20 @@ def think(prompt, context=None, image_base64=None):
                     },
                     timeout=20
                 )
-                res = resp.json()
+                # Guard against non-JSON bodies (e.g. Cloudflare HTML 502) before
+                # calling resp.json() — a JSONDecodeError would escape the
+                # requests.exceptions handler below and surface as a bare Exception.
+                try:
+                    res = resp.json()
+                except Exception:
+                    log.warning(f"Groq model {groq_model} returned non-JSON (HTTP {resp.status_code}) — trying next")
+                    continue
                 last_res = res
                 if "error" not in res:
                     return res
                 # if there is an error, we can try the next model
                 log.warning(f"Groq model {groq_model} failed: {res.get('error')}")
-                
+
             return last_res
     except requests.exceptions.RequestException as e:
         log.warning(f"Thinking failed (offline/network): {e}")
@@ -580,6 +598,9 @@ def think_stream(prompt, context="", session_id=""):
                     continue
                 break
             
+            if resp_stream.status_code != 200:
+                yield f"[Error {resp_stream.status_code}]: rate limit or server error — try again in a moment."
+                return
             for line in resp_stream.iter_lines():
                 if line:
                     decoded = line.decode('utf-8')
@@ -594,7 +615,7 @@ def think_stream(prompt, context="", session_id=""):
                                 yield token
                         except Exception:
                             pass
-                    
+
         else:
             # Anthropic streaming — pass full conversation history.
             # Anthropic requires system prompt in its own "system" field,
@@ -613,6 +634,9 @@ def think_stream(prompt, context="", session_id=""):
                 stream=True,
                 timeout=60
             )
+            if resp.status_code != 200:
+                yield f"[Anthropic error {resp.status_code}]: {resp.text[:200]}"
+                return
             for line in resp.iter_lines():
                 if line:
                     decoded = line.decode('utf-8')

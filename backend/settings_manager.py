@@ -76,10 +76,14 @@ def _keyring_set(key: str, value: str):
             try:
                 keyring.delete_password(_KEYRING_SERVICE, key)
             except Exception as del_err:
-                # Log — don't swallow silently. If delete fails, the old key
-                # remains in the keyring and will be restored on next load,
-                # overriding the user's explicit clear.
-                log.warning(f"keyring delete failed for {key}: {del_err}. Old key may persist.")
+                log.warning(f"keyring delete failed for {key}: {del_err}. Overwriting with empty string as fallback.")
+                # delete_password failed — overwrite with "" so _keyring_get (which
+                # returns `get_password(...) or ""`) treats it as absent. This prevents
+                # a stale key from resurrecting after the user explicitly cleared it.
+                try:
+                    keyring.set_password(_KEYRING_SERVICE, key, "")
+                except Exception:
+                    log.warning(f"keyring overwrite also failed for {key}. Old key may persist.")
     except Exception as e:
         log.debug(f"keyring write skipped ({key}): {e}")
 

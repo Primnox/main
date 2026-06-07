@@ -4,13 +4,21 @@ import {
   Sparkles, Check, Brain, Shield, Eye, ShieldAlert,
   Loader2, Terminal, Compass, LayoutDashboard, MessageSquare
 } from 'lucide-react';
-import { usePrimnox } from '../../hooks/usePrimnox';
-
-export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
+export const OnboardingView = ({
+  onComplete,
+  activity,
+  updateSettings,
+  settings,
+  scanEnvironment,
+}: {
+  onComplete: () => void;
+  activity: any[];
+  updateSettings: (s: any) => Promise<void>;
+  settings: any;
+  scanEnvironment: () => Promise<any>;
+}) => {
   const [step, setStep] = useState(1);
-  const totalSteps = 13;
-  
-  const { activity, updateSettings, settings, scanEnvironment } = usePrimnox();
+  const totalSteps = 12;
   const [profile, setProfile] = useState<any>({
     name: 'User',
     role: 'System Administrator',
@@ -22,8 +30,8 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
   });
   
   const nextStep = () => setStep(prev => Math.min(prev + 1, totalSteps));
-  const skipSetup = () => {
-    updateSettings({ ...settings, onboarding_completed: true });
+  const skipSetup = async () => {
+    await updateSettings({ ...settings, onboarding_completed: true });
     onComplete();
   };
 
@@ -64,17 +72,16 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
         <AnimatePresence mode="wait">
           {step === 1 && <Step1Welcome key="step1" next={nextStep} skip={skipSetup} />}
           {step === 2 && <Step2Privacy key="step2" next={nextStep} updateSettings={updateSettings} settings={settings} />}
-          {step === 3 && <Step3AIProvider key="step3" next={nextStep} updateSettings={updateSettings} settings={settings} />}
-          {step === 4 && <Step4Permissions key="step4" next={nextStep} updateSettings={updateSettings} settings={settings} />}
-          {step === 5 && <Step5Voice key="step5" next={nextStep} updateSettings={updateSettings} settings={settings} />}
-          {step === 6 && <Step6Learning key="step6" next={nextStep} activity={activity} profile={profile} scanEnvironment={scanEnvironment} setProfile={setProfile} />}
-          {step === 7 && <Step7UserModel key="step7" next={nextStep} updateSettings={updateSettings} settings={settings} profile={profile} />}
-          {step === 8 && <Step8ProfileReview key="step8" next={nextStep} profile={profile} setProfile={setProfile} />}
-          {step === 9 && <Step9Memory key="step9" next={nextStep} updateSettings={updateSettings} settings={settings} />}
-          {step === 10 && <Step10Personalization key="step10" next={nextStep} updateSettings={updateSettings} settings={settings} />}
-          {step === 11 && <Step11Workspace key="step11" next={nextStep} updateSettings={updateSettings} settings={settings} />}
-          {step === 12 && <Step12AssistantGen key="step12" next={nextStep} />}
-          {step === 13 && <Step13Completion key="step13" onComplete={skipSetup} profile={profile} />}
+          {step === 3 && <Step4Permissions key="step3" next={nextStep} updateSettings={updateSettings} settings={settings} />}
+          {step === 4 && <Step5Voice key="step4" next={nextStep} updateSettings={updateSettings} settings={settings} />}
+          {step === 5 && <Step6Learning key="step5" next={nextStep} activity={activity} profile={profile} scanEnvironment={scanEnvironment} setProfile={setProfile} />}
+          {step === 6 && <Step7UserModel key="step6" next={nextStep} updateSettings={updateSettings} settings={settings} profile={profile} />}
+          {step === 7 && <Step8ProfileReview key="step7" next={nextStep} profile={profile} setProfile={setProfile} />}
+          {step === 8 && <Step9Memory key="step8" next={nextStep} updateSettings={updateSettings} settings={settings} />}
+          {step === 9 && <Step10Personalization key="step9" next={nextStep} updateSettings={updateSettings} settings={settings} />}
+          {step === 10 && <Step11Workspace key="step10" next={nextStep} updateSettings={updateSettings} settings={settings} />}
+          {step === 11 && <Step12AssistantGen key="step11" next={nextStep} />}
+          {step === 12 && <Step13Completion key="step12" onComplete={skipSetup} profile={profile} />}
         </AnimatePresence>
       </div>
     </div>
@@ -117,8 +124,8 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
   }, []);
 
   const selectCloud = () => next();
-  const selectHybrid = () => {
-    updateSettings({ ...settings, active_model: 'Ollama_Local' });
+  const selectHybrid = async () => {
+    await updateSettings({ ...settings, active_model: 'Ollama_Local' });
     next();
   };
 
@@ -169,70 +176,6 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
           To enable Hybrid: install Ollama at <span className="text-primary">ollama.ai</span> and run <span className="bg-white/5 px-1 rounded">ollama serve</span>
         </p>
       )}
-    </motion.div>
-  );
-};
-
-const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
-  const [key, setKey] = useState('');
-  const [status, setStatus] = useState<'idle'|'testing'|'success'|'error'>('idle');
-  // If user already picked Ollama_Local in step 2, skip the cloud key prompt
-  const isOllamaMode = settings?.active_model === 'Ollama_Local';
-
-  const testKey = async () => {
-    setStatus('testing');
-    try {
-      const resp = await fetch('https://api.groq.com/openai/v1/models', {
-        headers: { 'Authorization': `Bearer ${key}` }
-      });
-      if (resp.ok) {
-        setStatus('success');
-        await updateSettings({ ...settings, groq_api_key: key });
-        setTimeout(next, 1000);
-      } else {
-        setStatus('error');
-      }
-    } catch {
-      setStatus('error');
-    }
-  };
-
-  return (
-    <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
-      <div>
-        <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">AI Provider Connect</h2>
-        {isOllamaMode ? (
-          <p className="text-white/50 text-sm">
-            You chose Ollama — no cloud key needed for chat. Optionally add a Groq key for voice transcription (Whisper).
-          </p>
-        ) : (
-          <p className="text-white/50 text-sm">
-            Add a Groq API key to get started. Free at <span className="text-primary">console.groq.com</span>. You can add OpenAI / Anthropic keys in Settings later.
-          </p>
-        )}
-      </div>
-      <div className="p-6 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-4">
-        <label className="text-xs font-mono text-white/70 uppercase tracking-wider">
-          Groq API Key {isOllamaMode && <span className="text-white/30">(optional — for transcription)</span>}
-        </label>
-        <div className="flex gap-2">
-          <input
-            type="password"
-            value={key}
-            onChange={e => setKey(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && key) testKey(); }}
-            className="flex-1 bg-black/50 border border-white/10 rounded px-4 py-2 text-sm focus:border-primary/50 outline-none"
-            placeholder="gsk_..."
-          />
-          <button onClick={testKey} disabled={!key || status === 'testing'} className="px-6 bg-primary text-black text-sm font-bold rounded hover:bg-white disabled:opacity-50 min-w-[120px] transition-all duration-300 ease-out active:scale-95">
-            {status === 'testing' ? <Loader2 size={16} className="animate-spin mx-auto" /> : status === 'success' ? '✓ Connected' : 'Test Key'}
-          </button>
-        </div>
-        {status === 'error' && <p className="text-red-400 text-xs">Invalid key or connection failed.</p>}
-      </div>
-      <button onClick={next} className="text-sm text-white/30 hover:text-white/60 transition-colors text-center">
-        {isOllamaMode ? 'Skip — using Ollama only →' : 'Skip for now — add in Settings later →'}
-      </button>
     </motion.div>
   );
 };
@@ -404,13 +347,19 @@ const Step6Learning = ({ next, activity, profile, scanEnvironment, setProfile }:
 };
 
 const Step7UserModel = ({ next, updateSettings, settings, profile }: any) => {
-  useEffect(() => { 
+  // Snapshot settings/profile at mount time. Having them in the dep array would
+  // restart the 2-second countdown on every re-render, risking a double-advance.
+  const settingsSnap = useRef(settings);
+  const profileSnap = useRef(profile);
+  useEffect(() => {
     const timer = setTimeout(() => {
-      updateSettings({ ...settings, onboarding_profile: profile });
+      updateSettings({ ...settingsSnap.current, onboarding_profile: profileSnap.current });
       next();
     }, 2000);
     return () => clearTimeout(timer);
-  }, [next, updateSettings, settings, profile]);
+  // next and updateSettings are stable references (useCallback in usePrimnox)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [next, updateSettings]);
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center text-center h-[50vh] gap-6">
       <div className="w-16 h-16 relative">

@@ -101,11 +101,14 @@ export const ChatExpandedSidebar = ({
       return;
     }
     try {
-      await fetch(`http://localhost:8000/api/chats/${renameState.chatId}`, {
+      const res = await fetch(`http://localhost:8000/api/chats/${renameState.chatId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: renameState.value.trim() })
       });
+      // fetch() resolves without throwing on non-2xx — check explicitly so we
+      // don't call refreshChats() after a server-side failure and give false success.
+      if (!res.ok) throw new Error(`Rename failed: server returned ${res.status}`);
       refreshChats();
     } catch (e) {
       console.error(e);

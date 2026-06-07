@@ -73,8 +73,10 @@ export const SummariesExpanded = ({ onNavigate, activity: _activity = [] }: { on
     setBriefStatus('generating');
     try {
       await fetch('http://localhost:8000/api/daily_brief', { method: 'POST' });
+      // Brief is dispatched as a background task — generation is async.
+      // Show "Requested" (not "Sent to chat ✓") so the user knows it's in progress.
       setBriefStatus('done');
-      setTimeout(() => setBriefStatus('idle'), 4000);
+      setTimeout(() => setBriefStatus('idle'), 6000);
     } catch (_) {
       setBriefStatus('idle');
     }
@@ -127,7 +129,7 @@ export const SummariesExpanded = ({ onNavigate, activity: _activity = [] }: { on
               className="flex items-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 text-primary rounded-xl font-mono text-[10px] uppercase tracking-widest hover:bg-primary hover:text-black transition-all disabled:opacity-40"
             >
               <Zap size={12} />
-              {briefStatus === 'generating' ? 'Generating...' : briefStatus === 'done' ? 'Sent to chat ✓' : 'Daily Brief'}
+              {briefStatus === 'generating' ? 'Generating...' : briefStatus === 'done' ? 'Requested ✓' : 'Daily Brief'}
             </button>
           </div>
         </div>
@@ -192,8 +194,8 @@ export const SummariesExpanded = ({ onNavigate, activity: _activity = [] }: { on
                 {meetings.length === 0 ? (
                   <p className="px-5 py-4 font-mono text-[10px] text-white/20">no meetings recorded</p>
                 ) : (
-                  meetings.slice(0, 3).map((m, i) => (
-                    <div key={i} className="px-5 py-3 flex items-start justify-between gap-3">
+                  meetings.slice(0, 3).map((m) => (
+                    <div key={m.name} className="px-5 py-3 flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-xs text-white/70 font-mono truncate">{m.name}</p>
                         {m.summary_preview && (
