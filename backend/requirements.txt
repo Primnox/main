@@ -28,6 +28,7 @@ torchaudio
 pydub
 
 # ————— SCREEN + VISION ———————————————————
+# xdotool required on Linux (apt install xdotool)
 uiautomation; sys_platform == 'win32'
 Pillow
 mss
@@ -69,4 +70,6 @@ edge-tts
 pyttsx3
 pyperclip
 keyboard
+pyautogui
+duckduckgo-search
 rapidfuzz

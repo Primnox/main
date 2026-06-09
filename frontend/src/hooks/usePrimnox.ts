@@ -59,6 +59,7 @@ export function usePrimnox() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
   const maxAttempts = 5;
+  const connectRef = useRef<(() => void) | null>(null);
   const tokenBufferRef = useRef<string>("");
   const animationFrameIdRef = useRef<number | null>(null);
   const parallelTaskTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -134,6 +135,7 @@ export function usePrimnox() {
     let reconnectTimer: NodeJS.Timeout;
     
     const connect = () => {
+      connectRef.current = connect;   // keep ref fresh for manualReconnect
       const socket = new WebSocket(`${API_BASE_URL.replace('http', 'ws')}/ws`);
       
       socket.onopen = () => {
@@ -382,6 +384,13 @@ export function usePrimnox() {
       socket.onclose = () => {
         if (reconnectAttempts.current >= maxAttempts) {
           setConnectionLost(true);
+          // Auto-recover after 30 s so a restarted backend is picked up
+          // without requiring the user to reload the page.
+          reconnectTimer = setTimeout(() => {
+            reconnectAttempts.current = 0;
+            setConnectionLost(false);
+            connect();
+          }, 30000);
           return;
         }
         const delay = Math.pow(2, reconnectAttempts.current) * 1000;
@@ -594,7 +603,7 @@ export function usePrimnox() {
   const manualReconnect = useCallback(() => {
     reconnectAttempts.current = 0;
     setConnectionLost(false);
-    window.location.reload(); 
+    connectRef.current?.();   // reconnect in place — no page reload needed
   }, []);
 
   return {

@@ -1,3 +1,5 @@
+import sys
+import subprocess
 import threading
 import time
 import psutil
@@ -9,6 +11,8 @@ from memory import add_memory
 from logger import get_logger
 
 log = get_logger("feed")
+
+PLATFORM = sys.platform  # 'win32', 'darwin', 'linux'
 
 try:
     import win32gui
@@ -74,6 +78,9 @@ class FeedManager:
         self.fired_stuck_session = False
         self.fired_vscode_session = False
         self.last_error_fire_time = 0
+        # macOS osascript circuit breaker (prevents zombie accumulation)
+        self._mac_fail_count = 0
+        self._mac_circuit_open_until = 0.0
         self.last_stuck_fire_time = 0 # cooldown tracking
         self.last_vscode_fire_time = 0
         self.last_uia_scan_time = 0
@@ -91,9 +98,14 @@ class FeedManager:
 
         # ── Feature: Flow State ──────────────────────────────────────────
         self.focus_apps = {
-            "code.exe", "code", "pycharm64.exe", "idea64.exe",
+            # Windows (.exe names)
+            "code.exe", "pycharm64.exe", "idea64.exe",
             "sublime_text.exe", "obsidian.exe", "nvim.exe", "vim.exe",
-            "cmd.exe", "powershell.exe", "windowsterminal.exe", "wt.exe"
+            "cmd.exe", "powershell.exe", "windowsterminal.exe", "wt.exe",
+            # macOS / Linux (no extension)
+            "code", "pycharm", "idea", "sublime_text", "obsidian", "nvim", "vim",
+            "terminal", "iterm2", "alacritty", "kitty", "warp",
+            "gnome-terminal", "konsole", "xterm", "bash", "zsh", "fish",
         }
         self.flow_start_time: float = 0.0
         self.flow_app: str = ""
@@ -129,16 +141,89 @@ class FeedManager:
         if self.thread: self.thread.join()
 
     def get_active_info(self):
-        if not HAS_WIN32: return "Unknown", "Unknown"
+        if PLATFORM == 'win32':
+            return self._get_active_info_win()
+        elif PLATFORM == 'darwin':
+            return self._get_active_info_mac()
+        else:
+            return self._get_active_info_linux()
+
+    def _get_active_info_win(self):
+        if not HAS_WIN32:
+            return "Unknown", "Unknown"
         try:
             hwnd = win32gui.GetForegroundWindow()
-            if not hwnd: return "Unknown", "Unknown"
+            if not hwnd:
+                return "Unknown", "Unknown"
             title = win32gui.GetWindowText(hwnd)
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
             process = psutil.Process(pid).name()
             return title, process
         except Exception as e:
             log.error(f"Failed to get active window info: {e}")
+            return "Unknown", "Unknown"
+
+    def _get_active_info_mac(self):
+        # Circuit breaker: if osascript has hung 3+ times recently, skip for 60s
+        # to avoid accumulating zombie processes when System Events is unresponsive.
+        now = time.time()
+        if self._mac_fail_count >= 3 and now < self._mac_circuit_open_until:
+            return "Unknown", "Unknown"
+        try:
+            script = (
+                'tell application "System Events"\n'
+                '  set frontApp to first application process whose frontmost is true\n'
+                '  set appName to name of frontApp\n'
+                '  try\n'
+                '    set windowTitle to name of front window of frontApp\n'
+                '  on error\n'
+                '    set windowTitle to appName\n'
+                '  end try\n'
+                '  return appName & "||SEP||" & windowTitle\n'
+                'end tell'
+            )
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=3
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                self._mac_fail_count = 0   # reset circuit on success
+                parts = result.stdout.strip().split('||SEP||', 1)
+                app_name = parts[0].strip()
+                win_title = parts[1].strip() if len(parts) > 1 else app_name
+                return win_title, app_name
+            return "Unknown", "Unknown"
+        except Exception as e:
+            self._mac_fail_count += 1
+            if self._mac_fail_count >= 3:
+                self._mac_circuit_open_until = time.time() + 60
+                log.warning(f"osascript circuit opened for 60s after {self._mac_fail_count} failures")
+            log.error(f"macOS active window failed: {e}")
+            return "Unknown", "Unknown"
+
+    def _get_active_info_linux(self):
+        try:
+            win_id = subprocess.run(
+                ['xdotool', 'getactivewindow'],
+                capture_output=True, text=True, timeout=2
+            ).stdout.strip()
+            if not win_id:
+                return "Unknown", "Unknown"
+            title = subprocess.run(
+                ['xdotool', 'getwindowname', win_id],
+                capture_output=True, text=True, timeout=2
+            ).stdout.strip()
+            try:
+                pid_str = subprocess.run(
+                    ['xdotool', 'getwindowpid', win_id],
+                    capture_output=True, text=True, timeout=2
+                ).stdout.strip()
+                process = psutil.Process(int(pid_str)).name() if pid_str else "Unknown"
+            except Exception:
+                process = "Unknown"
+            return title or "Unknown", process
+        except Exception as e:
+            log.error(f"Linux active window failed: {e}")
             return "Unknown", "Unknown"
 
     def log_ambient(self, text):
@@ -426,10 +511,70 @@ class FeedManager:
             pass
         return result or None
 
+    def _detect_now_playing_mac(self) -> 'dict | None':
+        """Query Spotify / Apple Music via AppleScript on macOS."""
+        checks = [
+            (
+                "Spotify",
+                'tell application "Spotify" to if player state is playing '
+                'then return name of current track & "||SEP||" & artist of current track'
+            ),
+            (
+                "Apple Music",
+                'tell application "Music" to if player state is playing '
+                'then return name of current track & "||SEP||" & artist of current track'
+            ),
+        ]
+        for source, script in checks:
+            try:
+                res = subprocess.run(
+                    ['osascript', '-e', script],
+                    capture_output=True, text=True, timeout=3
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    parts = res.stdout.strip().split('||SEP||', 1)
+                    return {
+                        "title": parts[0].strip(),
+                        "artist": parts[1].strip() if len(parts) > 1 else "",
+                        "source": source,
+                        "is_playing": True,
+                        "sampled_at": time.time(),
+                    }
+            except Exception:
+                continue
+        return None
+
+    def _detect_now_playing_linux(self) -> 'dict | None':
+        """Query playerctl for current media on Linux."""
+        try:
+            res = subprocess.run(
+                ['playerctl', 'metadata', '--format',
+                 '{{title}}\x1f{{artist}}\x1f{{playerName}}\x1f{{status}}'],
+                capture_output=True, text=True, timeout=2
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                parts = res.stdout.strip().split('\x1f')
+                title = parts[0].strip() if parts else ""
+                if title:
+                    return {
+                        "title": title,
+                        "artist": parts[1].strip() if len(parts) > 1 else "",
+                        "source": parts[2].strip() if len(parts) > 2 else "Unknown",
+                        "is_playing": parts[3].strip().lower() == 'playing' if len(parts) > 3 else True,
+                        "sampled_at": time.time(),
+                    }
+        except Exception:
+            pass
+        return None
+
     def _detect_now_playing(self):
-        """Detect currently playing media.
-        Priority: Windows SMTC (any registered app) → window-title scan fallback."""
-        return self._try_smtc() or self._scan_titles_now_playing()
+        """Detect currently playing media — platform-dispatched."""
+        if PLATFORM == 'win32':
+            return self._try_smtc() or self._scan_titles_now_playing()
+        elif PLATFORM == 'darwin':
+            return self._detect_now_playing_mac()
+        else:
+            return self._detect_now_playing_linux()
 
     # ── Two-Stage Error Detection ─────────────────────────────────────────────
 
@@ -611,7 +756,9 @@ class FeedManager:
                 try:
                     from screen_reader import read_screen
                     uia_data = read_screen()
-                    if uia_data and "error" not in uia_data:
+                    if uia_data and "error" not in uia_data and (
+                        uia_data.get("focused_text") or uia_data.get("visible_texts") or uia_data.get("errors")
+                    ):
                         if self.callback:
                             self.callback("uia_update", uia_data)
                         
@@ -647,7 +794,7 @@ class FeedManager:
                                     })
 
                         # ── VS Code proactive toast (light, no LLM) ──────────
-                        is_vscode = process.lower() in ["code.exe", "code"]
+                        is_vscode = process.lower() in ["code.exe", "code", "electron"]
                         if is_vscode and errors:
                             for err in errors:
                                 self.screen_error_frequency[err] = self.screen_error_frequency.get(err, 0) + 1
@@ -688,7 +835,7 @@ class FeedManager:
                     self.fired_stuck_session = True
 
             # --- 4. VS Code Stuck ---
-            is_vscode = process.lower() in ["code.exe", "code"]
+            is_vscode = process.lower() in ["code.exe", "code", "electron"]
             if is_vscode and not self.fired_vscode_session and (current_time - self.vscode_start_time > 420): # 7 minutes
                  if self.callback:
                     log.info("Stuck detected in VS Code.")
@@ -740,8 +887,10 @@ class FeedManager:
                                         "message": "same error twice. want me to debug it?",
                                         "suggestions": ["debug this", "search for fix"]
                                     })
-                                    self.last_error_fire_time = current_time
-                                    self.error_history = [] # Clear after firing
+                                # Update cooldown outside the callback guard so the
+                                # timer advances even when no callback is registered.
+                                self.last_error_fire_time = current_time
+                                self.error_history = [] # Clear after firing
             except Exception as e:
                 log.debug(f"Clipboard read error: {e}")
 

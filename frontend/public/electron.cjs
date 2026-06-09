@@ -78,9 +78,14 @@ function fetchSmartPaste(content) {
   });
 }
 
+let pasteInFlight = false;  // prevent concurrent requests racing on the clipboard
+
 function runSmartPaste() {
+  if (pasteInFlight) return;
   const content = clipboard.readText();
   if (!content.trim()) return;
+
+  pasteInFlight = true;
 
   const notify = (ok) => {
     const target = (isIslandMode && islandWindow && !islandWindow.isDestroyed())
@@ -90,10 +95,18 @@ function runSmartPaste() {
 
   fetchSmartPaste(content)
     .then(({ transformed }) => {
-      clipboard.writeText(transformed || content);
-      notify(true);
+      // Only write back (and show success) if the backend actually changed something.
+      // An empty or identical result means no transformation happened.
+      const result = transformed && transformed.trim() ? transformed : null;
+      if (result && result !== content) {
+        clipboard.writeText(result);
+        notify(true);
+      } else {
+        notify(false);
+      }
     })
-    .catch(() => notify(false));
+    .catch(() => notify(false))
+    .finally(() => { pasteInFlight = false; });
 }
 
 // ── Island overlay window ─────────────────────────────────────────────────────
@@ -427,10 +440,11 @@ function startBackend() {
       cwd: path.join(__dirname, '../../backend')
     });
   } else {
-    const backendPath = path.join(process.resourcesPath, 'primnox_backend', 'primnox_backend.exe');
+    const exeName = process.platform === 'win32' ? 'primnox_backend.exe' : 'primnox_backend';
+    const backendPath = path.join(process.resourcesPath, 'primnox_backend', exeName);
     pythonProcess = spawn(backendPath, [], {
       cwd: path.join(process.resourcesPath, 'primnox_backend'),
-      windowsHide: true
+      windowsHide: process.platform === 'win32'
     });
   }
   pythonProcess.stdout.on('data', (d) => console.log(`Backend: ${d}`));
