@@ -16,6 +16,7 @@ requests
 cryptography
 keyring
 pywin32; sys_platform == 'win32'
+winsdk; sys_platform == 'win32'
 
 # ————— AUDIO + VOICE —————————————————————
 pyaudiowpatch; sys_platform == 'win32'
@@ -38,6 +39,10 @@ easyocr
 # ————— MEMORY + DATA —————————————————————
 scipy
 scikit-learn
+
+# ————— CALENDAR SKILL ————————————————————
+icalendar
+recurring-ical-events
 
 # ————— SKILLS ————————————————————————————
 pypdf

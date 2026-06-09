@@ -1,5 +1,6 @@
 
 backend/.env
+frontend/.env
 backend/memory.db
 backend/chat.db
 backend/dist/
@@ -16,3 +17,6 @@ backend/node_modules/
 
 *.zip
 backend/build/
+
+artifacts_linux/
+artifacts_mac/

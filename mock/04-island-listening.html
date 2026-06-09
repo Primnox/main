@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<title>Primnox — Island: Listening</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --primary:#6366f1;--primary-dim:rgba(99,102,241,0.12);
+  --bg:#000;--bg3:rgba(24,24,27,.85);
+  --border:rgba(255,255,255,.05);--border2:rgba(255,255,255,.08);
+  --text:rgba(255,255,255,.85);--dim:rgba(255,255,255,.4);--dimmer:rgba(255,255,255,.18);
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  width:1200px;height:800px;overflow:hidden;display:flex;flex-direction:column;font-size:14px}
+.titlebar{height:28px;background:rgba(9,9,11,.95);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative}
+.titlebar span{font-size:11px;font-family:monospace;color:var(--dimmer);letter-spacing:.1em;text-transform:uppercase}
+.titlebar-dots{position:absolute;left:16px;display:flex;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%}
+.dot-r{background:#ff5f57}.dot-y{background:#febc2e}.dot-g{background:#28c840}
+
+/* Island expanded - listening state */
+.island-wrap{height:auto;display:flex;flex-direction:column;align-items:center;
+  padding-top:8px;flex-shrink:0;z-index:50;position:relative}
+.island-pill-listening{background:#000;border:1px solid rgba(255,255,255,.1);
+  border-radius:24px;overflow:hidden;width:340px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.04),0 8px 40px rgba(0,0,0,.8),0 0 60px rgba(99,102,241,.15)}
+
+/* Header bar */
+.island-header{padding:8px 16px 0;display:flex;align-items:center;gap:8px}
+.island-mode-mini{display:flex;gap:2px;background:rgba(255,255,255,.05);border-radius:999px;padding:2px}
+.island-mode-mini button{padding:2px 8px;border-radius:999px;font-size:9px;font-family:monospace;
+  letter-spacing:.04em;border:none;cursor:pointer;color:var(--dim);background:transparent}
+.island-mode-mini button.active{background:rgba(239,68,68,.15);color:#f87171}
+.island-score{font-family:monospace;font-size:9px;color:var(--dimmer);margin-left:auto}
+.island-avatar{width:18px;height:18px;border-radius:50%;background:var(--primary-dim);
+  border:1px solid rgba(99,102,241,.3);display:flex;align-items:center;justify-content:center;
+  font-size:7px;font-family:monospace;color:#818cf8}
+
+/* Listening content */
+.listen-content{padding:12px 20px 16px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.listen-label{display:flex;align-items:center;gap:6px}
+.listen-dot{width:6px;height:6px;border-radius:50%;background:#ef4444;
+  animation:pulse-dot 1s ease-in-out infinite}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.8)}}
+.listen-text{font-family:monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#f87171}
+
+/* Waveform */
+.waveform{display:flex;align-items:center;gap:3px;height:36px}
+.wave-bar{width:3px;border-radius:999px;background:rgba(239,68,68,.7);
+  animation:wave-anim var(--spd) ease-in-out infinite alternate}
+@keyframes wave-anim{0%{height:4px}100%{height:var(--h)}}
+
+/* Transcript preview */
+.transcript-preview{width:100%;background:rgba(239,68,68,.04);border:1px solid rgba(239,68,68,.1);
+  border-radius:8px;padding:8px 12px}
+.transcript-text{font-size:11px;color:rgba(255,255,255,.6);line-height:1.5;font-style:italic}
+.transcript-cursor{display:inline-block;width:2px;height:12px;background:#ef4444;
+  margin-left:1px;animation:blink .8s step-end infinite;vertical-align:middle}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* App layout behind */
+.layout{flex:1;display:flex;overflow:hidden;opacity:.5;filter:blur(1px)}
+.sidebar-icon{width:80px;background:var(--bg3);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center}
+.icon-logo{height:64px;border-bottom:1px solid var(--border);width:100%;
+  display:flex;align-items:center;justify-content:center}
+.logo-icon{width:28px;height:28px;border-radius:50%;border:1px solid rgba(99,102,241,.3);
+  background:var(--primary-dim);display:flex;align-items:center;justify-content:center}
+.logo-icon svg{width:12px;height:12px;stroke:#818cf8;fill:none;stroke-width:2}
+.main{flex:1;display:flex;flex-direction:column}
+.header{height:64px;border-bottom:1px solid var(--border);background:var(--bg3);
+  display:flex;align-items:center;padding:0 32px}
+.header-title{font-weight:700;font-size:18px;letter-spacing:-.04em;font-style:italic;text-transform:lowercase}
+.header-sub{font-family:monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer);margin-top:2px}
+.content-placeholder{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px}
+.ph-title{font-family:monospace;font-size:11px;color:var(--dimmer);letter-spacing:.08em;text-transform:uppercase}
+</style>
+</head>
+<body>
+<div class="titlebar">
+  <div class="titlebar-dots"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+  <span>Primnox</span>
+</div>
+
+<!-- Island - Listening State -->
+<div class="island-wrap">
+  <div class="island-pill-listening">
+    <div class="island-header">
+      <div class="island-mode-mini">
+        <button>Notes</button><button>Chat</button><button>Research</button>
+      </div>
+      <span class="island-score">84%</span>
+      <div class="island-avatar">AP</div>
+    </div>
+    <div class="listen-content">
+      <div class="listen-label">
+        <div class="listen-dot"></div>
+        <span class="listen-text">Listening</span>
+      </div>
+      <!-- Waveform bars -->
+      <div class="waveform">
+        <div class="wave-bar" style="--spd:.4s;--h:8px"></div>
+        <div class="wave-bar" style="--spd:.5s;--h:18px"></div>
+        <div class="wave-bar" style="--spd:.35s;--h:26px"></div>
+        <div class="wave-bar" style="--spd:.6s;--h:30px"></div>
+        <div class="wave-bar" style="--spd:.45s;--h:22px"></div>
+        <div class="wave-bar" style="--spd:.5s;--h:32px"></div>
+        <div class="wave-bar" style="--spd:.38s;--h:28px"></div>
+        <div class="wave-bar" style="--spd:.55s;--h:36px"></div>
+        <div class="wave-bar" style="--spd:.42s;--h:24px"></div>
+        <div class="wave-bar" style="--spd:.48s;--h:30px"></div>
+        <div class="wave-bar" style="--spd:.36s;--h:20px"></div>
+        <div class="wave-bar" style="--spd:.52s;--h:34px"></div>
+        <div class="wave-bar" style="--spd:.44s;--h:26px"></div>
+        <div class="wave-bar" style="--spd:.58s;--h:18px"></div>
+        <div class="wave-bar" style="--spd:.40s;--h:10px"></div>
+        <div class="wave-bar" style="--spd:.46s;--h:6px"></div>
+      </div>
+      <!-- Live transcript -->
+      <div class="transcript-preview">
+        <div class="transcript-text">"what was I working on yesterday in VS Code"<span class="transcript-cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Blurred app content behind -->
+<div class="layout">
+  <aside class="sidebar-icon">
+    <div class="icon-logo"><div class="logo-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div></div>
+    <div style="padding:20px 0;display:flex;flex-direction:column;align-items:center;gap:24px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.75"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(99,102,241,.8)" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.75"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="18" height="7"/></svg>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="header">
+      <div>
+        <div class="header-title">neural_nodes</div>
+        <div class="header-sub">Workspace_v2</div>
+      </div>
+    </div>
+    <div style="flex:1;padding:32px 40px;opacity:.6">
+      <div style="font-size:24px;font-weight:700;color:#fff;margin-bottom:8px">Local AI Setup Guide</div>
+      <div style="font-family:monospace;font-size:11px;color:rgba(99,102,241,.6);margin-bottom:20px">local-ai · setup · privacy · edited today</div>
+      <div style="font-size:13px;line-height:1.7;color:var(--dim)">Ollama lets you run large language models locally with a single command. The models are downloaded and cached on disk — no cloud inference, no telemetry unless you opt in.</div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

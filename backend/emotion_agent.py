@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 from pathlib import Path
 from logger import get_logger
@@ -97,7 +97,7 @@ Chat History:
             log.info(f"System mood updated to: {{dominant}}")
             
     except Exception as e:
-        log.error(f"Emotion analysis failed: {{e}}")
+        log.error(f"Emotion analysis failed: {e}")
 
 if __name__ == "__main__":
     run_emotion_analysis()

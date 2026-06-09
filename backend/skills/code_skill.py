@@ -9,7 +9,13 @@ class CodeSkill(BaseSkill):
     name = "Code Analyst"
     description = "Explain, review, or refactor code files."
     supported_extensions = ["py", "js", "ts", "html", "css", "rs", "cpp", "c", "json"]
-    trigger_words = ["explain this code", "review this code", "refactor this", "fix this code"]
+    trigger_words = [
+        "explain this code", "review this code", "refactor this", "fix this code",
+        "analyze my code", "what does this code do", "what does this do",
+        "debug this", "debug my code", "code review", "check my code",
+        "optimize this code", "optimize this", "refactor my code",
+        "what does this function do", "explain this function",
+    ]
     REQUIRES_PIP = []
 
     def execute(self, ctx: SkillContext) -> SkillResult:

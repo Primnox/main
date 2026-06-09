@@ -7,6 +7,13 @@ from logger import get_logger
 log = get_logger("tools")
 load_dotenv()
 
+# Optional broadcast callback — set by core.py so tool actions can notify the frontend
+_broadcast_cb = None
+
+def set_broadcast_callback(cb):
+    global _broadcast_cb
+    _broadcast_cb = cb
+
 def web_search(query):
     """
     Primnox's Web Search Tool.
@@ -33,24 +40,7 @@ def web_search(query):
 # === TOOL SCHEMAS FOR LLM FUNCTION CALLING ===
 
 TOOL_DEFINITIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "navigate_ui",
-            "description": "Navigate the user interface to a specific screen.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "screen": {
-                        "type": "string",
-                        "description": "The screen to navigate to.",
-                        "enum": ["summaries_expanded", "notes_icon_sidebar", "chat_expanded_sidebar", "island_settings", "logs", "archive", "knowledge", "graph_view"]
-                    }
-                },
-                "required": ["screen"]
-            }
-        }
-    },
+
     {
         "type": "function",
         "function": {
@@ -171,6 +161,72 @@ TOOL_DEFINITIONS = [
                 "required": ["text"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_notes",
+            "description": "Search the user's notes for information, previously captured content, or saved documents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query to look up in notes."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_reminder",
+            "description": "Set a reminder for the user. Use when the user asks to be reminded about something after a delay.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "What to remind the user about."
+                    },
+                    "delay_seconds": {
+                        "type": "integer",
+                        "description": "Number of seconds until the reminder fires (e.g. 300 = 5 minutes, 3600 = 1 hour)."
+                    }
+                },
+                "required": ["message", "delay_seconds"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_tasks",
+            "description": "List the user's current pending tasks and to-dos.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_task",
+            "description": "Mark a task as completed. Use when the user says they finished or completed a task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "integer",
+                        "description": "The ID of the task to mark as complete (from list_tasks)."
+                    }
+                },
+                "required": ["task_id"]
+            }
+        }
     }
 ]
 
@@ -200,34 +256,73 @@ def execute_tool(name: str, arguments: dict, session_id: str = None) -> str:
                 return "No relevant memories found."
             return "\n".join([f"- {m.get('text')}" for m in results])
             
-        elif name == "navigate_ui":
-            valid_screens = ["summaries_expanded", "notes_icon_sidebar", "chat_expanded_sidebar", "island_settings", "logs", "archive", "knowledge", "graph_view"]
-            screen = arguments.get('screen')
-            if screen not in valid_screens:
-                return f"Error: '{screen}' is not a valid screen name. Valid screens are: {', '.join(valid_screens)}"
-            return f"[NAVIGATE:{screen}]"
+
             
         elif name == "save_note":
             from notes_manager import add_note
             title = arguments.get("title", "Untitled")
             text = arguments.get("text", "")
             add_note(text, title=title)
+            if _broadcast_cb:
+                _broadcast_cb("note_added", {"title": title})
             return f"Note saved: {title}"
-            
+
         elif name == "add_task":
             from notes_manager import add_task
             text = arguments.get("text", "")
             priority = arguments.get("priority", "normal")
             add_task(text, priority=priority)
+            if _broadcast_cb:
+                _broadcast_cb("task_added", {"text": text})
             return f"Task added: {text}"
-            
+
         elif name == "save_memory":
             from memory import add_memory
             text = arguments.get("text", "")
             category = arguments.get("category", "session")
             success = add_memory(text, category=category, session_id=session_id)
+            if success and _broadcast_cb:
+                _broadcast_cb("memory_updated", {"text": text[:60]})
             return f"Memory saved: {text[:50]}" if success else "Memory already exists (duplicate)."
             
+        elif name == "search_notes":
+            from notes_manager import search_notes
+            query = arguments.get("query", "")
+            results = search_notes(query, limit=5)
+            if not results:
+                return "No notes found matching that query."
+            lines = [f"- **{r['title']}** ({r.get('project','General')}): {r['text'][:150]}" for r in results]
+            return f"Found {len(results)} note(s):\n" + "\n".join(lines)
+
+        elif name == "set_reminder":
+            from reminder_manager import add_reminder
+            message = arguments.get("message", "reminder")
+            delay = int(arguments.get("delay_seconds", 300))
+            add_reminder(message, delay)
+            mins = delay // 60
+            secs = delay % 60
+            time_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+            return f"Reminder set: '{message}' in {time_str}"
+
+        elif name == "list_tasks":
+            from notes_manager import get_tasks
+            tasks = get_tasks()
+            pending = [t for t in tasks if not t.get("completed") and not t.get("is_complete")]
+            if not pending:
+                return "No pending tasks."
+            lines = [f"- [ID:{t['id']}] {t['text']} (priority: {t.get('priority','normal')})" for t in pending]
+            return f"Pending tasks ({len(pending)}):\n" + "\n".join(lines)
+
+        elif name == "complete_task":
+            from notes_manager import complete_task as _complete_task
+            task_id = int(arguments.get("task_id", 0))
+            success = _complete_task(task_id)
+            if success:
+                if _broadcast_cb:
+                    _broadcast_cb("task_added", {})  # refresh frontend task list
+                return f"Task {task_id} marked as complete."
+            return f"Could not find task {task_id}."
+
         else:
             return f"Error: Tool '{name}' not found."
     except Exception as e:

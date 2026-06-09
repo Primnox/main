@@ -13,12 +13,20 @@ export const GraphView = ({ onNodeClick }: { onNodeClick: (noteId: number) => vo
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods>();
 
-  useEffect(() => {
+  const fetchGraph = useCallback(() => {
     fetch('http://localhost:8000/api/graph')
       .then(r => r.json())
       .then(d => setData(d))
       .catch(e => console.error("Failed to load graph", e));
   }, []);
+
+  useEffect(() => {
+    fetchGraph();
+    // Listen for note changes and refresh graph
+    const handler = () => fetchGraph();
+    window.addEventListener('primnox:notes-changed', handler);
+    return () => window.removeEventListener('primnox:notes-changed', handler);
+  }, [fetchGraph]);
 
   useEffect(() => {
     if (containerRef.current) {

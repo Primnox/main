@@ -20,6 +20,7 @@ from meeting_recorder import MeetingRecorder
 from tools import web_search
 from voice import speak
 from skills.skill_router import route_skill
+from reminder_manager import parse_reminder, add_reminder, set_callback as set_reminder_callback
 from logger import get_logger
 import time
 import re
@@ -36,34 +37,134 @@ class PrimnoxCore:
         self.broadcast_callback = None
         self.latest_uia_data = {"window_title": "Unknown", "focused_text": "", "visible_texts": [], "errors": []}
 
+        # Background task timers
+        self._last_emotion_check = 0     # run every 30 min
+        self._last_profile_update = 0    # run every 60 min
+        self._last_backup = 0            # run every 6 hours
+        self._proactive_feed_counter = 0 # fire every N feed events
+
         log.info("Starting FeedManager...")
         self.feed = FeedManager(callback=self.on_feed_update)
         self.feed.start()
 
-        # log.info("Starting VADListener...")
-        # self.vad = VADListener(
-        #     callback=self.on_speech, 
-        #     ambient_callback=self.feed.log_ambient,
-        #     state_callback=self.on_vad_state_change
-        # )
-        # self.vad.start()
-        self.vad = None # Disabled per user request
+        self.vad = None  # Disabled per user request
 
         log.info("Starting MeetingRecorder...")
         self.recorder = MeetingRecorder()
         self.recorder.start()
 
         self.proactive = ProactiveEngine()
-        
-        # Register voice state callback
-        # import voice
-        # voice.register_state_callback(self.on_voice_state_change)
-        
+
+        # Start the lightweight background worker (reminders + periodic tasks)
+        threading.Thread(target=self._background_worker, daemon=True, name="primnox-bg").start()
+
         log.info("PrimnoxCore initialization complete.")
 
     def register_broadcast_callback(self, cb):
         log.debug("Registering broadcast callback.")
         self.broadcast_callback = cb
+        # Wire reminders to broadcast as soon as we have a callback
+        set_reminder_callback(cb)
+        # Wire tool-execution events (note_added, task_added, memory_updated)
+        try:
+            from tools import set_broadcast_callback as set_tool_broadcast_callback
+            set_tool_broadcast_callback(cb)
+        except Exception as e:
+            log.warning(f"Could not wire tool broadcast callback: {e}")
+
+    def _background_worker(self):
+        """
+        Lightweight periodic worker — runs every 60 s.
+        Handles: emotion analysis (30 min), profiler (60 min).
+        Reminder firing is handled inside reminder_manager's own daemon thread.
+        """
+        while True:
+            time.sleep(60)
+            now = time.time()
+            try:
+                # ── Emotion analysis every 30 minutes ──────────────────────
+                if now - self._last_emotion_check > 1800:
+                    self._last_emotion_check = now
+                    log.debug("Background: running emotion analysis...")
+                    threading.Thread(
+                        target=self._run_emotion_safe,
+                        daemon=True,
+                        name="emotion-bg"
+                    ).start()
+
+                # ── Profiler update every 60 minutes ───────────────────────
+                if now - self._last_profile_update > 3600:
+                    self._last_profile_update = now
+                    log.debug("Background: running profiler update...")
+                    threading.Thread(
+                        target=self._run_profiler_safe,
+                        daemon=True,
+                        name="profiler-bg"
+                    ).start()
+
+                # ── Auto-backup every 6 hours ───────────────────────────
+                if now - self._last_backup > 21600:
+                    self._last_backup = now
+                    log.debug("Background: running auto-backup...")
+                    threading.Thread(
+                        target=self._run_backup_safe,
+                        daemon=True,
+                        name="backup-bg"
+                    ).start()
+            except Exception as e:
+                log.error(f"Background worker error: {e}")
+
+    def _run_emotion_safe(self):
+        try:
+            from emotion_agent import run_emotion_analysis
+            run_emotion_analysis()
+            # Reload settings so the updated mood feeds into the next brain call
+            self.settings = load_settings()
+            mood = self.settings.get("current_mood")
+            if mood and self.broadcast_callback:
+                self.broadcast_callback("emotion_updated", {"mood": mood})
+        except Exception as e:
+            log.warning(f"Emotion analysis failed silently: {e}")
+
+    def _run_profiler_safe(self):
+        try:
+            from profiler import run_background_profiler
+            run_background_profiler()
+            self.settings = load_settings()
+            profile = self.settings.get("onboarding_profile", {})
+            if profile and self.broadcast_callback:
+                self.broadcast_callback("profile_updated", {"profile": profile})
+        except Exception as e:
+            log.warning(f"Profiler update failed silently: {e}")
+
+    def _run_backup_safe(self):
+        try:
+            import zipfile, time as _t
+            from settings_manager import get_appdata_dir
+            appdata = get_appdata_dir()
+            backups_dir = appdata / "backups"
+            backups_dir.mkdir(parents=True, exist_ok=True)
+            stamp = _t.strftime("%Y%m%d_%H%M%S")
+            zip_path = backups_dir / f"backup_{stamp}.zip"
+            files_to_backup = [appdata / "memory.db", appdata / "chat.db", appdata / "settings.json"]
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fp in files_to_backup:
+                    if fp.exists():
+                        zf.write(fp, fp.name)
+            # Keep 5 most recent
+            for old in sorted(backups_dir.glob("backup_*.zip"), reverse=True)[5:]:
+                try:
+                    old.unlink()
+                except Exception:
+                    pass
+            size_kb = zip_path.stat().st_size // 1024
+            log.info(f"Auto-backup complete: {zip_path.name} ({size_kb} KB)")
+            if self.broadcast_callback:
+                self.broadcast_callback("backup_complete", {"path": str(zip_path), "size_kb": size_kb})
+        except Exception as e:
+            log.error(f"Auto-backup failed: {e}")
+            if self.broadcast_callback:
+                self.broadcast_callback("backup_failed", {"error": str(e)})
 
     def on_vad_state_change(self, state):
         log.info(f"VAD state changed: {state}")
@@ -81,6 +182,35 @@ class PrimnoxCore:
             self.latest_uia_data = data
         if self.broadcast_callback:
             self.broadcast_callback(event, data)
+
+        # ── Proactive engine: fire every 20 feed events ──────────────────
+        if not self.incognito:
+            self._proactive_feed_counter += 1
+            if self._proactive_feed_counter >= 20:
+                self._proactive_feed_counter = 0
+                window = self.latest_uia_data.get("window_title", "Unknown")
+                threading.Thread(
+                    target=self._run_proactive_safe,
+                    args=(window,),
+                    daemon=True,
+                    name="proactive-bg"
+                ).start()
+
+    def _run_proactive_safe(self, context_summary: str):
+        try:
+            # Build richer context: active window + last 10 feed events
+            recent_feed = list(self.feed.history[-10:])
+            rich_context = f"Active Window: {context_summary}"
+            if recent_feed:
+                rich_context += "\nRecent Activity:\n" + "\n".join(recent_feed)
+            comment = self.proactive.analyze_proactively(rich_context)
+            if comment and self.broadcast_callback:
+                self.broadcast_callback("proactive_message", {
+                    "message": comment,
+                    "suggestions": []
+                })
+        except Exception as e:
+            log.warning(f"Proactive engine error: {e}")
 
     def on_speech(self, text, audio_bytes):
         if self.mic_muted:
@@ -138,6 +268,26 @@ class PrimnoxCore:
             log.debug("Empty input, skipping.")
             return
 
+        # ── Reminder intercept (before LLM) ──────────────────────────────
+        reminder = parse_reminder(raw_text)
+        if reminder:
+            add_reminder(reminder["message"], reminder["delay_secs"])
+            mins = reminder["delay_secs"] // 60
+            secs = reminder["delay_secs"] % 60
+            time_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+            reply = f"got it — i'll remind you to **{reminder['message']}** in {time_str}"
+            log.info(f"Reminder set: {reminder}")
+            if not self.incognito:
+                append_message_to_session(session_id, reply, speaker="Primnox")
+            if self.broadcast_callback:
+                self.broadcast_callback("state", {"value": "idle"})
+                self.broadcast_callback("message", {
+                    "sender": "Primnox",
+                    "text": reply,
+                    "speaker": "Primnox",
+                })
+            return
+
         if self.broadcast_callback:
             self.broadcast_callback("state", {"value": "thinking"})
 
@@ -146,14 +296,107 @@ class PrimnoxCore:
 
         log.info(f"Agentic processing input '{raw_text[:30]}'")
 
-        # Sensor Fusion: Gather UIA and basic context (no massive auto-injection of all memory)
+        # ── Skill intercept (before LLM) ─────────────────────────────────
+        # Check trigger words; if a skill matches, run it and skip the LLM.
+        try:
+            from skills.skill_router import get_skill_for_trigger
+            skill_cls = get_skill_for_trigger(raw_text)
+            if skill_cls:
+                log.info(f"Skill trigger matched: {skill_cls.name}")
+                # Broadcast skill_started so the frontend task pill appears
+                if self.broadcast_callback:
+                    self.broadcast_callback("skill_started", {
+                        "skill": skill_cls.name,
+                        "label": skill_cls.name,
+                        "description": getattr(skill_cls, "description", skill_cls.name),
+                    })
+                notes_count = 0
+                try:
+                    notes_count = len(get_notes())
+                except Exception:
+                    pass
+                skill_result = route_skill(
+                    user_message=raw_text,
+                    session_id=session_id,
+                    metadata={
+                        "notes_count": notes_count,
+                        "feed_history": list(self.feed.history[-50:]),
+                    }
+                )
+                reply = skill_result.get("output_text") or skill_result.get("error") or "done."
+                # Broadcast skill_complete with outcome
+                if self.broadcast_callback:
+                    self.broadcast_callback("skill_complete", {
+                        "skill": skill_cls.name,
+                        "label": skill_cls.name,
+                        "success": skill_result.get("success", True),
+                        "output_path": skill_result.get("output_path"),
+                    })
+                    # If skill produced a file, fire a separate file_ready event
+                    if skill_result.get("output_path"):
+                        self.broadcast_callback("file_ready", {
+                            "skill": skill_cls.name,
+                            "path": skill_result["output_path"],
+                        })
+                if not self.incognito and reply:
+                    append_message_to_session(session_id, reply, speaker="Primnox")
+                if self.broadcast_callback:
+                    self.broadcast_callback("state", {"value": "idle"})
+                    self.broadcast_callback("message", {
+                        "sender": "Primnox",
+                        "text": reply,
+                        "speaker": "Primnox",
+                    })
+                return
+        except Exception as e:
+            log.warning(f"Skill intercept error (falling through to LLM): {e}")
+
+        # Sensor Fusion: Gather UIA and basic context
         log.debug("Gathering screen state (UIA)...")
         uia_data = self.latest_uia_data or {"window_title": "Unknown", "focused_text": "", "visible_texts": [], "errors": []}
-        
-        # Build Context for Primnox (lightweight)
-        log.debug("Building lightweight context...")
+
+        # ── Semantic memory injection ─────────────────────────────────────
+        # Search for memories relevant to the user's message and inject them.
+        memory_context = ""
+        try:
+            relevant = search_memories(raw_text, limit=5)
+            if relevant:
+                mem_lines = "\n".join(f"- {m['text']}" for m in relevant)
+                memory_context = f"\n[RELEVANT MEMORIES]:\n{mem_lines}\n"
+                log.debug(f"Injected {len(relevant)} relevant memories into context")
+        except Exception as e:
+            log.warning(f"Memory injection failed: {e}")
+
+        # Build Context for Primnox
+        log.debug("Building context...")
         current_time = time.strftime('%I:%M %p')
-        context = f"Time: {current_time}\nSpeaker: {speaker}\nActive OS Window: {uia_data.get('window_title')}\n"
+
+        # Inject a sample of visible UI texts (UIA accessibility tree) so the
+        # LLM can see what's actually on screen without a full vision call.
+        visible_texts = uia_data.get("visible_texts", [])
+        ui_context = ""
+        if visible_texts:
+            sampled = [str(v) for v in visible_texts[:15] if str(v).strip()]
+            if sampled:
+                ui_context = f"\n[VISIBLE UI ELEMENTS]: {', '.join(sampled)}\n"
+
+        context = (
+            f"Time: {current_time}\n"
+            f"Speaker: {speaker}\n"
+            f"Active OS Window: {uia_data.get('window_title')}\n"
+            f"{ui_context}"
+            f"{memory_context}"
+        )
+
+        # ── PII redaction (privacy_mirror) ────────────────────────────────
+        # Scrub the injected context (memory snippets, visible UI text, etc.)
+        # before it ever leaves this machine. Respect the settings toggle.
+        if self.settings.get("privacy_mirror_enabled", True):
+            try:
+                from privacy_mirror import redact_text
+                context = redact_text(context)
+            except Exception:
+                pass
         
         # Stream response
         response_chunks = []
@@ -173,12 +416,21 @@ class PrimnoxCore:
             for token in think_stream(raw_text, context=context, session_id=session_id):
                 if not token:
                     continue
-                
+
                 if token.startswith("[API ERROR"):
                     log.error(f"LLM API Error intercepted: {token}")
                     if self.broadcast_callback:
                         self.broadcast_callback("message", {"sender": "Primnox", "text": "Sorry, something went wrong. Please try again."})
                     break
+
+                # Strip [SYSTEM: ...] tool-execution notifications from the visible chat
+                if "[SYSTEM:" in token:
+                    # Broadcast as a subtle tool event instead of printing to chat
+                    import re as _re
+                    sys_match = _re.search(r'\[SYSTEM:\s*(.*?)\]', token)
+                    if sys_match and self.broadcast_callback:
+                        self.broadcast_callback("tool_executing", {"tool": sys_match.group(1).strip()})
+                    continue
 
                 response_chunks.append(token)
                 token_buffer.append(token)
@@ -215,20 +467,69 @@ class PrimnoxCore:
                 self.broadcast_callback("message", {"sender": "Primnox", "text": "Sorry, something went wrong. Please try again."})
         
         response = full_text.strip()
-        
+
         # Archive Primnox's response
         if not self.incognito and response:
             append_message_to_session(session_id, response, speaker="Primnox")
-            
+
         if self.broadcast_callback:
             self.broadcast_callback("state", {"value": "idle"})
-            
-        # Voice TTS (if active)
-        # if not self.incognito and response:
-        #     from settings_manager import load_settings
-        #     s = load_settings()
-        #     if s.get("voice_feedback", True):
-        #         speak(response)
+
+        # ── Post-exchange tasks (fire-and-forget background threads) ─────
+        if not self.incognito and response and raw_text:
+            threading.Thread(
+                target=self._post_exchange_tasks,
+                args=(raw_text, response, session_id),
+                daemon=True,
+                name="post-exchange"
+            ).start()
+
+    def _post_exchange_tasks(self, user_msg: str, ai_reply: str, session_id: str):
+        """
+        Runs after every chat exchange — never blocks the main stream.
+        1. Extract and store a memory from the exchange if it's meaningful.
+        2. Auto-title the session if it's still the default "New Chat".
+        """
+        exchange = f"User: {user_msg}\nPrimnox: {ai_reply}"
+
+        # 1. Memory extraction from the conversation ─────────────────────
+        try:
+            resp = think(
+                "Extract a single concise memory from this exchange that would be useful to remember "
+                "for future conversations. Focus on facts about the user, their projects, preferences, "
+                "or decisions made. If nothing worth remembering, reply with just: none\n\n" + exchange,
+                system_override=(
+                    "You extract memories. Output one short sentence (max 20 words) or the word 'none'. "
+                    "No preamble, no quotes."
+                )
+            )
+            mem_text = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            if mem_text and mem_text.lower() not in ("none", "none.", "nothing"):
+                add_memory(mem_text, category="session", session_id=session_id)
+                if self.broadcast_callback:
+                    self.broadcast_callback("memory_updated", {"text": mem_text})
+                log.debug(f"Extracted memory: {mem_text[:60]}")
+        except Exception as e:
+            log.warning(f"Post-exchange memory extraction failed: {e}")
+
+        # 2. Auto-title session if still default ─────────────────────────
+        try:
+            from chat_manager import get_session, update_session
+            session = get_session(session_id)
+            if session and session.get("title", "").strip() in ("New Chat", "current", ""):
+                resp = think(
+                    f"Give this conversation a short title (3-5 words, no quotes):\n{exchange[:300]}",
+                    system_override="Output only the title. 3-5 words. No quotes. No punctuation at end."
+                )
+                title = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                title = title.strip('"\'').strip()
+                if title and len(title) < 60:
+                    update_session(session_id, title=title)
+                    log.debug(f"Auto-titled session '{session_id}': {title}")
+                    if self.broadcast_callback:
+                        self.broadcast_callback("session_updated", {"id": session_id, "title": title})
+        except Exception as e:
+            log.warning(f"Auto-title failed: {e}")
 
     def route_by_trigger(self, text):
         if not text:

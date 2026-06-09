@@ -1,6 +1,6 @@
 import { useState, ReactNode, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Terminal, MessageSquare, FileText, Database, History, Settings, ChevronRight, Network, LayoutDashboard } from 'lucide-react';
+import { Terminal, MessageSquare, FileText, Database, History, Settings, ChevronRight, Network, LayoutDashboard, Globe, BookOpen, Calendar, Mic } from 'lucide-react';
 import { DynamicIsland } from './DynamicIsland';
 import { TitleBar } from './TitleBar';
 
@@ -8,7 +8,7 @@ type SidebarState = 'expanded' | 'icon' | 'hidden';
 type AppMode = 'chat' | 'notes' | 'research';
 type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy' | 'error';
 
-type ScreenId = 
+type ScreenId =
   | 'summaries_expanded'
   | 'notes_icon_sidebar'
   | 'summaries_sidebar_hidden'
@@ -20,7 +20,10 @@ type ScreenId =
   | 'logs'
   | 'archive'
   | 'knowledge'
-  | 'graph_view';
+  | 'graph_view'
+  | 'research_workspace'
+  | 'calendar'
+  | 'meetings';
 
 const IconButton = ({ icon: Icon, active, onClick, label }: { icon: any, active?: boolean, onClick?: () => void, label?: string }) => (
   <button 
@@ -71,9 +74,14 @@ export const Layout = ({
   flowState = null,
   errorStreak = null,
   nowPlaying = null,
+  islandSkills = {},
   productivityScore = 100,
   parallelTasks = [],
   onSmartPaste,
+  onMediaControl,
+  proactiveAlert = null,
+  onDismissProactive,
+  onSuggestionClick,
   isZenMode = false,
   isIslandMode = false,
   onRestoreWindow,
@@ -100,10 +108,15 @@ export const Layout = ({
   onClearError?: () => void,
   flowState?: { duration_minutes: number; started_at: number; app: string } | null,
   errorStreak?: { error: string; duration_minutes: number } | null,
-  nowPlaying?: { title: string; artist: string; source: string } | null,
+  nowPlaying?: { title: string; artist: string; album?: string; source: string; is_playing?: boolean; position_ms?: number; duration_ms?: number; sampled_at?: number } | null,
+  islandSkills?: Record<string, any>,
   productivityScore?: number,
   parallelTasks?: { id: string; label: string; color: string }[],
   onSmartPaste?: () => void,
+  onMediaControl?: (action: 'play_pause' | 'next' | 'prev' | 'stop') => void,
+  proactiveAlert?: { message: string; suggestions: string[] } | null,
+  onDismissProactive?: () => void,
+  onSuggestionClick?: (s: string) => void,
   isZenMode?: boolean,
   isIslandMode?: boolean,
   onRestoreWindow?: () => void,
@@ -135,9 +148,14 @@ export const Layout = ({
           flowState={flowState}
           errorStreak={errorStreak}
           nowPlaying={nowPlaying}
+          islandSkills={islandSkills}
           productivityScore={productivityScore}
           parallelTasks={parallelTasks}
           onSmartPaste={onSmartPaste}
+          onMediaControl={onMediaControl}
+          proactiveAlert={proactiveAlert}
+          onDismissProactive={onDismissProactive}
+          onSuggestionClick={onSuggestionClick}
           isWindowIsland={true}
           onRestoreWindow={onRestoreWindow}
         />
@@ -164,9 +182,14 @@ export const Layout = ({
             flowState={flowState}
             errorStreak={errorStreak}
             nowPlaying={nowPlaying}
+            islandSkills={islandSkills}
             productivityScore={productivityScore}
             parallelTasks={parallelTasks}
             onSmartPaste={onSmartPaste}
+            onMediaControl={onMediaControl}
+            proactiveAlert={proactiveAlert}
+            onDismissProactive={onDismissProactive}
+            onSuggestionClick={onSuggestionClick}
           />
         )}
       </AnimatePresence>
@@ -222,8 +245,12 @@ export const Layout = ({
                       <SidebarLink icon={MessageSquare} label="Synapse_Stream" active={activeLink === 'transcripts'} onClick={() => { onNavigate('chat_expanded_sidebar'); setAppMode('chat'); }} />
                       <SidebarLink icon={FileText} label="Neural_Nodes" active={activeLink === 'notes'} onClick={() => { onNavigate('notes_icon_sidebar'); setAppMode('notes'); }} />
                       <SidebarLink icon={LayoutDashboard} label="Dashboard" active={activeLink === 'summaries'} onClick={() => onNavigate('summaries_expanded')} />
+                      <SidebarLink icon={Globe} label="Deep_Research" active={activeLink === 'research'} onClick={() => { onNavigate('research_workspace'); setAppMode('research'); }} />
+                      <SidebarLink icon={Calendar} label="Calendar" active={activeLink === 'calendar'} onClick={() => onNavigate('calendar')} />
+                      <SidebarLink icon={Mic} label="Recordings" active={activeLink === 'meetings'} onClick={() => onNavigate('meetings')} />
                       <SidebarLink icon={Network} label="Knowledge_Graph" active={activeLink === 'graph'} onClick={() => onNavigate('graph_view')} />
                       <SidebarLink icon={Database} label="Data_Vault" active={activeLink === 'archive'} onClick={() => onNavigate('archive')} />
+                      <SidebarLink icon={BookOpen} label="Knowledge_Nexus" active={activeLink === 'knowledge'} onClick={() => onNavigate('knowledge')} />
                       <SidebarLink icon={History} label="System_Logs" active={activeLink === 'logs'} onClick={() => onNavigate('logs')} />
                       <SidebarLink icon={Settings} label="Configure" active={activeLink === 'settings'} onClick={() => onNavigate('island_settings')} />
                     </>
@@ -232,8 +259,12 @@ export const Layout = ({
                       <IconButton icon={MessageSquare} active={activeLink === 'transcripts'} onClick={() => { onNavigate('chat_expanded_sidebar'); setAppMode('chat'); }} label="Synapse" />
                       <IconButton icon={FileText} active={activeLink === 'notes'} onClick={() => { onNavigate('notes_icon_sidebar'); setAppMode('notes'); }} label="Nodes" />
                       <IconButton icon={LayoutDashboard} active={activeLink === 'summaries'} onClick={() => onNavigate('summaries_expanded')} label="Dash" />
+                      <IconButton icon={Globe} active={activeLink === 'research'} onClick={() => { onNavigate('research_workspace'); setAppMode('research'); }} label="Research" />
+                      <IconButton icon={Calendar} active={activeLink === 'calendar'} onClick={() => onNavigate('calendar')} label="Cal" />
+                      <IconButton icon={Mic} active={activeLink === 'meetings'} onClick={() => onNavigate('meetings')} label="Rec" />
                       <IconButton icon={Network} active={activeLink === 'graph'} onClick={() => onNavigate('graph_view')} label="Graph" />
                       <IconButton icon={Database} active={activeLink === 'archive'} onClick={() => onNavigate('archive')} label="Vault" />
+                      <IconButton icon={BookOpen} active={activeLink === 'knowledge'} onClick={() => onNavigate('knowledge')} label="Nexus" />
                       <IconButton icon={History} active={activeLink === 'logs'} onClick={() => onNavigate('logs')} label="Logs" />
                       <IconButton icon={Settings} active={activeLink === 'settings'} onClick={() => onNavigate('island_settings')} label="Config" />
                     </div>

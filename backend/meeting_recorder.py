@@ -59,16 +59,41 @@ class MeetingRecorder:
         try:
             wasapi_info = self.p.get_host_api_info_by_type(pyaudio.paWASAPI)
             default_speakers = self.p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
-            
-            if not default_speakers["isLoopbackDevice"]:
-                for loopback in self.p.get_loopback_device_info_generator():
-                    if default_speakers["name"] in loopback["name"]:
-                        default_speakers = loopback
-                        break
-            
-            self.capture_channels = default_speakers["maxInputChannels"]
+
+            # Collect ALL loopback devices once so we can fall back gracefully
+            all_loopbacks = list(self.p.get_loopback_device_info_generator())
+
+            if not default_speakers.get("isLoopbackDevice"):
+                # 1st choice: loopback whose name contains the default speaker name
+                matched = next(
+                    (lb for lb in all_loopbacks if default_speakers["name"] in lb["name"]),
+                    None
+                )
+                # 2nd choice (fallback): any loopback device at all
+                if matched is None and all_loopbacks:
+                    matched = all_loopbacks[0]
+                    log.warning(
+                        f"No exact loopback match for '{default_speakers['name']}' — "
+                        f"falling back to '{matched['name']}'"
+                    )
+                if matched:
+                    default_speakers = matched
+                else:
+                    log.error("No WASAPI loopback device found — audio will not be captured.")
+                    return
+
+            channels = int(default_speakers.get("maxInputChannels", 0))
+            if channels == 0:
+                # Some loopback devices report 0 input channels; use stereo as safe default
+                channels = 2
+                log.warning("Loopback device reports 0 input channels — defaulting to 2")
+
+            self.capture_channels = channels
             self.capture_rate = int(default_speakers["defaultSampleRate"])
-            log.debug(f"Capturing {self.capture_channels} channels at {self.capture_rate}Hz")
+            log.debug(
+                f"Capturing '{default_speakers['name']}' — "
+                f"{self.capture_channels}ch @ {self.capture_rate}Hz"
+            )
 
             self.audio_stream = self.p.open(
                 format=pyaudio.paInt16,
@@ -107,29 +132,28 @@ class MeetingRecorder:
         # Trigger Summary logic (Primnox)
         log.info("Generating meeting summary via Groq...")
         try:
-            summary = think("Summarize this meeting based on the captured audio and visuals. Format it clearly with headings and bullet points using markdown.", context="[Meeting Audio Saved]")
-            with open(self.current_meeting_dir / "summary.txt", "w") as f:
-                f.write(str(summary))
-            
-            # Inject into Notes app for Notion-like workspace
-            try:
-                from notes_manager import get_notes, update_note, add_note
-                notes = get_notes()
-                daily_log_idx = -1
-                for i, n in enumerate(notes):
-                    if n.get("title") == "Daily Log":
-                        daily_log_idx = i
-                        break
-                
-                new_text = f"\n\n### Meeting Summary ({time.strftime('%H:%M')})\n{str(summary)}"
-                if daily_log_idx >= 0:
-                    update_note(daily_log_idx, "Daily Log", notes[daily_log_idx].get("text", "") + new_text)
-                else:
-                    add_note(new_text.strip(), title="Daily Log")
-            except Exception as e:
-                log.error(f"Failed to inject summary into notes: {e}")
-                
-            log.info("Meeting summary saved and injected to notes.")
+            resp = think(
+                "Summarize this meeting based on the captured audio and visuals. "
+                "Format it clearly with headings and bullet points using markdown.",
+                context="[Meeting Audio Saved]"
+            )
+            summary_text = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+            if summary_text:
+                with open(self.current_meeting_dir / "summary.txt", "w", encoding="utf-8") as f:
+                    f.write(summary_text)
+
+                # Save as its own note
+                try:
+                    from notes_manager import add_note, get_notes
+                    meeting_title = f"Meeting: {self.current_meeting_dir.name}"
+                    if not any(n.get("title") == meeting_title for n in get_notes()):
+                        add_note(summary_text, title=meeting_title)
+                        log.info(f"Meeting summary saved to notes: {meeting_title}")
+                except Exception as e:
+                    log.error(f"Failed to save meeting summary to notes: {e}")
+
+            log.info("Meeting summary saved.")
         except Exception as e:
             log.error(f"Failed to generate meeting summary: {e}")
         

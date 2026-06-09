@@ -2,8 +2,15 @@ import sqlite3
 import os
 import uuid
 import datetime
+from pathlib import Path
 
-DB_FILE = "chat.db"
+def _get_appdata_dir() -> Path:
+    appdata = os.environ.get("APPDATA")
+    base = Path(appdata) / "primnox_extension" if appdata else Path.home() / ".primnox_extension"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+DB_FILE = str(_get_appdata_dir() / "chat.db")
 
 def get_current_time():
     return datetime.datetime.now().isoformat()
@@ -183,6 +190,19 @@ def append_message_to_session(session_id, text, speaker):
         "timestamp": timestamp
     }
 
+def get_session(session_id: str) -> dict | None:
+    """Return session metadata dict or None if not found."""
+    init_chat_db()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT id, title, date, folder_id, is_pinned FROM sessions WHERE id = ?', (session_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": row["id"], "title": row["title"], "date": row["date"],
+            "folder_id": row["folder_id"], "is_pinned": bool(row["is_pinned"])}
+
 def update_session(session_id, title=None, is_pinned=None, folder_id=None):
     init_chat_db()
     conn = get_db()
@@ -199,6 +219,32 @@ def update_session(session_id, title=None, is_pinned=None, folder_id=None):
     conn.commit()
     conn.close()
     return True
+
+def create_folder(title: str) -> dict:
+    """Create a new chat folder and return it."""
+    init_chat_db()
+    folder_id = f"f_{str(uuid.uuid4())[:8]}"
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO folders (id, title) VALUES (?, ?)", (folder_id, title))
+    conn.commit()
+    conn.close()
+    return {"id": folder_id, "title": title, "count": 0}
+
+
+def delete_folder(folder_id: str) -> bool:
+    """Delete a folder and unassign any chats in it."""
+    init_chat_db()
+    conn = get_db()
+    c = conn.cursor()
+    # Move chats out of the deleted folder first
+    c.execute("UPDATE sessions SET folder_id = NULL WHERE folder_id = ?", (folder_id,))
+    c.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+    affected = c.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
 
 def delete_session(session_id):
     init_chat_db()

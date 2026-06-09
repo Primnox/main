@@ -8,6 +8,19 @@ log = get_logger("skill.meeting")
 MEETINGS_DIR = Path.home() / "Documents" / "Primnox" / "Meetings"
 
 
+def _save_to_notes(meeting_name: str, summary: str):
+    """Save or update the meeting summary as a note. Skips if an identical note already exists."""
+    try:
+        from notes_manager import add_note, get_notes
+        title = f"Meeting: {meeting_name}"
+        existing = [n for n in get_notes() if n.get("title") == title]
+        if not existing:
+            add_note(text=summary, title=title)
+            log.info(f"Saved meeting summary to notes: {title}")
+    except Exception as e:
+        log.warning(f"Could not save meeting summary to notes: {e}")
+
+
 def _get_latest_meeting_dir() -> Path | None:
     if not MEETINGS_DIR.exists():
         return None
@@ -52,6 +65,7 @@ class MeetingSummarySkill(BaseSkill):
                 summary = summary_file.read_text(encoding="utf-8").strip()
                 if summary:
                     log.info(f"Returning cached summary for {meeting_dir.name}")
+                    _save_to_notes(meeting_dir.name, summary)
                     return SkillResult(
                         success=True,
                         output_text=f"**{meeting_dir.name}**\n\n{summary}",
@@ -97,6 +111,9 @@ class MeetingSummarySkill(BaseSkill):
             summary_file.write_text(content, encoding="utf-8")
         except Exception:
             pass
+
+        # Save to notes so it shows up in the Notes view
+        _save_to_notes(meeting_dir.name, content)
 
         return SkillResult(
             success=True,

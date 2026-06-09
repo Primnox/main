@@ -4,13 +4,18 @@ import {
   Sparkles, Check, Brain, Shield, Eye, ShieldAlert,
   Loader2, Terminal, Compass, LayoutDashboard, MessageSquare
 } from 'lucide-react';
-import { usePrimnox } from '../../hooks/usePrimnox';
+// Props are injected from App so we share the single WebSocket connection.
+interface OnboardingViewProps {
+  onComplete: () => void;
+  activity: any[];
+  updateSettings: (s: any) => void;
+  settings: any;
+  scanEnvironment: () => Promise<any>;
+}
 
-export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
+export const OnboardingView = ({ onComplete, activity, updateSettings, settings, scanEnvironment }: OnboardingViewProps) => {
   const [step, setStep] = useState(1);
   const totalSteps = 13;
-  
-  const { activity, updateSettings, settings, scanEnvironment } = usePrimnox();
   const [profile, setProfile] = useState<any>({
     name: 'User',
     role: 'System Administrator',
@@ -336,15 +341,28 @@ const Step6Learning = ({ next, activity, profile, scanEnvironment, setProfile }:
 
     // Run the actual backend scan
     if (scanEnvironment) {
-      scanEnvironment().then((data: any) => {
-        isDone = true;
-        setProgress(100);
-        if (data && data.projects) {
-          setProfile(data);
-          setStream(prev => [...prev, "> Scan Complete: Real data acquired!"].slice(-10));
-        }
-        setTimeout(next, 1500);
-      });
+      scanEnvironment()
+        .then((data: any) => {
+          isDone = true;
+          setProgress(100);
+          if (data && data.projects) {
+            setProfile(data);
+            setStream(prev => [...prev, '> Scan Complete: Real data acquired!'].slice(-10));
+          } else {
+            setStream(prev => [...prev, '> Environment mapped.'].slice(-10));
+          }
+          setTimeout(next, 1500);
+        })
+        .catch(() => {
+          // Backend unreachable — just move on with defaults
+          isDone = true;
+          setProgress(100);
+          setStream(prev => [...prev, '> Using default profile — configure later in Settings.'].slice(-10));
+          setTimeout(next, 1500);
+        });
+    } else {
+      // No scanner available — advance after a short delay
+      setTimeout(() => { isDone = true; setProgress(100); next(); }, 2000);
     }
 
     return () => clearInterval(interval);

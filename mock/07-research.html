@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<title>Primnox — Research</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --primary:#6366f1;--primary-dim:rgba(99,102,241,0.12);
+  --bg:#000;--bg3:rgba(24,24,27,.85);
+  --border:rgba(255,255,255,.05);--border2:rgba(255,255,255,.08);
+  --text:rgba(255,255,255,.85);--dim:rgba(255,255,255,.4);--dimmer:rgba(255,255,255,.18);
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  width:1200px;height:800px;overflow:hidden;display:flex;flex-direction:column;font-size:14px}
+.titlebar{height:28px;background:rgba(9,9,11,.95);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative}
+.titlebar span{font-size:11px;font-family:monospace;color:var(--dimmer);letter-spacing:.1em;text-transform:uppercase}
+.titlebar-dots{position:absolute;left:16px;display:flex;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%}
+.dot-r{background:#ff5f57}.dot-y{background:#febc2e}.dot-g{background:#28c840}
+.island-wrap{height:56px;display:flex;align-items:center;justify-content:center;flex-shrink:0;z-index:50}
+.island{background:#000;border:1px solid rgba(255,255,255,.08);border-radius:999px;
+  padding:6px 14px;display:flex;align-items:center;gap:10px}
+.island-mode{display:flex;gap:2px;background:rgba(255,255,255,.05);border-radius:999px;padding:3px}
+.island-mode button{padding:3px 10px;border-radius:999px;font-size:10px;font-family:monospace;
+  letter-spacing:.05em;border:none;cursor:pointer;color:var(--dim);background:transparent}
+.island-mode button.active{background:var(--primary-dim);color:#818cf8}
+.island-sep{width:1px;height:16px;background:var(--border2)}
+.island-mic{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.04);
+  border:1px solid var(--border2);display:flex;align-items:center;justify-content:center}
+.island-mic svg{width:10px;height:10px;fill:none;stroke:var(--dim);stroke-width:2}
+.island-score{font-family:monospace;font-size:10px;color:var(--dimmer)}
+.island-avatar{width:22px;height:22px;border-radius:50%;background:var(--primary-dim);
+  border:1px solid rgba(99,102,241,.3);display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-family:monospace;color:#818cf8}
+.layout{flex:1;display:flex;overflow:hidden}
+.sidebar-icon{width:80px;flex-shrink:0;background:var(--bg3);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;backdrop-filter:blur(20px)}
+.icon-logo{height:64px;border-bottom:1px solid var(--border);width:100%;
+  display:flex;align-items:center;justify-content:center}
+.logo-icon{width:28px;height:28px;border-radius:50%;border:1px solid rgba(99,102,241,.3);
+  background:var(--primary-dim);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 12px rgba(99,102,241,.2)}
+.logo-icon svg{width:12px;height:12px;stroke:#818cf8;fill:none;stroke-width:2}
+.icon-nav{display:flex;flex-direction:column;gap:24px;padding:20px 0;flex:1}
+.icon-btn{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer}
+.icon-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.75}
+.icon-btn.active svg{color:var(--primary)}
+.icon-btn:not(.active) svg{color:var(--dimmer)}
+.icon-btn span{font-family:monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase}
+.icon-btn.active span{color:#818cf8}
+.icon-btn:not(.active) span{color:var(--dimmer)}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.header{height:64px;border-bottom:1px solid var(--border);background:var(--bg3);backdrop-filter:blur(20px);
+  display:flex;align-items:center;padding:0 32px;flex-shrink:0}
+.header-title{font-weight:700;font-size:18px;letter-spacing:-.04em;font-style:italic;text-transform:lowercase}
+.header-sub{font-family:monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer);margin-top:2px}
+
+/* Research UI */
+.research-body{flex:1;overflow-y:auto;padding:28px 36px;display:flex;flex-direction:column;gap:20px}
+.search-bar{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.04);
+  border:1px solid rgba(99,102,241,.25);border-radius:12px;padding:12px 18px;
+  box-shadow:0 0 0 1px rgba(99,102,241,.08),0 0 20px rgba(99,102,241,.06)}
+.search-bar svg{width:16px;height:16px;stroke:rgba(99,102,241,.6);fill:none;stroke-width:2;flex-shrink:0}
+.search-bar input{flex:1;background:transparent;border:none;outline:none;
+  color:var(--text);font-size:14px;font-weight:500}
+.search-bar input::placeholder{color:var(--dimmer)}
+.search-go{padding:6px 14px;background:var(--primary);border:none;border-radius:8px;cursor:pointer;
+  font-family:monospace;font-size:9px;letter-spacing:.06em;color:#fff;text-transform:uppercase;flex-shrink:0}
+.search-meta{display:flex;align-items:center;gap:12px}
+.search-meta-label{font-family:monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--dimmer)}
+.search-source{display:flex;gap:6px}
+.src-badge{font-family:monospace;font-size:8px;padding:2px 8px;border-radius:4px;
+  background:rgba(255,255,255,.04);border:1px solid var(--border2);color:var(--dim);cursor:pointer}
+.src-badge.active{background:var(--primary-dim);border-color:rgba(99,102,241,.25);color:#818cf8}
+
+/* Results grid */
+.results-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.result-card{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:10px;
+  padding:16px;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;gap:8px}
+.result-card:hover{background:rgba(255,255,255,.04);border-color:rgba(99,102,241,.2)}
+.result-domain{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.domain-dot{width:14px;height:14px;border-radius:3px;background:rgba(255,255,255,.06);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.domain-dot svg{width:8px;height:8px;stroke:var(--dim);fill:none;stroke-width:2}
+.domain-name{font-family:monospace;font-size:8px;letter-spacing:.04em;color:var(--dimmer);
+  text-transform:lowercase}
+.result-title{font-size:13px;font-weight:600;color:#c7d2fe;line-height:1.3}
+.result-snippet{font-size:11px;line-height:1.6;color:var(--dim)}
+.result-tags{display:flex;gap:5px;flex-wrap:wrap}
+.r-tag{font-family:monospace;font-size:8px;padding:2px 6px;border-radius:4px;
+  background:rgba(255,255,255,.04);color:var(--dimmer);border:1px solid var(--border)}
+
+/* Summary panel */
+.summary-panel{background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.15);
+  border-radius:10px;padding:18px}
+.summary-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.summary-icon{font-size:12px}
+.summary-label{font-family:monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#818cf8}
+.summary-text{font-size:12px;line-height:1.7;color:var(--dim)}
+.summary-text strong{color:var(--text)}
+.summary-sources{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.sum-src{font-family:monospace;font-size:8px;color:rgba(99,102,241,.6);padding:2px 8px;
+  border-radius:4px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.15)}
+</style>
+</head>
+<body>
+<div class="titlebar">
+  <div class="titlebar-dots"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+  <span>Primnox</span>
+</div>
+<div class="island-wrap">
+  <div class="island">
+    <div class="island-mode">
+      <button>Notes</button><button>Chat</button><button class="active">Research</button>
+    </div>
+    <div class="island-sep"></div>
+    <div class="island-mic"><svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></div>
+    <div class="island-sep"></div>
+    <span class="island-score">84%</span>
+    <div class="island-avatar">AP</div>
+  </div>
+</div>
+<div class="layout">
+  <aside class="sidebar-icon">
+    <div class="icon-logo"><div class="logo-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div></div>
+    <div class="icon-nav">
+      <div class="icon-btn"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Synapse</span></div>
+      <div class="icon-btn"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Nodes</span></div>
+      <div class="icon-btn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="18" height="7"/></svg><span>Dash</span></div>
+      <div class="icon-btn active"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span>Research</span></div>
+      <div class="icon-btn"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M12 8v3M7 17l3.5-2M17 17l-3.5-2"/></svg><span>Graph</span></div>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="header">
+      <div>
+        <div class="header-title">deep_research</div>
+        <div class="header-sub">Web_Search_Engine · 8 results in 1.2s</div>
+      </div>
+    </div>
+    <div class="research-body">
+      <!-- Search input -->
+      <div class="search-bar">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input value="quantum computing breakthroughs 2025">
+        <button class="search-go">Search ↵</button>
+      </div>
+
+      <!-- Source filters -->
+      <div class="search-meta">
+        <span class="search-meta-label">Sources:</span>
+        <div class="search-source">
+          <div class="src-badge active">All</div>
+          <div class="src-badge">Academic</div>
+          <div class="src-badge">News</div>
+          <div class="src-badge">Docs</div>
+        </div>
+      </div>
+
+      <!-- AI Summary -->
+      <div class="summary-panel">
+        <div class="summary-header">
+          <span class="summary-icon">⬡</span>
+          <span class="summary-label">AI Summary</span>
+        </div>
+        <div class="summary-text">
+          In 2025, quantum computing saw several key milestones: <strong>Google's Willow chip</strong> demonstrated 105-qubit operation with error rates below 0.1% per gate, while <strong>IBM's Condor processor</strong> (1,121 qubits) achieved practical quantum advantage on specific optimization problems. Microsoft's topological qubit approach reached stable 100ms coherence times — a significant leap. Commercially, quantum cloud services from AWS Braket and Azure Quantum expanded API coverage, making quantum algorithms accessible without hardware access.
+        </div>
+        <div class="summary-sources">
+          <div class="sum-src">nature.com</div>
+          <div class="sum-src">research.google</div>
+          <div class="sum-src">ibm.com/quantum</div>
+          <div class="sum-src">microsoft.com/research</div>
+          <div class="sum-src">arxiv.org</div>
+        </div>
+      </div>
+
+      <!-- Result cards -->
+      <div class="results-grid">
+        <div class="result-card">
+          <div class="result-domain">
+            <div class="domain-dot"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10"/></svg></div>
+            <span class="domain-name">nature.com · 2 days ago</span>
+          </div>
+          <div class="result-title">Google Willow: A 105-qubit chip with below-threshold error correction</div>
+          <div class="result-snippet">Google's latest quantum processor achieves error rates that decrease exponentially as the system scales — a key milestone toward practical fault-tolerant quantum computing previously thought to require millions of physical qubits.</div>
+          <div class="result-tags"><span class="r-tag">error-correction</span><span class="r-tag">google</span><span class="r-tag">hardware</span></div>
+        </div>
+        <div class="result-card">
+          <div class="result-domain">
+            <div class="domain-dot"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10"/></svg></div>
+            <span class="domain-name">ibm.com · 1 week ago</span>
+          </div>
+          <div class="result-title">IBM Condor: 1,121 Qubit Processor Hits Quantum Advantage Threshold</div>
+          <div class="result-snippet">IBM's Condor processor demonstrates quantum advantage on specific combinatorial optimization problems, outperforming classical supercomputers. The heron gate architecture achieves 99.9% two-qubit gate fidelity.</div>
+          <div class="result-tags"><span class="r-tag">ibm</span><span class="r-tag">optimization</span><span class="r-tag">1000-qubit</span></div>
+        </div>
+        <div class="result-card">
+          <div class="result-domain">
+            <div class="domain-dot"><svg viewBox="0 0 24 24"><path d="M12 2l9 4.9V17L12 22l-9-4.9V7z"/></svg></div>
+            <span class="domain-name">microsoft.com · 5 days ago</span>
+          </div>
+          <div class="result-title">Microsoft Topological Qubits Reach 100ms Coherence — A 100x Improvement</div>
+          <div class="result-snippet">Using non-Abelian anyons in a topological qubit design, Microsoft Research reports 100 millisecond coherence times — orders of magnitude longer than conventional superconducting designs, enabling deeper quantum circuits.</div>
+          <div class="result-tags"><span class="r-tag">topological</span><span class="r-tag">coherence</span><span class="r-tag">microsoft</span></div>
+        </div>
+        <div class="result-card">
+          <div class="result-domain">
+            <div class="domain-dot"><svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div>
+            <span class="domain-name">arxiv.org · 3 days ago</span>
+          </div>
+          <div class="result-title">Quantum Machine Learning in 2025: Practical Circuits for Near-Term Devices</div>
+          <div class="result-snippet">Researchers demonstrate variational quantum algorithms running on 50-qubit circuits achieving competitive results on image classification tasks, bridging quantum ML from theory into experiments using hybrid classical-quantum approaches.</div>
+          <div class="result-tags"><span class="r-tag">QML</span><span class="r-tag">variational</span><span class="r-tag">research</span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

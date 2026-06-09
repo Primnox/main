@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<title>Primnox — Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --primary:#6366f1;--primary-dim:rgba(99,102,241,0.12);
+  --bg:#000;--bg2:#09090b;--bg3:rgba(24,24,27,.85);
+  --border:rgba(255,255,255,.05);--border2:rgba(255,255,255,.08);
+  --text:rgba(255,255,255,.85);--dim:rgba(255,255,255,.4);--dimmer:rgba(255,255,255,.18);
+  --green:rgba(16,185,129,.9);--green-dim:rgba(16,185,129,.1);--green-b:rgba(16,185,129,.2);
+  --amber:rgba(245,158,11,.9);--amber-dim:rgba(245,158,11,.08);--amber-b:rgba(245,158,11,.2);
+  --violet:#8b5cf6;--violet-dim:rgba(139,92,246,.1);--violet-b:rgba(139,92,246,.2);
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  width:1200px;height:800px;overflow:hidden;display:flex;flex-direction:column;font-size:14px}
+.titlebar{height:28px;background:rgba(9,9,11,.95);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative}
+.titlebar span{font-size:11px;font-family:monospace;color:var(--dimmer);letter-spacing:.1em;text-transform:uppercase}
+.titlebar-dots{position:absolute;left:16px;display:flex;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%}
+.dot-r{background:#ff5f57}.dot-y{background:#febc2e}.dot-g{background:#28c840}
+.island-wrap{height:56px;display:flex;align-items:center;justify-content:center;flex-shrink:0;z-index:50}
+.island{background:#000;border:1px solid rgba(255,255,255,.08);border-radius:999px;
+  padding:6px 14px;display:flex;align-items:center;gap:10px}
+.island-mode{display:flex;gap:2px;background:rgba(255,255,255,.05);border-radius:999px;padding:3px}
+.island-mode button{padding:3px 10px;border-radius:999px;font-size:10px;font-family:monospace;
+  letter-spacing:.05em;border:none;cursor:pointer;color:var(--dim);background:transparent}
+.island-mode button.active{background:var(--primary-dim);color:#818cf8}
+.island-sep{width:1px;height:16px;background:var(--border2)}
+.island-mic{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.04);
+  border:1px solid var(--border2);display:flex;align-items:center;justify-content:center}
+.island-mic svg{width:10px;height:10px;fill:none;stroke:var(--dim);stroke-width:2}
+.island-score{font-family:monospace;font-size:10px;color:var(--dimmer)}
+.island-avatar{width:22px;height:22px;border-radius:50%;background:var(--primary-dim);
+  border:1px solid rgba(99,102,241,.3);display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-family:monospace;color:#818cf8}
+.layout{flex:1;display:flex;overflow:hidden}
+.sidebar-nav{width:260px;flex-shrink:0;background:var(--bg3);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;backdrop-filter:blur(20px)}
+.sidebar-logo{height:64px;border-bottom:1px solid var(--border);display:flex;align-items:center;
+  gap:12px;padding:0 24px}
+.logo-icon{width:28px;height:28px;border-radius:50%;border:1px solid rgba(99,102,241,.3);
+  background:var(--primary-dim);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 12px rgba(99,102,241,.2)}
+.logo-icon svg{width:12px;height:12px;stroke:#818cf8;fill:none;stroke-width:2}
+.logo-text{font-weight:700;font-size:13px;letter-spacing:-.02em;text-transform:uppercase;color:#fff}
+.nav-items{flex:1;display:flex;flex-direction:column;gap:2px;padding:6px 0;overflow:hidden}
+.nav-item{display:flex;align-items:center;gap:14px;padding:10px 24px;font-family:monospace;
+  font-size:10px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
+  transition:all .2s;color:var(--dim);border-left:2px solid transparent}
+.nav-item:hover{background:rgba(255,255,255,.04);color:var(--text)}
+.nav-item.active{background:var(--primary-dim);color:#c7d2fe;border-left-color:var(--primary)}
+.nav-item svg{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75}
+.sidebar-bottom{padding:14px;border-top:1px solid var(--border)}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.header{height:64px;border-bottom:1px solid var(--border);background:var(--bg3);backdrop-filter:blur(20px);
+  display:flex;align-items:center;padding:0 32px;flex-shrink:0}
+.header-title{font-weight:700;font-size:18px;letter-spacing:-.04em;font-style:italic;text-transform:lowercase}
+.header-sub{font-family:monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer);margin-top:2px}
+/* Dashboard content */
+.dash{flex:1;overflow-y:auto;padding:24px 32px;display:grid;
+  grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto auto 1fr;gap:16px}
+/* Stat cards */
+.card{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.card-label{font-family:monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer);margin-bottom:8px}
+.card-value{font-size:28px;font-weight:700;letter-spacing:-.04em;line-height:1}
+.card-sub{font-size:11px;color:var(--dimmer);margin-top:6px}
+.card-bar{height:3px;border-radius:999px;background:rgba(255,255,255,.06);margin-top:12px;overflow:hidden}
+.card-bar-fill{height:100%;border-radius:999px;transition:width .6s}
+/* Score ring */
+.score-wrap{display:flex;align-items:center;gap:16px}
+.score-ring{position:relative;width:64px;height:64px;flex-shrink:0}
+.score-ring svg{width:64px;height:64px;transform:rotate(-90deg)}
+.score-ring-bg{fill:none;stroke:rgba(255,255,255,.06);stroke-width:4}
+.score-ring-fg{fill:none;stroke-width:4;stroke-linecap:round}
+.score-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:700;letter-spacing:-.04em}
+/* Flow card */
+.flow-card{grid-column:1 / 3;background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.15);
+  border-radius:12px;padding:18px 20px;display:flex;align-items:center;gap:20px}
+.flow-icon{width:40px;height:40px;border-radius:10px;background:var(--primary-dim);
+  border:1px solid rgba(99,102,241,.2);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.flow-icon svg{width:18px;height:18px;stroke:#818cf8;fill:none;stroke-width:2}
+.flow-label{font-family:monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#818cf8;margin-bottom:4px}
+.flow-title{font-size:16px;font-weight:700;letter-spacing:-.02em;color:#c7d2fe}
+.flow-sub{font-size:11px;color:rgba(99,102,241,.6);margin-top:3px}
+.flow-timer{margin-left:auto;font-family:monospace;font-size:24px;font-weight:700;
+  letter-spacing:-.04em;color:#818cf8}
+/* Tasks */
+.tasks-card{grid-column:3 / 4;grid-row:2 / 4;background:rgba(255,255,255,.02);
+  border:1px solid var(--border);border-radius:12px;padding:18px;display:flex;flex-direction:column}
+.tasks-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.tasks-title{font-family:monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer)}
+.tasks-count{font-family:monospace;font-size:9px;color:var(--primary);background:var(--primary-dim);
+  padding:2px 8px;border-radius:999px;border:1px solid rgba(99,102,241,.2)}
+.task-item{display:flex;align-items:flex-start;gap:10px;padding:8px 0;
+  border-bottom:1px solid var(--border)}
+.task-item:last-child{border-bottom:none}
+.task-check{width:16px;height:16px;border-radius:4px;border:1px solid var(--border2);
+  flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center}
+.task-check.done{background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.3)}
+.task-check.done svg{width:9px;height:9px;stroke:#34d399;fill:none;stroke-width:3}
+.task-text{font-size:12px;line-height:1.4;color:var(--text)}
+.task-text.done{color:var(--dimmer);text-decoration:line-through}
+.task-meta{display:flex;gap:6px;margin-top:3px}
+.task-tag{font-family:monospace;font-size:8px;padding:1px 5px;border-radius:3px;
+  background:rgba(255,255,255,.04);color:var(--dimmer);border:1px solid var(--border)}
+.task-priority{font-family:monospace;font-size:8px;padding:1px 5px;border-radius:3px;}
+.p-high{background:rgba(239,68,68,.08);color:#f87171;border:1px solid rgba(239,68,68,.2)}
+.p-med{background:rgba(245,158,11,.08);color:#fbbf24;border:1px solid rgba(245,158,11,.2)}
+.p-low{background:rgba(16,185,129,.08);color:#34d399;border:1px solid rgba(16,185,129,.2)}
+/* Activity feed */
+.activity-card{grid-column:1 / 3;background:rgba(255,255,255,.02);
+  border:1px solid var(--border);border-radius:12px;padding:18px;display:flex;flex-direction:column}
+.activity-header{font-family:monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--dimmer);margin-bottom:14px}
+.activity-items{display:flex;flex-direction:column;gap:0}
+.activity-item{display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+.activity-item:last-child{border-bottom:none}
+.act-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.act-app{font-size:12px;color:var(--text);font-weight:500;min-width:100px}
+.act-action{font-size:11px;color:var(--dim);flex:1}
+.act-dur{font-family:monospace;font-size:10px;color:var(--dimmer);min-width:48px;text-align:right}
+.act-time{font-family:monospace;font-size:9px;color:var(--dimmer);min-width:44px;text-align:right}
+</style>
+</head>
+<body>
+<div class="titlebar">
+  <div class="titlebar-dots"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+  <span>Primnox</span>
+</div>
+<div class="island-wrap">
+  <div class="island">
+    <div class="island-mode">
+      <button>Notes</button><button>Chat</button><button>Research</button>
+    </div>
+    <div class="island-sep"></div>
+    <div class="island-mic"><svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></div>
+    <div class="island-sep"></div>
+    <!-- Flow state indicator in island -->
+    <span style="font-family:monospace;font-size:9px;color:#818cf8;background:var(--primary-dim);padding:2px 8px;border-radius:999px;border:1px solid rgba(99,102,241,.2)">⚡ Flow — 32m</span>
+    <div class="island-sep"></div>
+    <span class="island-score">84%</span>
+    <div class="island-avatar">AP</div>
+  </div>
+</div>
+<div class="layout">
+  <aside class="sidebar-nav">
+    <div class="sidebar-logo">
+      <div class="logo-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
+      <span class="logo-text">Primnox</span>
+    </div>
+    <nav class="nav-items">
+      <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Synapse_Stream</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Neural_Nodes</div>
+      <div class="nav-item active"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="18" height="7"/></svg>Dashboard</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Deep_Research</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M12 8v3M7 17l3.5-2M17 17l-3.5-2"/></svg>Knowledge_Graph</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>Data_Vault</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>System_Logs</div>
+    </nav>
+    <div class="sidebar-bottom"></div>
+  </aside>
+  <main class="main">
+    <div class="header">
+      <div>
+        <div class="header-title">dashboard</div>
+        <div class="header-sub">Synthetic_Processing · Jun 09, 2026</div>
+      </div>
+    </div>
+    <div class="dash">
+      <!-- Score card -->
+      <div class="card">
+        <div class="card-label">Productivity Score</div>
+        <div class="score-wrap">
+          <div class="score-ring">
+            <svg viewBox="0 0 64 64">
+              <circle class="score-ring-bg" cx="32" cy="32" r="28"/>
+              <circle class="score-ring-fg" cx="32" cy="32" r="28" stroke="#6366f1"
+                stroke-dasharray="175.9" stroke-dashoffset="29"/>
+            </svg>
+            <div class="score-num" style="color:#818cf8">84</div>
+          </div>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text)">High performance</div>
+            <div style="font-size:11px;color:var(--dim);margin-top:3px">↑ 6 pts from yesterday</div>
+            <div style="font-family:monospace;font-size:9px;color:var(--dimmer);margin-top:4px">GROQ_LLAMA_3 · LOCAL</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Focus time -->
+      <div class="card">
+        <div class="card-label">Deep Focus Today</div>
+        <div class="card-value" style="color:#34d399">4h 12m</div>
+        <div class="card-sub">Longest session: 1h 38m in VS Code</div>
+        <div class="card-bar" style="margin-top:14px"><div class="card-bar-fill" style="width:70%;background:#10b981"></div></div>
+      </div>
+
+      <!-- Streak -->
+      <div class="card">
+        <div class="card-label">Current Streak</div>
+        <div class="card-value" style="color:#fbbf24">7<span style="font-size:16px;margin-left:4px">days</span></div>
+        <div class="card-sub">Top app: VS Code · 3h 24m</div>
+        <div style="display:flex;gap:4px;margin-top:12px">
+          <div style="width:20px;height:4px;border-radius:2px;background:#fbbf24;opacity:.9"></div>
+          <div style="width:20px;height:4px;border-radius:2px;background:#fbbf24;opacity:.8"></div>
+          <div style="width:20px;height:4px;border-radius:2px;background:#fbbf24;opacity:.8"></div>
+          <div style="width:20px;height:4px;border-radius:2px;background:#fbbf24;opacity:.7"></div>
+          <div style="width:20px;height:4px;border-radius:2px;background:#fbbf24;opacity:.7"></div>
+          <div style="width:20px;height:4px;border-radius:2px;background:#fbbf24;opacity:.6"></div>
+          <div style="width:20px;height:4px;border-radius:2px;background:#fbbf24;opacity:.5"></div>
+        </div>
+      </div>
+
+      <!-- Flow state card -->
+      <div class="flow-card">
+        <div class="flow-icon"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+        <div>
+          <div class="flow-label">⚡ Flow State Active</div>
+          <div class="flow-title">Visual Studio Code</div>
+          <div class="flow-sub">src/hooks/usePrimnox.ts · Uninterrupted session</div>
+        </div>
+        <div class="flow-timer">32:14</div>
+      </div>
+
+      <!-- Tasks card -->
+      <div class="tasks-card">
+        <div class="tasks-header">
+          <span class="tasks-title">Today's Tasks</span>
+          <span class="tasks-count">2 / 5 done</span>
+        </div>
+        <div style="flex:1;overflow-y:auto">
+          <div class="task-item">
+            <div class="task-check done"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div>
+              <div class="task-text done">Fix SMTC now-playing detection</div>
+              <div class="task-meta"><span class="task-tag">dev</span><span class="task-priority p-high">High</span></div>
+            </div>
+          </div>
+          <div class="task-item">
+            <div class="task-check done"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div>
+              <div class="task-text done">Redesign chat message layout</div>
+              <div class="task-meta"><span class="task-tag">ui</span><span class="task-priority p-med">Medium</span></div>
+            </div>
+          </div>
+          <div class="task-item">
+            <div class="task-check"></div>
+            <div>
+              <div class="task-text">Create mock screenshots for demo</div>
+              <div class="task-meta"><span class="task-tag">demo</span><span class="task-priority p-high">High</span></div>
+            </div>
+          </div>
+          <div class="task-item">
+            <div class="task-check"></div>
+            <div>
+              <div class="task-text">Set up Primnox onboarding flow</div>
+              <div class="task-meta"><span class="task-tag">dev</span><span class="task-priority p-med">Medium</span></div>
+            </div>
+          </div>
+          <div class="task-item">
+            <div class="task-check"></div>
+            <div>
+              <div class="task-text">Write product one-pager</div>
+              <div class="task-meta"><span class="task-tag">marketing</span><span class="task-priority p-low">Low</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity feed -->
+      <div class="activity-card">
+        <div class="activity-header">Recent Activity</div>
+        <div class="activity-items">
+          <div class="activity-item">
+            <div class="act-dot" style="background:#818cf8"></div>
+            <div class="act-app">VS Code</div>
+            <div class="act-action">Editing usePrimnox.ts — media controls</div>
+            <div class="act-dur">32m</div>
+            <div class="act-time">Now</div>
+          </div>
+          <div class="activity-item">
+            <div class="act-dot" style="background:#60a5fa"></div>
+            <div class="act-app">Chrome</div>
+            <div class="act-action">React animation docs · Framer Motion</div>
+            <div class="act-dur">18m</div>
+            <div class="act-time">1:42 PM</div>
+          </div>
+          <div class="activity-item">
+            <div class="act-dot" style="background:#818cf8"></div>
+            <div class="act-app">VS Code</div>
+            <div class="act-action">Editing DynamicIsland.tsx — progress bar</div>
+            <div class="act-dur">54m</div>
+            <div class="act-time">12:48 PM</div>
+          </div>
+          <div class="activity-item">
+            <div class="act-dot" style="background:#34d399"></div>
+            <div class="act-app">Spotify</div>
+            <div class="act-action">Now Playing · Ravi Basrur</div>
+            <div class="act-dur">—</div>
+            <div class="act-time">12:30 PM</div>
+          </div>
+          <div class="activity-item">
+            <div class="act-dot" style="background:#fbbf24"></div>
+            <div class="act-app">Windows Terminal</div>
+            <div class="act-action">python backend/server.py · dev server</div>
+            <div class="act-dur">2h 4m</div>
+            <div class="act-time">11:22 AM</div>
+          </div>
+          <div class="activity-item">
+            <div class="act-dot" style="background:#60a5fa"></div>
+            <div class="act-app">Chrome</div>
+            <div class="act-action">winsdk SMTC documentation</div>
+            <div class="act-dur">12m</div>
+            <div class="act-time">11:10 AM</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

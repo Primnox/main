@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<title>Primnox — Island: Zenith Mode</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --primary:#6366f1;--primary-dim:rgba(99,102,241,0.12);
+  --bg:#000;--bg3:rgba(24,24,27,.85);
+  --border:rgba(255,255,255,.05);--border2:rgba(255,255,255,.08);
+  --text:rgba(255,255,255,.85);--dim:rgba(255,255,255,.4);--dimmer:rgba(255,255,255,.18);
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  width:1200px;height:800px;overflow:hidden;display:flex;flex-direction:column;font-size:14px}
+.titlebar{height:28px;background:rgba(9,9,11,.95);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative}
+.titlebar span{font-size:11px;font-family:monospace;color:var(--dimmer);letter-spacing:.1em;text-transform:uppercase}
+.titlebar-dots{position:absolute;left:16px;display:flex;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%}
+.dot-r{background:#ff5f57}.dot-y{background:#febc2e}.dot-g{background:#28c840}
+
+/* Island in Zenith mode - expanded panel */
+.island-wrap{display:flex;flex-direction:column;align-items:center;padding-top:8px;
+  flex-shrink:0;z-index:50;position:relative}
+.island-zenith{background:#000;border:1px solid rgba(255,255,255,.1);
+  border-radius:24px;width:460px;overflow:hidden;
+  box-shadow:0 0 0 1px rgba(255,255,255,.04),0 8px 50px rgba(0,0,0,.9),0 0 80px rgba(99,102,241,.2)}
+
+.zenith-header{display:flex;align-items:center;gap:8px;padding:10px 16px 8px;
+  border-bottom:1px solid rgba(255,255,255,.04)}
+.zenith-hex{font-family:monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  color:rgba(99,102,241,.5)}
+.zenith-label{font-family:monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  color:#818cf8}
+.zenith-timer{margin-left:auto;font-family:monospace;font-size:10px;
+  color:var(--dimmer);letter-spacing:.04em}
+.zenith-close{width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.06);
+  border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.zenith-close svg{width:8px;height:8px;stroke:var(--dim);fill:none;stroke-width:2.5}
+
+.zenith-body{padding:14px 18px 18px;display:flex;flex-direction:column;gap:12px}
+
+/* Current task display */
+.zenith-task-wrap{background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.15);
+  border-radius:12px;padding:10px 14px}
+.zenith-task-label{font-family:monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;
+  color:rgba(99,102,241,.5);margin-bottom:4px}
+.zenith-task-text{font-size:14px;font-weight:600;color:#c7d2fe;letter-spacing:-.02em}
+.zenith-task-cursor{display:inline-block;width:2px;height:14px;background:#818cf8;
+  margin-left:2px;animation:blink .8s step-end infinite;vertical-align:middle}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* Timer ring */
+.zenith-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.zenith-stat{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;
+  padding:8px 10px;text-align:center}
+.z-stat-val{font-family:monospace;font-size:16px;font-weight:700;color:#c7d2fe;letter-spacing:-.02em}
+.z-stat-label{font-family:monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--dimmer);margin-top:2px}
+
+/* Progress bar */
+.zenith-progress-label{display:flex;justify-content:space-between;align-items:center}
+.zenith-progress-label span:first-child{font-family:monospace;font-size:8px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dimmer)}
+.zenith-progress-label span:last-child{font-family:monospace;font-size:9px;color:#818cf8}
+.zenith-bar{height:3px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;margin-top:4px}
+.zenith-bar-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,#6366f1,#8b5cf6)}
+
+/* Suggestion chips -->
+.zenith-suggestions{display:flex;gap:6px;flex-wrap:wrap}
+.z-chip{padding:4px 10px;border-radius:999px;border:1px solid var(--border2);
+  background:rgba(255,255,255,.03);font-size:10px;color:var(--dim);cursor:pointer;
+  font-family:monospace;letter-spacing:.02em;transition:all .15s}
+.z-chip:hover{background:var(--primary-dim);border-color:rgba(99,102,241,.3);color:#818cf8}
+
+/* Now playing strip at bottom of island -->
+.zenith-np{border-top:1px solid rgba(255,255,255,.04);padding:6px 14px 8px;
+  display:flex;align-items:center;gap:6px}
+.zenith-np svg{width:9px;height:9px;stroke:rgba(255,255,255,.3);fill:none;stroke-width:2;flex-shrink:0}
+.zenith-np-text{font-family:monospace;font-size:9px;color:rgba(255,255,255,.35);flex:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Behind content (blurred) */
+.layout{flex:1;display:flex;overflow:hidden;opacity:.35;filter:blur(2px)}
+.sidebar-icon{width:80px;background:var(--bg3);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center}
+.icon-logo{height:64px;border-bottom:1px solid var(--border);width:100%;
+  display:flex;align-items:center;justify-content:center}
+.logo-icon{width:28px;height:28px;border-radius:50%;border:1px solid rgba(99,102,241,.3);
+  background:var(--primary-dim);display:flex;align-items:center;justify-content:center}
+.logo-icon svg{width:12px;height:12px;stroke:#818cf8;fill:none;stroke-width:2}
+.main{flex:1;display:flex;flex-direction:column}
+.header{height:64px;border-bottom:1px solid var(--border);background:var(--bg3);
+  display:flex;align-items:center;padding:0 32px}
+.header-title{font-weight:700;font-size:18px;letter-spacing:-.04em;font-style:italic;text-transform:lowercase;color:var(--text)}
+.header-sub{font-family:monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer);margin-top:2px}
+</style>
+</head>
+<body>
+<div class="titlebar">
+  <div class="titlebar-dots"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+  <span>Primnox</span>
+</div>
+
+<!-- Island - Zenith Mode -->
+<div class="island-wrap">
+  <div class="island-zenith">
+    <div class="zenith-header">
+      <span class="zenith-hex">⬡</span>
+      <span class="zenith-label">Zenith_Mode</span>
+      <span class="zenith-timer">Ctrl+Shift+Z to exit</span>
+      <div class="zenith-close"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+    </div>
+    <div class="zenith-body">
+      <!-- Current task -->
+      <div class="zenith-task-wrap">
+        <div class="zenith-task-label">Current Focus</div>
+        <div class="zenith-task-text">Plan Q3 product roadmap<span class="zenith-task-cursor"></span></div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="zenith-stats">
+        <div class="zenith-stat">
+          <div class="z-stat-val" style="color:#34d399">08:24</div>
+          <div class="z-stat-label">Time in Zenith</div>
+        </div>
+        <div class="zenith-stat">
+          <div class="z-stat-val">84%</div>
+          <div class="z-stat-label">Focus Score</div>
+        </div>
+        <div class="zenith-stat">
+          <div class="z-stat-val" style="color:#fbbf24">3</div>
+          <div class="z-stat-label">Tasks left</div>
+        </div>
+      </div>
+
+      <!-- Session progress -->
+      <div>
+        <div class="zenith-progress-label">
+          <span>Session Progress</span>
+          <span>42 / 60 min</span>
+        </div>
+        <div class="zenith-bar"><div class="zenith-bar-fill" style="width:70%"></div></div>
+      </div>
+
+      <!-- Quick actions -->
+      <div>
+        <div style="font-family:monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--dimmer);margin-bottom:6px">Quick Add</div>
+        <div class="zenith-suggestions">
+          <div class="z-chip">+ Voice feature</div>
+          <div class="z-chip">+ Research mode</div>
+          <div class="z-chip">+ Island modes</div>
+          <div class="z-chip">+ Onboarding</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Now playing strip -->
+    <div class="zenith-np">
+      <svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      <span class="zenith-np-text">Ravi Basrur · KGF Chapter 2 OST · Spotify</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="2"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+        <div style="width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.06);
+          border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </div>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="2"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Blurred background app -->
+<div class="layout">
+  <aside class="sidebar-icon">
+    <div class="icon-logo"><div class="logo-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div></div>
+    <div style="padding:20px 0;display:flex;flex-direction:column;align-items:center;gap:24px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.75"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(99,102,241,.8)" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.75"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="18" height="7"/></svg>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="header">
+      <div>
+        <div class="header-title">neural_nodes</div>
+        <div class="header-sub">Workspace_v2</div>
+      </div>
+    </div>
+    <div style="flex:1;padding:32px 40px">
+      <div style="font-size:24px;font-weight:700;color:#fff;margin-bottom:6px">Product Roadmap Q3</div>
+      <div style="font-family:monospace;font-size:11px;color:rgba(99,102,241,.5);margin-bottom:18px">planning · edited today</div>
+      <div style="font-size:13px;line-height:1.7;color:rgba(255,255,255,.35)">
+        Key milestones for Q3: Island mode refactor, voice command system, research workspace, onboarding flow...
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

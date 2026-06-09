@@ -1,5 +1,58 @@
 # Changelog
 
+## v0.1.0 (2026-06-09)
+
+### 📅 Calendar
+- New **Calendar** screen: month grid, week strip, day agenda with live "Now / in Nm" badges.
+- `CalendarIslandSkill` wired into the Dynamic Island — upcoming events surface as ambient strips with urgency colouring.
+- Settings → Calendar tab: add iCal/CalDAV providers by URL, set display colour, remove providers.
+- Backend: `GET /api/calendar/events?days=N` powered by `icalendar` + `recurring-ical-events`.
+
+### 🔬 Deep Research Engine
+- Full Perplexity-style multi-round research with SSE streaming (`POST /api/research/deep`).
+- `DeepResearchEngine`: plan → parallel web fetch → gap analysis → second round → optional third round → LLM synthesis.
+- Three depth modes: Fast (1 round), Standard (2 rounds), Deep (3 rounds).
+- Structured cited report rendered in-app with `##` headings, `**bold**`, `[n]` citation badges, bullet lists.
+- Research log panel streams live status — query issued, pages reading, insights extracted.
+- Stop button via `AbortController`.
+
+### 🧠 Memory Compression
+- Memories older than 7 days are automatically compressed into weekly LLM-generated summaries.
+- Grouped by `(category, ISO-week)` — groups of ≥ 2 get synthesised into one dense paragraph; originals are deleted.
+- `compressed` column added to the SQLite `memories` table via `ALTER TABLE` migration.
+- **No auto-deletion** — memories are only deleted manually from Data Vault.
+
+### 🎙️ Meetings Manager
+- New **Recordings** screen: lists all meeting folders with date, size, file count, media files, and summary preview.
+- Expand any recording to preview its summary file and audio/video contents.
+- Manual delete with inline confirm/cancel — no auto-deletion until you review.
+- `GET /api/meetings` and `DELETE /api/meetings/{folder_name}` backend endpoints.
+
+### 🧹 Data Retention / Cleanup
+- `cleanup_manager.py` now enforces real retention: compression pass runs before any deletion.
+- Meeting auto-delete defaults to `0` (never) — opt-in only.
+- `POST /api/cleanup` returns `memories_compressed`, `meetings_deleted`, `tts_deleted`.
+- Settings → Security tab: "Data Retention" section explains compression behaviour, exposes meeting auto-delete control, links to Recordings screen.
+- Fixed `cleanup_memories` timestamp bug — was comparing Unix floats against ISO strings, never matching.
+
+### 🎨 UI & Font
+- Switched from Inter to **Urbanist** (Google Fonts, SIL OFL) — free to publish, cleaner geometric feel.
+- Dashboard redesigned: `max-w-5xl` centred layout, 7/5 column grid, redesigned activity feed rows with icon circles.
+- Inline quick-add forms for tasks and reminders directly on the dashboard.
+- Calendar and Recordings added to sidebar navigation.
+
+### 🐛 Bug Fixes & Reliability
+- `socket.onmessage` wrapped in `try/catch` — malformed backend messages no longer kill the WebSocket connection.
+- All `fetch()` calls in `usePrimnox` now have `AbortSignal.timeout(5000)` — a hanging backend can't freeze the UI.
+- `SummariesExpanded` wrapped in `memo()` — stops the entire dashboard re-rendering on every WebSocket message.
+- Dashboard polling uses exponential backoff (30s → 60s → 120s) when the backend is unreachable.
+- Task and reminder add buttons now flash ✓ on success or ✗ on failure — no more silent failures.
+- `handleSend` in chat restores typed text if the send request fails.
+- `auto_assign_chat` now validates the LLM's returned folder ID against real IDs; strips accidental quotes; logs mismatches.
+- Removed redundant nested `Array.isArray` check in `fetchNotes`.
+- Onboarding Step 6 (`scanEnvironment`) now has `.catch()` — backend errors no longer trap the user at 99%.
+- Fixed `cleanup_memories` using Unix float timestamps against ISO string DB column.
+
 ## v0.0.9 (2026-06-07)
 
 ### 🏝️ Native Dynamic Island

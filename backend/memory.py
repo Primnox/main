@@ -1,13 +1,20 @@
 import sqlite3
 import json
 import hashlib
+import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from logger import get_logger
 
 log = get_logger("memory")
 
-DB_PATH = Path(__file__).parent / "memory.db"
+def _get_appdata_dir() -> Path:
+    appdata = os.environ.get("APPDATA")
+    base = Path(appdata) / "primnox_extension" if appdata else Path.home() / ".primnox_extension"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+DB_PATH = _get_appdata_dir() / "memory.db"
 OLD_MEMORY_PATH = Path(__file__).parent / "memory.json"
 OLD_KEY_PATH = Path(__file__).parent / "memory.key"
 
@@ -35,6 +42,11 @@ def init_db():
     ''')
     try:
         c.execute("ALTER TABLE memories ADD COLUMN session_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    # compressed: 0 = raw original, 1 = compressed summary (from multiple originals)
+    try:
+        c.execute("ALTER TABLE memories ADD COLUMN compressed INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
     # Create FTS5 virtual table for full-text search
@@ -252,6 +264,108 @@ def search_memories(query, limit=5):
         
     conn.close()
     return result
+
+def compress_old_memories(compress_after_days: int = 7) -> int:
+    """
+    Compress memories older than compress_after_days into weekly summaries.
+
+    Algorithm:
+      1. Fetch all un-compressed memories older than the threshold.
+      2. Group by (category, ISO-week) — e.g. ("work", "2025-W22").
+      3. For each group with ≥ 2 memories, ask the LLM to synthesise them
+         into one condensed paragraph that preserves the key facts.
+      4. Insert the summary as a new compressed memory.
+      5. Delete the originals.
+
+    Returns the number of original memories replaced.
+    """
+    if compress_after_days <= 0:
+        return 0
+
+    cutoff = datetime.now() - timedelta(days=compress_after_days)
+    cutoff_iso = cutoff.isoformat()
+
+    conn = get_db()
+    c    = conn.cursor()
+
+    c.execute(
+        "SELECT key, text, category, timestamp FROM memories "
+        "WHERE timestamp < ? AND (compressed IS NULL OR compressed = 0) AND stale = 0",
+        (cutoff_iso,)
+    )
+    rows = c.fetchall()
+    conn.close()
+
+    if not rows:
+        return 0
+
+    # Group by (category, ISO year-week)
+    from collections import defaultdict
+    groups: dict = defaultdict(list)
+    for key, text, category, ts in rows:
+        try:
+            dt = datetime.fromisoformat(ts)
+        except Exception:
+            continue
+        week_bucket = f"{dt.isocalendar()[0]}-W{dt.isocalendar()[1]:02d}"
+        groups[(category or "session", week_bucket)].append((key, text, ts))
+
+    total_replaced = 0
+
+    for (category, week), items in groups.items():
+        if len(items) < 2:
+            continue   # nothing to compress for a single memory
+
+        # Ask LLM to summarise
+        bullet_list = "\n".join(f"- {text}" for _, text, _ in items)
+        try:
+            from brain import think
+            resp = think(
+                f"Compress these {len(items)} memories from week {week} into one concise "
+                f"paragraph (2-4 sentences) that preserves every important fact, preference, "
+                f"or decision. Be specific — include names, dates, numbers.\n\n{bullet_list}",
+                system_override=(
+                    "You are a memory archivist. Write a dense, factual summary. "
+                    "No preamble. Preserve all concrete details."
+                )
+            )
+            choices = resp.get("choices") or []
+            summary = (choices[0].get("message", {}).get("content", "") if choices else "").strip()
+        except Exception as e:
+            log.warning(f"Compression LLM call failed for {category}/{week}: {e}")
+            continue
+
+        if not summary:
+            continue
+
+        # Insert compressed memory
+        new_key = hashlib.sha1(f"compressed:{category}:{week}".encode()).hexdigest()
+        new_ts  = datetime.now().isoformat()
+        conn = get_db()
+        c    = conn.cursor()
+        try:
+            c.execute(
+                "INSERT OR REPLACE INTO memories "
+                "(key, text, category, timestamp, stale, session_id, compressed) "
+                "VALUES (?, ?, ?, ?, 0, NULL, 1)",
+                (new_key, summary, category, new_ts)
+            )
+            # Delete originals
+            for key, _, _ in items:
+                c.execute("DELETE FROM memories WHERE key = ?", (key,))
+            conn.commit()
+            total_replaced += len(items)
+            log.info(
+                f"Compressed {len(items)} memories → 1 summary "
+                f"[{category} / {week}]"
+            )
+        except Exception as e:
+            log.warning(f"DB error during compression: {e}")
+        finally:
+            conn.close()
+
+    return total_replaced
+
 
 if __name__ == "__main__":
     print("Current memories:", get_memory())

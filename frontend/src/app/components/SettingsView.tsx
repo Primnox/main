@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { User, Terminal, Database, Shield, Cpu, Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { User, Terminal, Database, Shield, Cpu, Wifi, WifiOff, RefreshCw, DownloadCloud, Brain, Zap, Calendar, Plus, Trash2, Link } from 'lucide-react';
 
 type ScreenId = 
   | 'summaries_expanded'
@@ -39,6 +39,10 @@ export const IslandSettings = ({
   setOllamaModel,
   ollamaBaseUrl,
   setOllamaBaseUrl,
+  calendarProviders,
+  setCalendarProviders,
+  meetingRetentionDays,
+  setMeetingRetentionDays,
   onSync
 }: {
   onNavigate: (id: ScreenId) => void,
@@ -64,11 +68,36 @@ export const IslandSettings = ({
   setOllamaModel: (v: string) => void,
   ollamaBaseUrl: string,
   setOllamaBaseUrl: (v: string) => void,
+  calendarProviders: any[],
+  setCalendarProviders: (v: any[]) => void,
+  meetingRetentionDays: number,
+  setMeetingRetentionDays: (v: number) => void,
   onSync: () => void
 }) => {
-  const [activeTab, setActiveTab] = useState<'System_Core' | 'Identity' | 'Security'>('System_Core');
+  const [activeTab, setActiveTab] = useState<'System_Core' | 'Identity' | 'Security' | 'Calendar'>('System_Core');
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
   const [checkingOllama, setCheckingOllama] = useState(false);
+  const [backupStatus, setBackupStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [profile, setProfile] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('http://localhost:8000/api/profile')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setProfile(d))
+      .catch(() => {});
+  }, []);
+
+  const triggerBackup = async () => {
+    setBackupStatus('running');
+    try {
+      const res = await fetch('http://localhost:8000/api/backup', { method: 'POST' });
+      if (res.ok) setBackupStatus('done');
+      else setBackupStatus('error');
+    } catch {
+      setBackupStatus('error');
+    }
+    setTimeout(() => setBackupStatus('idle'), 4000);
+  };
 
   const checkOllama = async () => {
     setCheckingOllama(true);
@@ -92,8 +121,24 @@ export const IslandSettings = ({
   const tabs = [
     { id: 'System_Core', label: 'System_Core', icon: Cpu },
     { id: 'Identity', label: 'Identity', icon: User },
-    { id: 'Security', label: 'Security', icon: Shield }
+    { id: 'Security', label: 'Security', icon: Shield },
+    { id: 'Calendar', label: 'Calendar', icon: Calendar },
   ] as const;
+
+  // ── Calendar add-form state ──────────────────────────────────────────────
+  const [showAddCal, setShowAddCal] = useState(false);
+  const [calType,    setCalType]    = useState<'ical' | 'google' | 'outlook' | 'notion'>('ical');
+  const [calUrl,     setCalUrl]     = useState('');
+  const [calName,    setCalName]    = useState('');
+  const [calColor,   setCalColor]   = useState('#6366f1');
+
+  const handleAddCalendar = () => {
+    if (!calUrl.trim() && calType === 'ical') return;
+    const newProvider: any = { type: calType, name: calName || calType, color: calColor };
+    if (calType === 'ical') newProvider.url = calUrl.trim();
+    setCalendarProviders([...calendarProviders, newProvider]);
+    setCalUrl(''); setCalName(''); setCalColor('#6366f1'); setShowAddCal(false);
+  };
 
   return (
     <div className="min-h-full flex items-center justify-center p-6 md:p-12 lg:p-20 text-left">
@@ -320,7 +365,7 @@ export const IslandSettings = ({
               )}
 
               {activeTab === 'Security' && (
-                <motion.section 
+                <motion.section
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   className="space-y-6"
@@ -329,9 +374,9 @@ export const IslandSettings = ({
                     <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Groq_API_Key</label>
                     <div className="relative group">
                       <div className="absolute left-5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-white/10 font-bold">HEX</div>
-                      <input 
+                      <input
                         type="password"
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5" 
+                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5"
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
                         placeholder="Groq API key..."
@@ -343,9 +388,9 @@ export const IslandSettings = ({
                     <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">OpenAI_API_Key</label>
                     <div className="relative group">
                       <div className="absolute left-5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-white/10 font-bold">HEX</div>
-                      <input 
+                      <input
                         type="password"
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5" 
+                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5"
                         value={openaiApiKey}
                         onChange={(e) => setOpenaiApiKey(e.target.value)}
                         placeholder="OpenAI API key..."
@@ -357,15 +402,270 @@ export const IslandSettings = ({
                     <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Anthropic_API_Key</label>
                     <div className="relative group">
                       <div className="absolute left-5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-white/10 font-bold">HEX</div>
-                      <input 
+                      <input
                         type="password"
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5" 
+                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5"
                         value={anthropicApiKey}
                         onChange={(e) => setAnthropicApiKey(e.target.value)}
                         placeholder="Anthropic API key..."
                       />
                     </div>
                   </div>
+
+                  {/* Data Backup + Retention */}
+                  <div className="space-y-4 pt-2 border-t border-white/5">
+                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Data_Management</label>
+
+                    {/* Backup row */}
+                    <div className="flex items-center gap-4 p-4 bg-black/30 border border-white/5 rounded-xl">
+                      <div className="flex-1">
+                        <p className="text-xs text-white/60 font-light">Backup memories, notes, and chat to a local zip file. Auto-backups run every 6 hours.</p>
+                      </div>
+                      <button
+                        onClick={triggerBackup}
+                        disabled={backupStatus === 'running'}
+                        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95 shrink-0 ${
+                          backupStatus === 'done' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                          backupStatus === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                          'bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-black'
+                        }`}
+                      >
+                        <DownloadCloud size={14} />
+                        {backupStatus === 'running' ? 'Backing up...' : backupStatus === 'done' ? 'Done ✓' : backupStatus === 'error' ? 'Failed ✗' : 'Backup Now'}
+                      </button>
+                    </div>
+
+                    {/* Retention / Cleanup */}
+                    <div className="space-y-3 p-4 bg-black/30 border border-white/5 rounded-xl">
+                      <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest mb-3">Data_Retention</p>
+
+                      {/* Memory note */}
+                      <div className="flex items-start gap-3 p-3 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+                        <Brain size={13} className="text-indigo-400/50 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-[11px] text-white/50">Memories older than 7 days are automatically compressed into weekly summaries.</p>
+                          <p className="text-[10px] text-white/25 mt-0.5 font-mono">Edit or delete individual memories in Data_Vault.</p>
+                        </div>
+                      </div>
+
+                      {/* Meeting recordings auto-delete */}
+                      <div className="flex items-center justify-between gap-4 pt-1">
+                        <div>
+                          <p className="text-xs text-white/60 font-light">Meeting recordings auto-delete</p>
+                          <p className="font-mono text-[9px] text-white/20 mt-0.5">Delete folders older than N days (0 = keep forever)</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <input
+                            type="number" min="0" max="365"
+                            value={meetingRetentionDays}
+                            onChange={e => setMeetingRetentionDays(Number(e.target.value))}
+                            className="w-16 bg-black/60 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white text-center outline-none focus:border-primary/40 font-mono"
+                          />
+                          <span className="font-mono text-[9px] text-white/25">days</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-white/[0.04]">
+                        <button
+                          onClick={() => { onNavigate('meetings' as any); }}
+                          className="flex items-center gap-1.5 text-[10px] font-mono text-white/30 hover:text-white/60 transition-colors"
+                        >
+                          <span>View Recordings →</span>
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const r = await fetch('http://localhost:8000/api/cleanup', { method: 'POST' });
+                              const d = await r.json();
+                              const parts = [
+                                d.memories_compressed > 0 ? `compressed: ${d.memories_compressed}` : null,
+                                `meetings: ${d.meetings_deleted}`,
+                              ].filter(Boolean).join(' · ');
+                              alert(`Cleanup done${parts ? ` — ${parts}` : ' — nothing to do'}`);
+                            } catch { alert('Cleanup failed — is backend running?'); }
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl font-mono text-[10px] uppercase tracking-widest bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all active:scale-95"
+                        >
+                          <RefreshCw size={11} /> Run Cleanup Now
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* User Profile */}
+                  {profile && (profile.mood || profile.onboarding_profile?.occupation) && (
+                    <div className="space-y-3 pt-2 border-t border-white/5">
+                      <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Neural_Profile</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {profile.mood && (
+                          <div className="p-4 bg-violet-500/5 border border-violet-500/20 rounded-xl flex items-start gap-3">
+                            <Brain size={14} className="text-violet-400 mt-0.5 shrink-0" />
+                            <div>
+                              <p className="font-mono text-[9px] text-white/30 uppercase tracking-widest mb-1">Current_Vibe</p>
+                              <p className="text-sm font-bold text-violet-300">{profile.mood}</p>
+                            </div>
+                          </div>
+                        )}
+                        {profile.onboarding_profile?.occupation && (
+                          <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl flex items-start gap-3">
+                            <Zap size={14} className="text-primary mt-0.5 shrink-0" />
+                            <div>
+                              <p className="font-mono text-[9px] text-white/30 uppercase tracking-widest mb-1">Occupation</p>
+                              <p className="text-sm font-bold text-primary/80">{profile.onboarding_profile.occupation}</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {profile.onboarding_profile?.recommended_notes_style && (
+                        <p className="text-[10px] text-white/30 font-mono italic px-1">
+                          Notes style: {profile.onboarding_profile.recommended_notes_style}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </motion.section>
+              )}
+
+              {activeTab === 'Calendar' && (
+                <motion.section
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="space-y-6"
+                >
+                  {/* Hint */}
+                  <div className="p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-xl text-[10px] font-mono text-indigo-300/60 leading-relaxed">
+                    <p className="mb-1 font-bold text-indigo-300/80 uppercase tracking-widest">How to get your iCal URL</p>
+                    <p><span className="text-white/40">Google:</span> Calendar settings → your calendar → <em>Secret address in iCal format</em></p>
+                    <p><span className="text-white/40">Outlook:</span> Calendar → Shared calendars → <em>Publish a calendar</em> → copy ICS link</p>
+                    <p><span className="text-white/40">ProtonCalendar:</span> Calendar settings → <em>Other calendars</em> → copy link</p>
+                    <p><span className="text-white/40">Apple iCloud:</span> iCloud.com → Calendar → share icon → copy URL</p>
+                  </div>
+
+                  {/* Connected calendars list */}
+                  <div className="space-y-3">
+                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">
+                      Connected_Calendars {calendarProviders.length > 0 && <span className="text-primary">({calendarProviders.length})</span>}
+                    </label>
+                    {calendarProviders.length === 0 ? (
+                      <p className="text-[11px] text-white/20 font-mono italic pl-1">No calendars connected yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {calendarProviders.map((p, i) => (
+                          <div key={i} className="flex items-center gap-3 px-4 py-3 bg-black/30 border border-white/5 rounded-xl group">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: p.color || '#6366f1' }} />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-xs font-medium text-white/70 truncate block">{p.name || p.type}</span>
+                              {p.url && <span className="font-mono text-[9px] text-white/20 truncate block">{p.url}</span>}
+                            </div>
+                            <span className="font-mono text-[9px] text-white/20 uppercase shrink-0">{p.type}</span>
+                            <button
+                              onClick={() => setCalendarProviders(calendarProviders.filter((_, j) => j !== i))}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400/60 hover:text-red-400 p-1 rounded"
+                              title="Remove"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add calendar form */}
+                  {!showAddCal ? (
+                    <button
+                      onClick={() => setShowAddCal(true)}
+                      className="flex items-center gap-2 px-5 py-3 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-black transition-all active:scale-95"
+                    >
+                      <Plus size={13} /> Add_Calendar
+                    </button>
+                  ) : (
+                    <div className="space-y-4 p-5 bg-black/30 border border-white/10 rounded-xl">
+                      {/* Type selector */}
+                      <div className="space-y-2">
+                        <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Provider_Type</label>
+                        <div className="flex gap-2 flex-wrap">
+                          {(['ical', 'google', 'outlook', 'notion'] as const).map(t => (
+                            <button
+                              key={t}
+                              onClick={() => setCalType(t)}
+                              className={`px-3 py-1.5 rounded-lg font-mono text-[9px] uppercase tracking-widest font-bold border transition-all ${
+                                calType === t
+                                  ? 'bg-primary/20 text-primary border-primary/30'
+                                  : 'text-white/20 border-white/10 hover:text-white/50'
+                              }`}
+                            >
+                              {t === 'ical' ? 'iCal URL' : t === 'google' ? 'Google' : t === 'outlook' ? 'Outlook' : 'Notion'}
+                            </button>
+                          ))}
+                        </div>
+                        {calType !== 'ical' && (
+                          <p className="text-[9px] text-amber-400/60 font-mono italic mt-1">
+                            {calType === 'google' && 'Requires google-api-python-client. Use iCal URL for quick setup.'}
+                            {calType === 'outlook' && 'Requires msal. Use iCal URL from Outlook for quick setup.'}
+                            {calType === 'notion' && 'Requires Notion integration token + database ID.'}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* iCal URL field */}
+                      {calType === 'ical' && (
+                        <div className="space-y-2">
+                          <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">iCal_URL</label>
+                          <div className="relative">
+                            <Link size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10" />
+                            <input
+                              type="url"
+                              value={calUrl}
+                              onChange={e => setCalUrl(e.target.value)}
+                              placeholder="https://calendar.google.com/calendar/ical/..."
+                              className="w-full bg-black/60 border border-white/10 rounded-xl py-3 pl-10 pr-4 font-mono text-[11px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Name + color */}
+                      <div className="flex gap-3">
+                        <div className="flex-1 space-y-2">
+                          <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Display_Name</label>
+                          <input
+                            type="text"
+                            value={calName}
+                            onChange={e => setCalName(e.target.value)}
+                            placeholder="My Classes"
+                            className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-[11px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Color</label>
+                          <input
+                            type="color"
+                            value={calColor}
+                            onChange={e => setCalColor(e.target.value)}
+                            className="h-[46px] w-14 rounded-xl border border-white/10 bg-black/60 cursor-pointer p-1"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-3 pt-1">
+                        <button
+                          onClick={handleAddCalendar}
+                          disabled={calType === 'ical' && !calUrl.trim()}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-black transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                        >
+                          <Plus size={12} /> Add
+                        </button>
+                        <button
+                          onClick={() => { setShowAddCal(false); setCalUrl(''); setCalName(''); }}
+                          className="px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white/20 hover:text-white/50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </motion.section>
               )}
             </div>

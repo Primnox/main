@@ -18,6 +18,40 @@ except ImportError:
     HAS_WIN32 = False
     log.warning("win32 libraries not found, window tracking limited.")
 
+# Windows System Media Transport Controls — reads now-playing from ANY app
+# that registers with Windows (Spotify, Chrome/YouTube, Edge, VLC, etc.).
+# Optional: falls back to window-title scanning if winsdk isn't installed.
+try:
+    import asyncio as _asyncio
+    from winsdk.windows.media.control import (
+        GlobalSystemMediaTransportControlsSessionManager as _SMTCManager,
+    )
+    HAS_SMTC = True
+except Exception:
+    HAS_SMTC = False
+
+# ── Persistent asyncio event loop for SMTC ───────────────────────────────────
+# asyncio.run() creates and destroys a new loop every call, which breaks the
+# Windows Runtime COM apartment model that winsdk relies on.
+# One stable loop running on a dedicated daemon thread solves this.
+_smtc_loop: '_asyncio.AbstractEventLoop | None' = None
+
+def _get_smtc_loop() -> '_asyncio.AbstractEventLoop':
+    global _smtc_loop
+    if HAS_SMTC and (_smtc_loop is None or _smtc_loop.is_closed()):
+        _smtc_loop = _asyncio.new_event_loop()
+        t = threading.Thread(target=_smtc_loop.run_forever, daemon=True, name="smtc-loop")
+        t.start()
+        log.debug("SMTC event loop started")
+    return _smtc_loop  # type: ignore[return-value]
+
+# Start it immediately so the first SMTC query is fast
+if HAS_SMTC:
+    try:
+        _get_smtc_loop()
+    except Exception:
+        pass
+
 class FeedManager:
     def __init__(self, callback=None):
         self.callback = callback
@@ -75,6 +109,12 @@ class FeedManager:
         self.productivity_total_seconds: float = 0.0
         self.last_productivity_report: float = time.time()
         self.productivity_report_interval: float = 60.0
+
+        # ── Island Skills (pluggable strips) ──────────────────────────────
+        # Populated lazily on first loop tick so imports are fully resolved.
+        self._island_skills: list = []
+        self._island_skill_timers: dict = {}   # skill.island_name → last_check ts
+        self._island_skills_loaded: bool = False
 
     def start(self):
         if self.running: return
@@ -138,39 +178,258 @@ class FeedManager:
             log.error(f"Debrief generation failed: {e}")
             return "failed to generate debrief."
 
+    # ── Island Skills ────────────────────────────────────────────────────────
+
+    def _load_island_skills(self):
+        """Discover all BaseIslandSkill subclasses from the skill registry."""
+        try:
+            from skills.base_island_skill import BaseIslandSkill
+            from skills.skill_router import SKILL_REGISTRY, TRIGGER_MAP
+            seen = set()
+            for skill_cls in list(SKILL_REGISTRY.values()) + list(TRIGGER_MAP.values()):
+                if (issubclass(skill_cls, BaseIslandSkill)
+                        and skill_cls is not BaseIslandSkill
+                        and skill_cls not in seen):
+                    seen.add(skill_cls)
+                    try:
+                        self._island_skills.append(skill_cls())
+                        log.info(f"Island skill registered: {skill_cls.island_name or skill_cls.name}")
+                    except Exception as e:
+                        log.warning(f"Could not instantiate island skill {skill_cls.name}: {e}")
+        except Exception as e:
+            log.warning(f"Island skill discovery failed: {e}")
+        self._island_skills_loaded = True
+
+    def _poll_island_skills(self, current_time: float):
+        """Check each island skill and push data if it's time to refresh."""
+        if not self._island_skills_loaded:
+            self._load_island_skills()
+
+        for skill in self._island_skills:
+            key      = getattr(skill, "island_name", None) or skill.name
+            interval = getattr(skill, "refresh_seconds", 60)
+            last     = self._island_skill_timers.get(key, 0.0)
+            if current_time - last < interval:
+                continue
+            self._island_skill_timers[key] = current_time
+            try:
+                data = skill.get_island_data()
+                if self.callback:
+                    self.callback("island_skill", {"skill": key, "data": data})
+            except Exception as e:
+                log.warning(f"Island skill {key!r} get_island_data failed: {e}")
+
     # ── Now Playing Detection ─────────────────────────────────────────────────
 
-    def _detect_now_playing(self):
-        """Detect currently playing track from Spotify window title."""
+    # ── SMTC helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _smtc_source_name(app_id: str) -> str:
+        """Map a Windows SMTC SourceAppUserModelId to a friendly source name."""
+        a = (app_id or "").lower()
+        if "spotify"      in a: return "Spotify"
+        if "youtubemusic" in a: return "YouTube Music"
+        if "youtube"      in a: return "YouTube"
+        if "msedge"       in a or "edge" in a: return "Edge"
+        if "chrome"       in a: return "Chrome"
+        if "firefox"      in a: return "Firefox"
+        if "opera"        in a: return "Opera"
+        if "brave"        in a: return "Brave"
+        if "vlc"          in a: return "VLC"
+        if "foobar"       in a: return "foobar2000"
+        if "applemusic"   in a or "itunes" in a: return "Apple Music"
+        if "amazonmusic"  in a or "amazon" in a: return "Amazon Music"
+        if "tidal"        in a: return "TIDAL"
+        if "deezer"       in a: return "Deezer"
+        if "soundcloud"   in a: return "SoundCloud"
+        if "groove"       in a or "zune" in a: return "Groove Music"
+        if "winamp"       in a: return "Winamp"
+        if "musicbee"     in a: return "MusicBee"
+        if "aimp"         in a: return "AIMP"
+        # Fallback: strip path, drop .exe, title-case
+        name = (app_id or "").split("\\")[-1].split("!")[-1]
+        name = name.replace(".exe", "").replace("_", " ")
+        return name.title() if name else "Unknown"
+
+    def _try_smtc(self) -> dict | None:
+        """Query Windows System Media Transport Controls for the currently
+        playing/paused track.  Works with any app that registers with the OS
+        media session (Spotify, Chrome, Edge, Firefox, VLC, Apple Music, etc.).
+
+        Uses a single persistent asyncio event loop (see _get_smtc_loop) so
+        that the Windows Runtime COM apartment is stable across calls.
+        """
+        if not HAS_SMTC:
+            return None
+        try:
+            async def _fetch():
+                manager = await _SMTCManager.request_async()
+                session = manager.get_current_session()
+                if not session:
+                    return None
+                playback = session.get_playback_info()
+                # playback_status is a WinRT enum — convert to int to be safe
+                # GlobalSystemMediaTransportControlsSessionPlaybackStatus:
+                #   Closed=0, Opened=1, Changing=2, Stopped=3, Playing=4, Paused=5
+                ps = int(playback.playback_status) if playback else -1
+                if ps not in (4, 5):
+                    return None
+                props = await session.try_get_media_properties_async()
+                if not props or not props.title:
+                    return None
+
+                # Timeline: position / duration (best-effort — some sources omit it)
+                position_ms = 0
+                duration_ms = 0
+                try:
+                    timeline = session.get_timeline_properties()
+                    if timeline:
+                        pos = timeline.position
+                        end = timeline.end_time
+                        if pos: position_ms = int(pos.total_seconds() * 1000)
+                        if end: duration_ms  = int(end.total_seconds() * 1000)
+                except Exception:
+                    pass
+
+                return {
+                    "title":       props.title.strip(),
+                    "artist":      (props.artist or "").strip(),
+                    "album":       (props.album_title or "").strip(),
+                    "source":      self._smtc_source_name(session.source_app_user_model_id),
+                    "is_playing":  ps == 4,
+                    "position_ms": position_ms,
+                    "duration_ms": duration_ms,
+                    "sampled_at":  time.time(),
+                }
+
+            # Schedule on the persistent loop — safe to call from any thread
+            future = _asyncio.run_coroutine_threadsafe(_fetch(), _get_smtc_loop())
+            result = future.result(timeout=4)
+            if result:
+                log.debug(f"SMTC: {result['source']} — {result['title']}")
+            return result
+        except Exception as e:
+            log.warning(f"SMTC query failed: {e}")
+            return None
+
+    # ── Window-title fallback ─────────────────────────────────────────────────
+
+    def _scan_titles_now_playing(self) -> dict | None:
+        """Fallback: scan window titles for known music app patterns."""
         if not HAS_WIN32:
             return None
+
         result = {}
+
+        # Chromium-based browsers (Chrome, Edge, Brave, Opera, Vivaldi) + Firefox
+        BROWSER_CLASSES = {
+            "Chrome_WidgetWin_1", "MozillaWindowClass", "MozillaDialogClass",
+        }
+
+        # Most-specific first so "YouTube Music" is matched before "YouTube"
+        BROWSER_SOURCES = [
+            (" - YouTube Music",  "YouTube Music"),
+            (" - YouTube",        "YouTube"),
+            (" - SoundCloud",     "SoundCloud"),
+            (" | SoundCloud",     "SoundCloud"),
+            (" - Spotify",        "Spotify"),
+            (" - Deezer",         "Deezer"),
+            (" - Apple Music",    "Apple Music"),
+            (" - Tidal",          "TIDAL"),
+            (" - TIDAL",          "TIDAL"),
+            (" - Amazon Music",   "Amazon Music"),
+            (" - Pandora",        "Pandora"),
+            (" - Mixcloud",       "Mixcloud"),
+            (" - Bandcamp",       "Bandcamp"),
+            (" - Twitch",         "Twitch"),
+        ]
+
         def _cb(hwnd, data):
             if data:
-                return False  # already found, stop enumeration
+                return False
             try:
-                cls = win32gui.GetClassName(hwnd)
-                title = win32gui.GetWindowText(hwnd)
-                # Spotify: title is "Artist - Track" when playing
+                cls   = win32gui.GetClassName(hwnd)
+                title = win32gui.GetWindowText(hwnd).strip()
+                if not title:
+                    return True
+
+                # ── Spotify desktop ───────────────────────────────────────
                 if "Spotify" in cls and " - " in title:
-                    clean = title.strip()
+                    clean = title
                     if clean.lower() not in ("spotify", "spotify premium", "spotify free", ""):
                         parts = clean.split(" - ", 1)
-                        if parts[0].strip() and parts[1].strip():
-                            data.update({
-                                "artist": parts[0].strip(),
-                                "title": parts[1].strip(),
-                                "source": "Spotify"
-                            })
-                            return False  # stop enumeration immediately after finding
+                        if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                            data.update({"artist": parts[0].strip(), "title": parts[1].strip(), "source": "Spotify"})
+                            return False
+
+                # ── Browser-based (YouTube, SoundCloud, Deezer…) ─────────
+                if cls in BROWSER_CLASSES:
+                    for suffix, source in BROWSER_SOURCES:
+                        if title.endswith(suffix):
+                            track = title[:-len(suffix)].strip()
+                            if track:
+                                data.update({"title": track, "artist": "", "source": source})
+                                return False
+
+                # ── foobar2000 ────────────────────────────────────────────
+                if title.endswith("[foobar2000]"):
+                    track = title[:-len("[foobar2000]")].strip(" -")
+                    if track:
+                        data.update({"title": track, "artist": "", "source": "foobar2000"})
+                        return False
+
+                # ── Winamp ────────────────────────────────────────────────
+                if "Winamp" in cls or title.endswith("- Winamp"):
+                    track = title.replace("- Winamp", "").strip()
+                    # Strip leading "N. " track number
+                    import re
+                    track = re.sub(r"^\d+\.\s*", "", track)
+                    if track and track.lower() != "winamp":
+                        data.update({"title": track, "artist": "", "source": "Winamp"})
+                        return False
+
+                # ── MusicBee ──────────────────────────────────────────────
+                if title.endswith("- MusicBee"):
+                    track = title[:-len("- MusicBee")].strip()
+                    if track:
+                        data.update({"title": track, "artist": "", "source": "MusicBee"})
+                        return False
+
+                # ── AIMP ──────────────────────────────────────────────────
+                if "AIMP" in cls or title.endswith("- AIMP"):
+                    track = title.replace("- AIMP", "").strip()
+                    if track and track.lower() != "aimp":
+                        data.update({"title": track, "artist": "", "source": "AIMP"})
+                        return False
+
+                # ── VLC ───────────────────────────────────────────────────
+                if " - VLC media player" in title:
+                    track = title.replace(" - VLC media player", "").strip()
+                    if track and track.lower() != "vlc media player":
+                        data.update({"title": track, "artist": "", "source": "VLC"})
+                        return False
+
+                # ── Windows Media Player ──────────────────────────────────
+                if "WMPlayerApp" in cls and " - Windows Media Player" in title:
+                    track = title.replace(" - Windows Media Player", "").strip()
+                    if track:
+                        data.update({"title": track, "artist": "", "source": "WMP"})
+                        return False
+
             except Exception:
                 pass
             return True
+
         try:
             win32gui.EnumWindows(_cb, result)
         except Exception:
-            pass  # EnumWindows raises pywintypes.error when callback returns False (early exit)
+            pass
         return result or None
+
+    def _detect_now_playing(self):
+        """Detect currently playing media.
+        Priority: Windows SMTC (any registered app) → window-title scan fallback."""
+        return self._try_smtc() or self._scan_titles_now_playing()
 
     # ── Two-Stage Error Detection ─────────────────────────────────────────────
 
@@ -495,10 +754,18 @@ class FeedManager:
             if current_time - self.last_now_playing_check >= self.now_playing_interval:
                 self.last_now_playing_check = current_time
                 np_state = self._detect_now_playing() or {}
-                if np_state != self.last_now_playing_state:
+                was_playing = bool(self.last_now_playing_state)
+                is_now_playing = bool(np_state)
+                # Always push while playing (keeps sampled_at fresh for the
+                # frontend progress bar); push once when playback stops so the
+                # strip clears.
+                if is_now_playing or was_playing:
                     self.last_now_playing_state = np_state
                     if self.callback:
                         self.callback("now_playing", np_state)  # empty dict = stopped
+
+            # ── Island Skills (pluggable strips) ──────────────────────────────
+            self._poll_island_skills(current_time)
 
             time.sleep(3)
 

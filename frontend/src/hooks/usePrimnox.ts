@@ -14,7 +14,7 @@ export function usePrimnox() {
   const [micMuted, setMicMuted] = useState(false);
   const [vadLevel, setVadLevel] = useState(0);
   const [notes, setNotes] = useState<any[]>([]);
-  const [tasks] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
   const [memory, setMemory] = useState<any[]>([]);
   const [chatSessions, setChatSessions] = useState<any[]>([]);
   const [chatFolders, setChatFolders] = useState<any[]>([]);
@@ -35,20 +35,34 @@ export function usePrimnox() {
   // ── Island ambient features ────────────────────────────────────────────
   const [flowState, setFlowState] = useState<{ duration_minutes: number; started_at: number; app: string } | null>(null);
   const [errorStreak, setErrorStreak] = useState<{ error: string; duration_minutes: number } | null>(null);
-  const [nowPlaying, setNowPlaying] = useState<{ title: string; artist: string; source: string } | null>(null);
+  const [nowPlaying, setNowPlaying] = useState<{
+    title: string;
+    artist: string;
+    album?: string;
+    source: string;
+    is_playing?: boolean;
+    position_ms?: number;
+    duration_ms?: number;
+    sampled_at?: number;
+  } | null>(null);
   const [productivityScore, setProductivityScore] = useState<number>(100);
   const [parallelTasks, setParallelTasks] = useState<{ id: string; label: string; color: string }[]>([]);
+  const [proactiveAlert, setProactiveAlert] = useState<{ message: string; suggestions: string[] } | null>(null);
+
+  // ── Island Skills (pluggable strips e.g. calendar) ────────────────────────
+  const [islandSkills, setIslandSkills] = useState<Record<string, any>>({});
 
   const [connectionLost, setConnectionLost] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [startupComplete, setStartupComplete] = useState(false);
-  
+
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
   const maxAttempts = 5;
   const tokenBufferRef = useRef<string>("");
   const animationFrameIdRef = useRef<number | null>(null);
   const parallelTaskTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const proactiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const triggerIslandError = useCallback(async (errorMessage: string, context?: string) => {
     try {
@@ -115,7 +129,13 @@ export function usePrimnox() {
       };
 
       socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+        let data: any;
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          console.warn('[ws] malformed message, skipping', event.data?.slice?.(0, 80));
+          return;
+        }
         const type = data.type;
         const payload = data.data;
 
@@ -198,11 +218,25 @@ export function usePrimnox() {
               if (Array.isArray(data)) {
                 const sorted = [...data].sort((a, b) => a.id - b.id);
                 setNotes(sorted);
+                // Notify graph view to refresh
+                window.dispatchEvent(new CustomEvent('primnox:notes-changed'));
               }
             });
         }
-        else if (type === 'task_added') { /* components handle fetching */ }
-        else if (type === 'memory_updated') { /* components handle fetching */ }
+        else if (type === 'task_added') { fetchTasks(); }
+        else if (type === 'memory_updated') {
+          // Show a subtle toast so the user knows something was remembered
+          if (payload?.text) addToast('info', `remembered: ${payload.text.slice(0, 60)}`);
+        }
+        else if (type === 'daily_debrief') {
+          const briefText = payload?.debrief || 'Daily brief generated.';
+          setMessages(prev => [...prev, {
+            sender: 'Primnox',
+            text: `**Daily Brief**\n\n${briefText}`,
+            timestamp: Date.now(),
+          }]);
+          addToast('success', 'Daily brief ready — check chat');
+        }
         else if (type === 'settings_updated') setSettings(payload);
         else if (type === 'incognito_changed') setIncognito(payload.active);
         else if (type === 'screenshot_taken') {
@@ -227,25 +261,44 @@ export function usePrimnox() {
           parallelTaskTimers.current.set(taskId, pillTimer);
         }
         else if (type === 'skill_complete') {
-          addToast('success', `Done: ${payload?.result || ''}`);
+          const skillName = payload?.skill || payload?.label || '';
+          addToast('success', skillName ? `Done: ${skillName}` : 'skill complete');
           setParallelTasks(prev => {
             if (prev.length === 0) return prev;
-            const [completed, ...rest] = prev;
+            // Match by skill label; fall back to FIFO if no match
+            const idx = skillName
+              ? prev.findIndex(t => t.label === skillName)
+              : -1;
+            const targetIdx = idx >= 0 ? idx : 0;
+            const completed = prev[targetIdx];
             const timer = parallelTaskTimers.current.get(completed.id);
             if (timer) {
               clearTimeout(timer);
               parallelTaskTimers.current.delete(completed.id);
             }
-            return rest;
+            return prev.filter((_, i) => i !== targetIdx);
           });
+        }
+        else if (type === 'tool_executing') {
+          // LLM is calling a tool — show briefly in the island status area
+          if (payload?.tool) addToast('info', `using: ${payload.tool.replace('_', ' ')}`);
+        }
+        else if (type === 'file_ready') {
+          // A skill produced a file — let the user know
+          const name = payload?.skill || 'skill';
+          addToast('success', `${name} — file ready`);
         }
         else if (type === 'skill_unavailable') addToast('error', 'Skill unavailable');
         else if (type === 'fallback_triggered') addToast('warning', 'Fallback triggered');
         else if (type === 'rate_limit_hit') addToast('warning', 'Rate limit hit');
         else if (type === 'startup_complete') setStartupComplete(true);
         else if (type === 'proactive_message') {
-          setMessages(prev => [...prev, { sender: 'Primnox', text: payload.message, timestamp: Date.now() }]);
-          // Forward proactive message to Electron for Dynamic Island Window
+          // Show in Dynamic Island only — do NOT pollute the chat history
+          const alert = { message: payload.message, suggestions: payload.suggestions || [] };
+          setProactiveAlert(alert);
+          if (proactiveTimerRef.current) clearTimeout(proactiveTimerRef.current);
+          proactiveTimerRef.current = setTimeout(() => setProactiveAlert(null), 15000);
+          // Forward to the island overlay window
           if ((window as any).electron) {
             (window as any).electron.ipcRenderer.send('friday:proactive', {
               message: payload.message,
@@ -263,9 +316,39 @@ export function usePrimnox() {
             });
           }
         }
-        else if (type === 'reminder_triggered') addToast('info', `Reminder: ${payload.text}`);
+        else if (type === 'session_updated') {
+          // A session title was auto-generated — refresh the sidebar
+          fetchChats();
+        }
+        else if (type === 'reminder_triggered') {
+          const msg = payload?.text || 'reminder';
+          addToast('info', `⏰ ${msg}`);
+          // Native OS notification (works in Electron + modern browsers)
+          try {
+            if (typeof Notification !== 'undefined') {
+              if (Notification.permission === 'granted') {
+                new Notification('Primnox Reminder', { body: msg, silent: false });
+              } else if (Notification.permission === 'default') {
+                Notification.requestPermission().then(perm => {
+                  if (perm === 'granted') new Notification('Primnox Reminder', { body: msg });
+                });
+              }
+            }
+          } catch { /* Notifications not supported */ }
+        }
+        else if (type === 'navigate') {
+          // Backend wants to navigate to a screen — dispatch custom event App.tsx listens to
+          const screen = payload?.screen;
+          if (screen) window.dispatchEvent(new CustomEvent('primnox:navigate', { detail: { screen } }));
+        }
         else if (type === 'backup_complete') addToast('success', 'Backup complete');
         else if (type === 'backup_failed') addToast('error', 'Backup failed');
+        else if (type === 'emotion_updated') {
+          if (payload?.mood) addToast('info', `vibe detected: ${payload.mood.toLowerCase()}`);
+        }
+        else if (type === 'profile_updated') {
+          addToast('info', 'profile updated from recent activity');
+        }
         else if (type === 'error_island') triggerIslandError(payload?.error_message || 'unknown error', payload?.context);
         // ── Ambient island features ──────────────────────────────────────
         else if (type === 'flow_state') setFlowState(payload);
@@ -274,6 +357,12 @@ export function usePrimnox() {
         else if (type === 'error_resolved') setErrorStreak(null);
         else if (type === 'now_playing') setNowPlaying(payload && typeof payload === 'object' && payload.title ? payload : null);
         else if (type === 'productivity_score') setProductivityScore(payload?.score ?? 100);
+        else if (type === 'island_skill') {
+          const skillName = payload?.skill;
+          if (skillName) {
+            setIslandSkills(prev => ({ ...prev, [skillName]: payload?.data ?? null }));
+          }
+        }
       };
       
       socket.onclose = () => {
@@ -304,6 +393,7 @@ export function usePrimnox() {
         wsRef.current.close();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addToast, triggerIslandError]);
 
   const sendMessage = useCallback(async (text: string, sessionId: string = 'current', file?: File | null) => {
@@ -335,17 +425,25 @@ export function usePrimnox() {
   }, []);
 
   const fetchSettings = useCallback(async () => {
-    const resp = await fetch(`${API_BASE_URL}/settings`);
-    const data = await resp.json();
-    setSettings(data);
+    try {
+      const resp = await fetch(`${API_BASE_URL}/settings`, { signal: AbortSignal.timeout(5000) });
+      const data = await resp.json();
+      setSettings(data);
+    } catch (e) {
+      console.error('fetchSettings failed', e);
+    }
   }, []);
 
   const fetchChats = useCallback(async () => {
-    const resp = await fetch(`${API_BASE_URL}/api/chats`);
-    const data = await resp.json();
-    if (data && data.sessions) {
-      setChatSessions(data.sessions);
-      setChatFolders(data.folders || []);
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/chats`, { signal: AbortSignal.timeout(5000) });
+      const data = await resp.json();
+      if (data && data.sessions) {
+        setChatSessions(data.sessions);
+        setChatFolders(data.folders || []);
+      }
+    } catch (e) {
+      console.error('fetchChats failed', e);
     }
   }, []);
 
@@ -376,33 +474,47 @@ export function usePrimnox() {
   }, []);
 
   const fetchMemory = useCallback(async () => {
-    const resp = await fetch(`${API_BASE_URL}/memory`);
-    const data = await resp.json();
-    if (data && typeof data === 'object') {
-       setMemory(Object.values(data));
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/memories`);
+      const data = await resp.json();
+      if (data?.memories && Array.isArray(data.memories)) {
+        setMemory(data.memories);
+      }
+    } catch (e) {
+      console.error('fetchMemory failed', e);
     }
   }, []);
 
   const fetchNotes = useCallback(async () => {
-    const resp = await fetch(`${API_BASE_URL}/notes`);
-    const data = await resp.json();
-    if (Array.isArray(data)) {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/notes`, { signal: AbortSignal.timeout(5000) });
+      const data = await resp.json();
       if (Array.isArray(data)) {
         const sorted = [...data].sort((a, b) => a.id - b.id);
         setNotes(sorted);
       }
+    } catch (e) {
+      console.error('fetchNotes failed', e);
+    }
+  }, []);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/tasks`, { signal: AbortSignal.timeout(5000) });
+      const data = await resp.json();
+      if (Array.isArray(data)) setTasks(data);
+    } catch (e) {
+      console.error('fetchTasks failed', e);
     }
   }, []);
 
   const fetchLogs = useCallback(async () => {
     try {
-      const resp = await fetch(`${API_BASE_URL}/logs?limit=50`);
+      const resp = await fetch(`${API_BASE_URL}/logs?limit=50`, { signal: AbortSignal.timeout(5000) });
       const data = await resp.json();
-      if (Array.isArray(data)) {
-        setActivity(data);
-      }
+      if (Array.isArray(data)) setActivity(data);
     } catch (e) {
-      console.error("Failed to fetch logs", e);
+      console.error('fetchLogs failed', e);
     }
   }, []);
 
@@ -425,6 +537,23 @@ export function usePrimnox() {
     }
   }, [addToast]);
 
+  const dismissProactiveAlert = useCallback(() => {
+    setProactiveAlert(null);
+    if (proactiveTimerRef.current) clearTimeout(proactiveTimerRef.current);
+  }, []);
+
+  const triggerMediaControl = useCallback(async (action: 'play_pause' | 'next' | 'prev' | 'stop') => {
+    try {
+      await fetch(`${API_BASE_URL}/api/media/control`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+    } catch (e) {
+      console.error('media control failed', e);
+    }
+  }, []);
+
   const scanEnvironment = useCallback(async () => {
     try {
       const resp = await fetch(`${API_BASE_URL}/api/onboarding/scan`);
@@ -440,12 +569,13 @@ export function usePrimnox() {
     fetchChats();
     fetchMemory();
     fetchNotes();
+    fetchTasks();
     fetchLogs();
     const timer = setInterval(() => {
       fetchLogs();
     }, 5000);
     return () => clearInterval(timer);
-  }, [fetchSettings, fetchChats, fetchMemory, fetchNotes, fetchLogs]);
+  }, [fetchSettings, fetchChats, fetchMemory, fetchNotes, fetchTasks, fetchLogs]);
   
   const manualReconnect = useCallback(() => {
     reconnectAttempts.current = 0;
@@ -458,13 +588,16 @@ export function usePrimnox() {
     activity, meetings, debriefs, transcripts, currentTranscript, lastAttachedFile, incognito, settings,
     toasts, connectionLost, reconnectAttempt, maxAttempts, startupComplete,
     islandError, triggerIslandError, clearIslandError,
-    flowState, errorStreak, nowPlaying, productivityScore, parallelTasks,
-    triggerSmartPaste,
+    flowState, errorStreak, nowPlaying, productivityScore, parallelTasks, proactiveAlert, dismissProactiveAlert,
+    islandSkills,
+    triggerSmartPaste, triggerMediaControl,
     sendMessage, toggleMic, toggleIncognito, manualReconnect, addToast, updateSettings, exportNotes,
     chatSessions,
     chatFolders,
     activeChatId,
     fetchChats,
+    fetchMemory,
+    fetchTasks,
     loadChat,
     createNewChat,
     scanEnvironment,

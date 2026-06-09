@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<title>Primnox — Notes</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --primary:#6366f1;--primary-dim:rgba(99,102,241,0.12);
+  --bg:#000;--bg2:#09090b;--bg3:rgba(24,24,27,.85);
+  --border:rgba(255,255,255,.05);--border2:rgba(255,255,255,.08);
+  --text:rgba(255,255,255,.85);--dim:rgba(255,255,255,.4);--dimmer:rgba(255,255,255,.18);
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  width:1200px;height:800px;overflow:hidden;display:flex;flex-direction:column;font-size:14px}
+.titlebar{height:28px;background:rgba(9,9,11,.95);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative}
+.titlebar span{font-size:11px;font-family:monospace;color:var(--dimmer);letter-spacing:.1em;text-transform:uppercase}
+.titlebar-dots{position:absolute;left:16px;display:flex;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%}
+.dot-r{background:#ff5f57}.dot-y{background:#febc2e}.dot-g{background:#28c840}
+.island-wrap{height:56px;display:flex;align-items:center;justify-content:center;flex-shrink:0;z-index:50}
+.island{background:#000;border:1px solid rgba(255,255,255,.08);border-radius:999px;
+  padding:6px 14px;display:flex;align-items:center;gap:10px}
+.island-mode{display:flex;gap:2px;background:rgba(255,255,255,.05);border-radius:999px;padding:3px}
+.island-mode button{padding:3px 10px;border-radius:999px;font-size:10px;font-family:monospace;
+  letter-spacing:.05em;border:none;cursor:pointer;color:var(--dim);background:transparent}
+.island-mode button.active{background:var(--primary-dim);color:#818cf8}
+.island-sep{width:1px;height:16px;background:var(--border2)}
+.island-mic{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.04);
+  border:1px solid var(--border2);display:flex;align-items:center;justify-content:center}
+.island-mic svg{width:10px;height:10px;fill:none;stroke:var(--dim);stroke-width:2}
+.island-score{font-family:monospace;font-size:10px;color:var(--dimmer)}
+.island-avatar{width:22px;height:22px;border-radius:50%;background:var(--primary-dim);
+  border:1px solid rgba(99,102,241,.3);display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-family:monospace;color:#818cf8}
+.layout{flex:1;display:flex;overflow:hidden}
+/* Icon sidebar */
+.sidebar-icon{width:80px;flex-shrink:0;background:var(--bg3);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;backdrop-filter:blur(20px)}
+.icon-logo{height:64px;border-bottom:1px solid var(--border);width:100%;
+  display:flex;align-items:center;justify-content:center}
+.logo-icon{width:28px;height:28px;border-radius:50%;border:1px solid rgba(99,102,241,.3);
+  background:var(--primary-dim);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 12px rgba(99,102,241,.2)}
+.logo-icon svg{width:12px;height:12px;stroke:#818cf8;fill:none;stroke-width:2}
+.icon-nav{display:flex;flex-direction:column;gap:24px;padding:20px 0;flex:1}
+.icon-btn{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer}
+.icon-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.75}
+.icon-btn.active svg{color:var(--primary)}
+.icon-btn:not(.active) svg{color:var(--dimmer)}
+.icon-btn span{font-family:monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:inherit}
+.icon-btn.active span{color:#818cf8}
+.icon-btn:not(.active) span{color:var(--dimmer)}
+/* Notes panel */
+.notes-panel{width:240px;flex-shrink:0;border-right:1px solid var(--border);
+  display:flex;flex-direction:column;background:rgba(9,9,11,.5)}
+.notes-header{height:64px;border-bottom:1px solid var(--border);padding:0 16px;
+  display:flex;align-items:center;justify-content:space-between}
+.notes-search{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border);
+  border-radius:8px;padding:6px 10px;display:flex;align-items:center;gap:6px;margin-right:8px}
+.notes-search input{background:transparent;border:none;outline:none;color:var(--text);
+  font-size:11px;width:100%}
+.notes-search input::placeholder{color:var(--dimmer)}
+.notes-search svg{width:12px;height:12px;stroke:var(--dimmer);fill:none;stroke-width:2;flex-shrink:0}
+.note-new{width:26px;height:26px;border-radius:6px;border:1px solid var(--border2);
+  background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.note-new svg{width:13px;height:13px;stroke:var(--dim);fill:none;stroke-width:2}
+.notes-list{flex:1;overflow-y:auto;padding:6px}
+.note-item{padding:8px 10px;border-radius:8px;cursor:pointer;margin-bottom:2px;
+  border:1px solid transparent;transition:all .15s}
+.note-item:hover{background:rgba(255,255,255,.03)}
+.note-item.active{background:var(--primary-dim);border-color:rgba(99,102,241,.15)}
+.note-item-title{font-size:12px;font-weight:500;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note-item.active .note-item-title{color:#e0e7ff}
+.note-item-preview{font-size:11px;color:var(--dimmer);margin-top:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note-item-meta{display:flex;gap:6px;margin-top:3px;align-items:center}
+.note-tag{font-family:monospace;font-size:8px;letter-spacing:.04em;padding:1px 5px;
+  border-radius:4px;background:rgba(99,102,241,.1);color:#818cf8;border:1px solid rgba(99,102,241,.15)}
+.note-date{font-family:monospace;font-size:8px;color:var(--dimmer)}
+/* Note editor */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.editor-header{height:64px;border-bottom:1px solid var(--border);padding:0 28px;
+  display:flex;align-items:center;justify-content:space-between;flex-shrink:0;
+  background:var(--bg3);backdrop-filter:blur(20px)}
+.editor-title{font-weight:700;font-size:18px;letter-spacing:-.04em;font-style:italic;text-transform:lowercase}
+.editor-sub{font-family:monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer);margin-top:2px}
+.editor-actions{display:flex;gap:8px}
+.editor-btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border2);
+  background:transparent;color:var(--dim);font-family:monospace;font-size:9px;
+  letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+.editor-btn:hover{background:rgba(255,255,255,.04);color:var(--text)}
+.note-content{flex:1;overflow-y:auto;padding:28px 40px}
+.note-title-input{font-size:26px;font-weight:700;color:#fff;letter-spacing:-.04em;
+  margin-bottom:6px;line-height:1.2}
+.note-tags-row{display:flex;gap:6px;margin-bottom:24px;align-items:center}
+.n-tag{font-family:monospace;font-size:9px;letter-spacing:.06em;padding:2px 8px;
+  border-radius:999px;background:rgba(99,102,241,.1);color:#818cf8;
+  border:1px solid rgba(99,102,241,.2)}
+.n-tag.green{background:rgba(16,185,129,.08);color:#34d399;border-color:rgba(16,185,129,.2)}
+.n-tag.orange{background:rgba(245,158,11,.08);color:#fbbf24;border-color:rgba(245,158,11,.2)}
+.note-meta{font-family:monospace;font-size:9px;color:var(--dimmer);margin-bottom:24px}
+.md-h2{font-size:18px;font-weight:700;color:#c7d2fe;margin-bottom:10px;margin-top:24px;
+  padding-bottom:6px;border-bottom:1px solid var(--border)}
+.md-h2:first-child{margin-top:0}
+.md-h3{font-size:14px;font-weight:600;color:#a5b4fc;margin-bottom:6px;margin-top:16px}
+.md-p{font-size:13px;line-height:1.7;color:var(--dim);margin-bottom:12px}
+.md-ul{padding-left:20px;margin-bottom:12px}
+.md-ul li{font-size:13px;line-height:1.6;color:var(--dim);margin-bottom:4px}
+.md-ul li strong{color:var(--text)}
+.md-pre{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;
+  padding:12px 16px;font-family:monospace;font-size:11px;color:#c4b5fd;overflow-x:auto;margin:12px 0}
+.md-code{background:rgba(255,255,255,.06);border:1px solid var(--border2);border-radius:5px;
+  padding:1px 5px;font-family:monospace;font-size:11px;color:#a5b4fc}
+.callout{background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.15);border-radius:8px;
+  padding:12px 14px;margin:12px 0}
+.callout-title{font-family:monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  color:#818cf8;margin-bottom:4px}
+.callout p{font-size:12px;color:var(--dim);line-height:1.6}
+</style>
+</head>
+<body>
+<div class="titlebar">
+  <div class="titlebar-dots"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+  <span>Primnox</span>
+</div>
+<div class="island-wrap">
+  <div class="island">
+    <div class="island-mode">
+      <button class="active">Notes</button>
+      <button>Chat</button>
+      <button>Research</button>
+    </div>
+    <div class="island-sep"></div>
+    <div class="island-mic"><svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></div>
+    <div class="island-sep"></div>
+    <span class="island-score">84%</span>
+    <div class="island-avatar">AP</div>
+  </div>
+</div>
+<div class="layout">
+  <!-- Icon sidebar -->
+  <aside class="sidebar-icon">
+    <div class="icon-logo"><div class="logo-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div></div>
+    <div class="icon-nav">
+      <div class="icon-btn"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Synapse</span></div>
+      <div class="icon-btn active"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Nodes</span></div>
+      <div class="icon-btn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="18" height="7"/></svg><span>Dash</span></div>
+      <div class="icon-btn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span>Research</span></div>
+      <div class="icon-btn"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M12 8v3M7 17l3.5-2M17 17l-3.5-2"/></svg><span>Graph</span></div>
+    </div>
+  </aside>
+
+  <!-- Notes list panel -->
+  <div class="notes-panel">
+    <div class="notes-header">
+      <div class="notes-search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input placeholder="Search notes…" value="">
+      </div>
+      <button class="note-new"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    </div>
+    <div class="notes-list">
+      <div class="note-item active">
+        <div class="note-item-title">Local AI Setup Guide</div>
+        <div class="note-item-preview">Ollama, model config, privacy notes</div>
+        <div class="note-item-meta"><span class="note-tag">local-ai</span><span class="note-tag">setup</span><span class="note-date">Today</span></div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Primnox Architecture</div>
+        <div class="note-item-preview">FastAPI, WebSocket, Electron IPC</div>
+        <div class="note-item-meta"><span class="note-tag">dev</span><span class="note-date">Yesterday</span></div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Product Roadmap Q3</div>
+        <div class="note-item-preview">Island modes, research, voice commands</div>
+        <div class="note-item-meta"><span class="note-tag">planning</span><span class="note-date">Jun 7</span></div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Windows SMTC Notes</div>
+        <div class="note-item-preview">COM threading, persistent loop fix</div>
+        <div class="note-item-meta"><span class="note-tag">windows</span><span class="note-date">Jun 7</span></div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">UI Design Principles</div>
+        <div class="note-item-preview">Message grouping, spacing, glassmorphism</div>
+        <div class="note-item-meta"><span class="note-tag">design</span><span class="note-date">Jun 6</span></div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Meeting Notes — June 5</div>
+        <div class="note-item-preview">Demo feedback, next milestones</div>
+        <div class="note-item-meta"><span class="note-date">Jun 5</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Note editor -->
+  <main class="main">
+    <div class="editor-header">
+      <div>
+        <div class="editor-title">neural_nodes</div>
+        <div class="editor-sub">Workspace_v2</div>
+      </div>
+      <div class="editor-actions">
+        <button class="editor-btn">Export ↗</button>
+        <button class="editor-btn">⌘ Ask AI</button>
+      </div>
+    </div>
+    <div class="note-content">
+      <div class="note-title-input">Local AI Setup Guide</div>
+      <div class="note-tags-row">
+        <span class="n-tag">local-ai</span>
+        <span class="n-tag green">setup</span>
+        <span class="n-tag orange">privacy</span>
+      </div>
+      <div class="note-meta">Last edited Today at 2:08 PM · 847 words · ~4 min read</div>
+
+      <div class="md-h2">Ollama Setup</div>
+      <div class="md-p">Ollama lets you run large language models locally with a single command. The models are downloaded and cached on disk — no cloud inference, no telemetry unless you opt in.</div>
+      <div class="md-pre">curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull llama3.2          # 2.0 GB, very fast
+ollama pull mistral           # 4.1 GB, better for longer context
+ollama run llama3.2           # starts local server on :11434</div>
+      <div class="callout">
+        <div class="callout-title">⬡ Primnox Integration</div>
+        <p>Set <code class="md-code">OLLAMA_BASE_URL=http://localhost:11434</code> in Primnox settings → Configure → LLM. Then switch the active model to <code class="md-code">ollama/llama3.2</code> for fully offline operation.</p>
+      </div>
+
+      <div class="md-h2">Privacy Architecture</div>
+      <div class="md-h3">What stays local</div>
+      <ul class="md-ul">
+        <li><strong>All conversation history</strong> — stored in SQLite at <code class="md-code">%APPDATA%\Primnox\chats.db</code></li>
+        <li><strong>Notes and memories</strong> — ChromaDB vector store, local embeddings via fastembed</li>
+        <li><strong>Activity feed</strong> — window tracking, app usage, never leaves your machine</li>
+        <li><strong>Voice audio</strong> — processed in-process with Whisper, not uploaded anywhere</li>
+      </ul>
+
+      <div class="md-h3">What can leave (with your control)</div>
+      <ul class="md-ul">
+        <li>Chat messages → Groq API if using cloud model (disable: switch to Ollama)</li>
+        <li>Search queries → Brave Search API for Deep Research (disable: use offline mode)</li>
+      </ul>
+
+      <div class="md-h2">Model Comparison</div>
+      <div class="md-p">For daily use with Primnox, I recommend <strong>Llama 3.2 (3B)</strong> via Ollama — it handles conversational tasks quickly and fits in ~2GB RAM. Switch to <strong>Mistral 7B</strong> for longer notes or complex reasoning.</div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

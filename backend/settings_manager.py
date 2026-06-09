@@ -53,6 +53,11 @@ DEFAULT_SETTINGS = {
         "Research Style Learning", "Productivity Pattern Learning", "Response Depth Adaptation"
     ],
     "workspaces": ["Personal Workspace", "Development Workspace", "Research Workspace"],
+    # Calendar providers — each entry is a provider config dict.
+    # Supported types: "ical" | "google" | "outlook" | "notion"
+    # Example iCal entry:
+    #   {"type": "ical", "name": "My Calendar", "url": "https://...", "color": "#6366f1"}
+    "calendar_providers": [],
     "onboarding_profile": {
         "projects": [],
         "topics": [],

@@ -6,7 +6,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { usePrimnox } from '../hooks/usePrimnox';
-import { Sparkles } from 'lucide-react';
 
 // Components
 import { Layout } from './components/Layout';
@@ -19,10 +18,13 @@ import { DataVaultPage } from './components/MemoryView';
 import { KnowledgePage } from './components/AboutView';
 import { OnboardingView } from './components/OnboardingView';
 import { GraphView } from './components/GraphView';
+import { ResearchView } from './components/ResearchView';
+import { CalendarView } from './components/CalendarView';
+import { MeetingsView } from './components/MeetingsView';
 
 // --- Types ---
 
-export type ScreenId = 
+export type ScreenId =
   | 'summaries_expanded'
   | 'notes_icon_sidebar'
   | 'summaries_sidebar_hidden'
@@ -35,28 +37,22 @@ export type ScreenId =
   | 'logs'
   | 'archive'
   | 'knowledge'
-  | 'graph_view';
+  | 'graph_view'
+  | 'calendar'
+  | 'meetings';
 
 export type SidebarState = 'expanded' | 'icon' | 'hidden';
 export type AppMode = 'chat' | 'notes' | 'research';
 export type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy' | 'error';
 
-const ResearchWorkspace = () => (
-  <div className="h-full flex flex-col items-center justify-center p-10 text-center">
-    <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-6 shadow-2xl">
-      <Sparkles className="text-white/40" size={24} />
-    </div>
-    <h2 className="text-xl font-mono text-white/80 uppercase tracking-widest mb-2">Deep_Research</h2>
-    <p className="text-white/40 font-light max-w-md">The Research workspace is currently locked. Data aggregation engines and knowledge synthesis protocols will be deployed here soon.</p>
-  </div>
-);
 
 export default function App() {
   const { 
-    messages: liveMessages, 
-    state: liveState, 
-    vadLevel, 
-    notes, 
+    messages: liveMessages,
+    state: liveState,
+    vadLevel,
+    notes,
+    tasks,
     memory,
     toasts,
     activity,
@@ -76,16 +72,21 @@ export default function App() {
     fetchChats,
     loadChat,
     createNewChat,
-    addToast,
     islandError,
     clearIslandError,
     flowState,
     errorStreak,
     nowPlaying,
+    islandSkills,
     productivityScore,
     parallelTasks,
+    proactiveAlert,
+    dismissProactiveAlert,
     triggerSmartPaste,
+    triggerMediaControl,
     scanEnvironment,
+    fetchMemory,
+    fetchTasks,
   } = usePrimnox();
 
   // Detect if this is the dedicated island-overlay BrowserWindow.
@@ -137,6 +138,16 @@ export default function App() {
     }
   }, []);
 
+  // Listen for backend-driven navigation events (navigate_ui tool + handle_route)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const screen = (e as CustomEvent<{ screen: string }>).detail?.screen;
+      if (screen) setCurrentScreen(screen as ScreenId);
+    };
+    window.addEventListener('primnox:navigate', handler);
+    return () => window.removeEventListener('primnox:navigate', handler);
+  }, []);
+
   // System State (Local overrides)
   const [operatorAlias, setOperatorAlias] = useState('ANIKETH_P_01');
   const [aiCodename, setAiCodename] = useState('PRIMNOX');
@@ -149,6 +160,9 @@ export default function App() {
   const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
   const [ollamaModel, setOllamaModel] = useState('llama3.2');
   const [ollamaBaseUrl, setOllamaBaseUrl] = useState('http://localhost:11434');
+  const [calendarProviders,   setCalendarProviders]   = useState<any[]>([]);
+  const [memoryRetentionDays, setMemoryRetentionDays] = useState(30);
+  const [meetingRetentionDays,setMeetingRetentionDays]= useState(10);
 
   // Sync settings to local state
   useEffect(() => {
@@ -163,6 +177,9 @@ export default function App() {
     if (settings.wake_word_enabled !== undefined) setWakeWordEnabled(settings.wake_word_enabled);
     if (settings.ollama_model !== undefined) setOllamaModel(settings.ollama_model);
     if (settings.ollama_base_url !== undefined) setOllamaBaseUrl(settings.ollama_base_url);
+    if (settings.calendar_providers !== undefined) setCalendarProviders(settings.calendar_providers);
+    if (settings.memory_auto_delete_days !== undefined) setMemoryRetentionDays(settings.memory_auto_delete_days);
+    if (settings.screenshot_retention !== undefined) setMeetingRetentionDays(settings.screenshot_retention);
   }, [settings]);
 
   const handleSync = () => {
@@ -178,7 +195,10 @@ export default function App() {
       wake_word: wakeWord,
       wake_word_enabled: wakeWordEnabled,
       ollama_model: ollamaModel,
-      ollama_base_url: ollamaBaseUrl
+      ollama_base_url: ollamaBaseUrl,
+      calendar_providers: calendarProviders,
+      memory_auto_delete_days: memoryRetentionDays,
+      screenshot_retention: meetingRetentionDays,
     });
     setCurrentScreen('summaries_expanded');
   };
@@ -198,7 +218,7 @@ export default function App() {
 
     switch (targetScreen) {
       case 'summaries_expanded':
-        return <SummariesExpanded onNavigate={setCurrentScreen} activity={activity} />;
+        return <SummariesExpanded onNavigate={setCurrentScreen} activity={activity} tasks={tasks} onTaskCompleted={fetchTasks} />;
       case 'graph_view':
         return <GraphView onNodeClick={(id) => {
           // Open the specific note
@@ -209,7 +229,7 @@ export default function App() {
       case 'logs':
         return <LogsPage activity={activity} />;
       case 'archive':
-        return <DataVaultPage onAccess={() => addToast('info', 'Data Vault Access: Synchronizing...')} memory={memory} />;
+        return <DataVaultPage memory={memory} onMemoryDeleted={() => fetchMemory()} />;
       case 'summaries_sidebar_hidden':
         return <SummariesSidebarHidden onNavigate={setCurrentScreen} />;
       case 'summaries_empty_state':
@@ -242,6 +262,10 @@ export default function App() {
             setOllamaModel={setOllamaModel}
             ollamaBaseUrl={ollamaBaseUrl}
             setOllamaBaseUrl={setOllamaBaseUrl}
+            calendarProviders={calendarProviders}
+            setCalendarProviders={setCalendarProviders}
+            meetingRetentionDays={meetingRetentionDays}
+            setMeetingRetentionDays={setMeetingRetentionDays}
             onSync={handleSync}
           />
         );
@@ -266,7 +290,11 @@ export default function App() {
           />
         );
       case 'research_workspace':
-        return <ResearchWorkspace />;
+        return <ResearchView />;
+      case 'calendar':
+        return <CalendarView onNavigate={setCurrentScreen} />;
+      case 'meetings':
+        return <MeetingsView onNavigate={setCurrentScreen} />;
       default:
         return <SummariesExpanded onNavigate={setCurrentScreen} />;
     }
@@ -280,7 +308,12 @@ export default function App() {
     if (currentScreen === 'logs') return 'logs';
     if (currentScreen === 'archive') return 'archive';
     if (currentScreen === 'knowledge') return 'knowledge';
+    if (currentScreen === 'research_workspace') return 'research';
+    if (currentScreen === 'calendar') return 'calendar';
+    if (currentScreen === 'meetings') return 'meetings';
+    if (currentScreen === 'chat_expanded_sidebar') return 'transcripts';
     if (appMode === 'chat') return 'transcripts';
+    if (appMode === 'research') return 'research';
     return 'notes';
   };
 
@@ -309,6 +342,8 @@ export default function App() {
           currentScreen === 'knowledge' ? 'Knowledge_Nexus' :
           currentScreen === 'graph_view' ? 'Knowledge_Graph' :
           currentScreen.includes('summaries') ? 'Neural_Nodes' : 
+          currentScreen === 'research_workspace' ? 'Deep_Research' :
+          currentScreen === 'meetings' ? 'Recordings' :
           appMode === 'research' ? 'Deep_Research' :
           appMode === 'chat' ? 'Synapse_Stream' : 'Neural_Nodes'
         }
@@ -317,7 +352,9 @@ export default function App() {
           currentScreen === 'archive' ? 'COLD_STORAGE' :
           currentScreen === 'knowledge' ? 'SYSTEM_CORE_DOCS' :
           currentScreen === 'graph_view' ? 'VISUALIZE_CONNECTIONS' :
-          currentScreen.includes('summaries') ? 'SYNTHETIC_PROCESSING' : 
+          currentScreen.includes('summaries') ? 'SYNTHETIC_PROCESSING' :
+          currentScreen === 'research_workspace' ? 'WEB_SEARCH_ENGINE' :
+          currentScreen === 'meetings' ? 'MANUAL_REVIEW' :
           appMode === 'research' ? 'KNOWLEDGE_SYNTHESIS' :
           appMode === 'chat' ? 'NEURAL_INTERFACE' : 'WORKSPACE_v2'
         }
@@ -340,9 +377,14 @@ export default function App() {
         flowState={flowState}
         errorStreak={errorStreak}
         nowPlaying={nowPlaying}
+        islandSkills={islandSkills}
         productivityScore={productivityScore}
         parallelTasks={parallelTasks}
         onSmartPaste={triggerSmartPaste}
+        onMediaControl={triggerMediaControl}
+        proactiveAlert={proactiveAlert}
+        onDismissProactive={dismissProactiveAlert}
+        onSuggestionClick={(s) => { sendMessage(s, activeChatId); dismissProactiveAlert(); }}
         isIslandMode={isIslandMode}
         onRestoreWindow={handleRestoreWindow}
         actions={headerActions}

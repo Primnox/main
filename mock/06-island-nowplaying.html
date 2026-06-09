@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<title>Primnox — Island: Now Playing</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --primary:#6366f1;--primary-dim:rgba(99,102,241,0.12);
+  --bg:#000;--bg3:rgba(24,24,27,.85);
+  --border:rgba(255,255,255,.05);--border2:rgba(255,255,255,.08);
+  --text:rgba(255,255,255,.85);--dim:rgba(255,255,255,.4);--dimmer:rgba(255,255,255,.18);
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  width:1200px;height:800px;overflow:hidden;display:flex;flex-direction:column;font-size:14px}
+.titlebar{height:28px;background:rgba(9,9,11,.95);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative}
+.titlebar span{font-size:11px;font-family:monospace;color:var(--dimmer);letter-spacing:.1em;text-transform:uppercase}
+.titlebar-dots{position:absolute;left:16px;display:flex;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%}
+.dot-r{background:#ff5f57}.dot-y{background:#febc2e}.dot-g{background:#28c840}
+
+.island-wrap{display:flex;flex-direction:column;align-items:center;padding-top:8px;
+  flex-shrink:0;z-index:50;position:relative}
+
+/* Main island pill - now playing */
+.island-pill{background:#000;border:1px solid rgba(255,255,255,.08);
+  border-radius:999px;overflow:visible;
+  box-shadow:0 0 0 1px rgba(255,255,255,.03)}
+
+/* Top row - the pill */
+.island-top{display:flex;align-items:center;gap:10px;padding:6px 14px}
+.island-mode{display:flex;gap:2px;background:rgba(255,255,255,.05);border-radius:999px;padding:3px}
+.island-mode button{padding:3px 10px;border-radius:999px;font-size:10px;font-family:monospace;
+  letter-spacing:.05em;border:none;cursor:pointer;color:var(--dim);background:transparent}
+.island-mode button.active{background:var(--primary-dim);color:#818cf8}
+.island-sep{width:1px;height:16px;background:var(--border2)}
+.island-mic{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.04);
+  border:1px solid var(--border2);display:flex;align-items:center;justify-content:center}
+.island-mic svg{width:10px;height:10px;fill:none;stroke:var(--dim);stroke-width:2}
+.island-score{font-family:monospace;font-size:10px;color:var(--dimmer)}
+.island-avatar{width:22px;height:22px;border-radius:50%;background:var(--primary-dim);
+  border:1px solid rgba(99,102,241,.3);display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-family:monospace;color:#818cf8}
+
+/* Now playing strip below pill */
+.np-strip{border-top:1px solid rgba(255,255,255,.04);padding:6px 18px 8px;
+  display:flex;flex-direction:column;gap:5px}
+.np-row{display:flex;align-items:center;gap:8px}
+.np-icon{flex-shrink:0}
+.np-icon svg{width:10px;height:10px;stroke:rgba(255,255,255,.3);fill:none;stroke-width:2}
+.np-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.np-title{font-size:11px;font-weight:500;color:rgba(255,255,255,.75);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np-artist{font-family:monospace;font-size:9px;color:rgba(255,255,255,.35);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np-source{font-family:monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase;
+  color:rgba(99,102,241,.5);padding:1px 6px;border-radius:4px;
+  background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.15);flex-shrink:0}
+.np-controls{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.np-ctrl{background:none;border:none;cursor:pointer;padding:2px;
+  display:flex;align-items:center;justify-content:center;
+  color:rgba(255,255,255,.4);transition:color .15s}
+.np-ctrl:hover{color:rgba(255,255,255,.8)}
+.np-ctrl svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2}
+.np-ctrl.pause svg{width:11px;height:11px}
+
+/* Progress bar */
+.np-progress{display:flex;align-items:center;gap:6px}
+.np-time{font-family:monospace;font-size:8px;color:rgba(255,255,255,.2);flex-shrink:0;width:24px}
+.np-bar{flex:1;height:2px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;position:relative}
+.np-bar-fill{height:100%;border-radius:999px;background:rgba(255,255,255,.25);width:38%}
+.np-time-end{text-align:right}
+
+/* Dancing bars animation for playing state */
+.np-eq{display:flex;gap:2px;align-items:flex-end;height:10px;flex-shrink:0}
+.np-eq-bar{width:2px;border-radius:1px;background:rgba(99,102,241,.6);
+  animation:eq-dance var(--s) ease-in-out infinite alternate}
+@keyframes eq-dance{0%{height:2px}100%{height:var(--h)}}
+
+/* Background content */
+.layout{flex:1;display:flex;overflow:hidden;opacity:.45;filter:blur(1.5px)}
+.sidebar-icon{width:80px;background:var(--bg3);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center}
+.icon-logo{height:64px;border-bottom:1px solid var(--border);width:100%;
+  display:flex;align-items:center;justify-content:center}
+.logo-icon{width:28px;height:28px;border-radius:50%;border:1px solid rgba(99,102,241,.3);
+  background:var(--primary-dim);display:flex;align-items:center;justify-content:center}
+.logo-icon svg{width:12px;height:12px;stroke:#818cf8;fill:none;stroke-width:2}
+.main{flex:1;display:flex;flex-direction:column}
+.header{height:64px;border-bottom:1px solid var(--border);background:var(--bg3);
+  display:flex;align-items:center;padding:0 32px}
+.header-title{font-weight:700;font-size:18px;letter-spacing:-.04em;font-style:italic;text-transform:lowercase;color:var(--text)}
+.header-sub{font-family:monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer);margin-top:2px}
+</style>
+</head>
+<body>
+<div class="titlebar">
+  <div class="titlebar-dots"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+  <span>Primnox</span>
+</div>
+
+<!-- Island - Now Playing State -->
+<div class="island-wrap">
+  <div class="island-pill">
+    <!-- Main pill row -->
+    <div class="island-top">
+      <div class="island-mode">
+        <button>Notes</button><button class="active">Chat</button><button>Research</button>
+      </div>
+      <div class="island-sep"></div>
+      <div class="island-mic"><svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></div>
+      <div class="island-sep"></div>
+      <!-- EQ animation when playing -->
+      <div class="np-eq">
+        <div class="np-eq-bar" style="--s:.4s;--h:10px"></div>
+        <div class="np-eq-bar" style="--s:.55s;--h:7px"></div>
+        <div class="np-eq-bar" style="--s:.38s;--h:10px"></div>
+        <div class="np-eq-bar" style="--s:.48s;--h:5px"></div>
+      </div>
+      <div class="island-sep"></div>
+      <span class="island-score">84%</span>
+      <div class="island-avatar">AP</div>
+    </div>
+
+    <!-- Now playing strip -->
+    <div class="np-strip">
+      <!-- Info row -->
+      <div class="np-row">
+        <div class="np-icon"><svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+        <div class="np-info">
+          <div class="np-title">Jared Benjamin — Stay</div>
+          <div class="np-artist">Jared Benjamin · Nothing More</div>
+        </div>
+        <div class="np-source">Spotify</div>
+        <div class="np-controls">
+          <button class="np-ctrl">
+            <svg viewBox="0 0 24 24"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+          </button>
+          <button class="np-ctrl pause">
+            <svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          </button>
+          <button class="np-ctrl">
+            <svg viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Progress row -->
+      <div class="np-progress">
+        <span class="np-time">1:24</span>
+        <div class="np-bar"><div class="np-bar-fill"></div></div>
+        <span class="np-time np-time-end">3:47</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Background app content -->
+<div class="layout">
+  <aside class="sidebar-icon">
+    <div class="icon-logo"><div class="logo-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div></div>
+    <div style="padding:20px 0;display:flex;flex-direction:column;align-items:center;gap:24px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.75"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(99,102,241,.8)" stroke-width="1.75"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="18" height="7"/></svg>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="header">
+      <div>
+        <div class="header-title">dashboard</div>
+        <div class="header-sub">Synthetic_Processing</div>
+      </div>
+    </div>
+    <div style="flex:1;padding:28px 32px;display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:start">
+      <div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:12px;padding:18px">
+        <div style="font-family:monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.2);margin-bottom:8px">Productivity Score</div>
+        <div style="font-size:32px;font-weight:700;color:#818cf8">84</div>
+      </div>
+      <div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:12px;padding:18px">
+        <div style="font-family:monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.2);margin-bottom:8px">Deep Focus</div>
+        <div style="font-size:32px;font-weight:700;color:#34d399">4h 12m</div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

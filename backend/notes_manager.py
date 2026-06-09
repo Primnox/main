@@ -1,12 +1,19 @@
 import sqlite3
 import json
+import os
 from pathlib import Path
 from datetime import datetime
 from logger import get_logger
 
 log = get_logger("notes")
 
-DB_PATH = Path(__file__).parent / "memory.db"
+def _get_appdata_dir() -> Path:
+    appdata = os.environ.get("APPDATA")
+    base = Path(appdata) / "primnox_extension" if appdata else Path.home() / ".primnox_extension"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+DB_PATH = _get_appdata_dir() / "memory.db"
 
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
@@ -32,6 +39,25 @@ def init_db():
         c.execute("ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+        
+    c.execute('''CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT,
+        priority TEXT,
+        due_date TEXT,
+        completed INTEGER DEFAULT 0,
+        timestamp TEXT
+    )''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS conversations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT,
+        speaker TEXT,
+        key_points TEXT,
+        action_items TEXT,
+        timestamp TEXT
+    )''')
+
     conn.commit()
     conn.close()
 
@@ -104,6 +130,31 @@ def get_notes():
     conn.close()
     return notes
 
+def search_notes(query: str, limit: int = 20) -> list:
+    """Case-insensitive substring search across note titles and bodies."""
+    conn = get_db()
+    c = conn.cursor()
+    q = f"%{query}%"
+    c.execute(
+        "SELECT id, title, text, project, timestamp, pinned FROM notes "
+        "WHERE title LIKE ? OR text LIKE ? "
+        "ORDER BY pinned DESC, timestamp DESC LIMIT ?",
+        (q, q, limit)
+    )
+    results = []
+    for row in c.fetchall():
+        results.append({
+            "id": row["id"],
+            "title": row["title"],
+            "text": (row["text"] or "")[:300],   # preview only
+            "project": row["project"],
+            "timestamp": row["timestamp"],
+            "pinned": bool(row["pinned"]),
+        })
+    conn.close()
+    return results
+
+
 def add_task(text, priority="normal", due_date=None):
     log.info(f"Adding task: {text[:50]} (priority={priority})")
     ts = datetime.now().isoformat()
@@ -126,6 +177,7 @@ def get_tasks(priority=None):
     tasks = []
     for r in rows:
         tasks.append({
+            "id": r["id"],
             "text": r["text"],
             "priority": r["priority"],
             "due_date": r["due_date"],
@@ -135,19 +187,26 @@ def get_tasks(priority=None):
     conn.close()
     return tasks
 
-def complete_task(index):
+def complete_task(task_id: int) -> bool:
+    """Mark a task complete by its database id (not index)."""
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id FROM tasks ORDER BY id ASC")
-    rows = c.fetchall()
-    if 0 <= index < len(rows):
-        task_id = rows[index]["id"]
-        c.execute("UPDATE tasks SET completed=1 WHERE id=?", (task_id,))
-        conn.commit()
-        conn.close()
-        return True
+    c.execute("UPDATE tasks SET completed=1 WHERE id=?", (task_id,))
+    affected = c.rowcount
+    conn.commit()
     conn.close()
-    return False
+    return affected > 0
+
+def delete_task(task_id: int) -> bool:
+    """Permanently delete a task by its database id."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+    affected = c.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
 
 def add_conversation(text, speaker=None, timestamp=None):
     kp = json.dumps(extract_key_points(text))

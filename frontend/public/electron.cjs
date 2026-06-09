@@ -79,13 +79,18 @@ function createIslandWindow() {
     skipTaskbar: true,
     resizable: false,
     movable: false,
-    focusable: true,
+    focusable: false,  // never steal focus from the user's active app
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     }
   });
+
+  // Transparent areas of the island window must not swallow clicks.
+  // Default: pass all mouse events through. The renderer sends
+  // 'island:set-ignore-mouse' false/true when the pill is hovered/left.
+  islandWindow.setIgnoreMouseEvents(true, { forward: true });
 
   // Never destroy — just hide
   islandWindow.on('close', (e) => {
@@ -199,6 +204,8 @@ function exitIslandMode() {
   isIslandMode = false;
 
   if (islandWindow && !islandWindow.isDestroyed()) {
+    // Reset click-through state before hiding so the next show starts clean
+    islandWindow.setIgnoreMouseEvents(true, { forward: true });
     islandWindow.hide();
   }
 
@@ -267,7 +274,10 @@ ipcMain.on('close-app', () => {
     mainWindow.setSkipTaskbar(true);
     mainWindow.hide();
   }
-  if (islandWindow && !islandWindow.isDestroyed()) islandWindow.hide();
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    islandWindow.setIgnoreMouseEvents(true, { forward: true });
+    islandWindow.hide();
+  }
   isIslandMode = false;
 });
 
@@ -278,6 +288,19 @@ ipcMain.on('show-full-window', () => exitIslandMode());
 ipcMain.on('friday:proactive', (_ev, data) => {
   if (islandWindow && !islandWindow.isDestroyed() && isIslandMode) {
     islandWindow.webContents.send('friday:proactive', data);
+  }
+});
+
+// Toggle click-through on the island overlay window.
+// Renderer sends false (capture) when cursor enters the pill,
+// true (pass-through) when it leaves.
+ipcMain.on('island:set-ignore-mouse', (_ev, ignore) => {
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    if (ignore) {
+      islandWindow.setIgnoreMouseEvents(true, { forward: true });
+    } else {
+      islandWindow.setIgnoreMouseEvents(false);
+    }
   }
 });
 

@@ -1,4 +1,4 @@
-﻿# backend/server.py
+# backend/server.py
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, BackgroundTasks, HTTPException, File, UploadFile, Form
 from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,9 +10,50 @@ import json
 import threading
 import re
 import logging
+import os
 from observer import start_clipboard_monitor, clear_clipboard_data, register_observer_callback
+from pathlib import Path
+import shutil
+import sys
+
+# ── One-time DB migration: move databases from install dir → AppData ──────────
+def _migrate_dbs_to_appdata():
+    """
+    Pre-0.0.10 databases lived next to the exe and were wiped on every update.
+    On first run after an update, copy them to AppData if they aren't there yet.
+    """
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return
+    dest_dir = Path(appdata) / "primnox_extension"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    # Candidate source locations: next to __file__ and next to the frozen exe
+    candidates: list[Path] = [Path(__file__).parent]
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).parent)
+
+    for db_name in ("memory.db", "chat.db"):
+        dest = dest_dir / db_name
+        if dest.exists():
+            continue  # already in AppData — nothing to do
+        for src_dir in candidates:
+            src = src_dir / db_name
+            if src.exists() and src != dest:
+                try:
+                    shutil.copy2(src, dest)
+                    log_migration = get_logger("migration")
+                    log_migration.info(f"Migrated {db_name}: {src} → {dest}")
+                except Exception as exc:
+                    get_logger("migration").warning(f"Could not migrate {db_name}: {exc}")
+                break
 
 app = FastAPI()
+
+# ── Feedback delivery ─────────────────────────────────────────────────────────
+# Paste your Discord webhook URL here. Create one in:
+# Discord channel → Edit Channel → Integrations → Webhooks → New Webhook → Copy URL
+FEEDBACK_DISCORD_WEBHOOK = os.getenv("FEEDBACK_WEBHOOK", "")
 
 # Zero-Trust Security Middleware
 logger = logging.getLogger("primnox_firewall")
@@ -47,6 +88,7 @@ app.add_middleware(
 )
 
 log = get_logger("server")
+_migrate_dbs_to_appdata()   # must run before any DB module initialises
 core = PrimnoxCore()
 clients = set()
 loop = None
@@ -136,44 +178,138 @@ async def delete_chat(session_id: str):
     delete_session(session_id)
     return {"status": "ok"}
 
+@app.post("/api/folders")
+async def create_folder_api(request: Request):
+    """Create a new chat folder. Body: {title}"""
+    from chat_manager import create_folder
+    body = await request.json()
+    title = body.get("title", "New Folder").strip() or "New Folder"
+    folder = create_folder(title)
+    return folder
+
+@app.delete("/api/folders/{folder_id}")
+async def delete_folder_api(folder_id: str):
+    """Delete a chat folder (chats are moved out, not deleted)."""
+    from chat_manager import delete_folder
+    ok = delete_folder(folder_id)
+    return {"status": "ok" if ok else "not_found"}
+
 @app.post("/api/chats/{session_id}/auto_assign")
 async def auto_assign_chat(session_id: str):
     from chat_manager import get_session_messages, update_session, get_db
     from brain import think
-    
+
     conn = get_db()
     c = conn.cursor()
     c.execute('SELECT id, title FROM folders')
     folders = [{"id": r["id"], "title": r["title"]} for r in c.fetchall()]
     conn.close()
-    
+
+    if not folders:
+        return {"status": "no_folders"}
+
     msgs = get_session_messages(session_id)[-20:]
     chat_text = "\n".join([f"{m['speaker']}: {m['text']}" for m in msgs])
-    
-    folder_list = "\n".join([f"- ID: {f['id']}, Name: {f['title']}" for f in folders])
-    
-    prompt = f"Analyze the following chat and assign it to the most relevant folder from the list below. Return ONLY the exact folder ID string and nothing else.\n\nFolders:\n{folder_list}\n\nChat:\n{chat_text}"
-    
-    result = think(prompt)
-    chosen_id = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-    
-    if chosen_id in [f["id"] for f in folders]:
+
+    valid_ids   = [f["id"]    for f in folders]
+    folder_list = "\n".join([f"{f['title']}  →  {f['id']}" for f in folders])
+
+    prompt = (
+        f"Pick the MOST relevant folder for this chat. "
+        f"Reply with ONLY the exact ID from the list — no explanation, no quotes.\n\n"
+        f"Folders:\n{folder_list}\n\nChat:\n{chat_text}"
+    )
+
+    try:
+        result    = think(prompt)
+        choices   = result.get("choices") or []
+        raw       = (choices[0].get("message", {}).get("content", "") if choices else "").strip()
+        # Strip any accidental surrounding quotes the LLM sometimes adds
+        chosen_id = raw.strip('"\'')
+    except Exception as e:
+        log.warning(f"auto_assign LLM call failed: {e}")
+        return {"status": "error", "reason": str(e)}
+
+    if chosen_id in valid_ids:
         update_session(session_id, folder_id=chosen_id)
+        log.info(f"Auto-assigned chat {session_id} → folder {chosen_id}")
         return {"status": "ok", "folder_id": chosen_id}
-        
-    return {"status": "failed", "reason": "AI did not return a valid folder id", "raw": chosen_id}
+
+    # LLM returned garbage — log it so we can improve the prompt later
+    log.warning(f"auto_assign returned invalid id '{chosen_id}' (valid: {valid_ids})")
+    return {"status": "failed", "reason": "model returned invalid folder id", "raw": raw}
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "0.0.7-alpha"}
 
+
+@app.get("/api/status")
+async def get_status():
+    """Rich status report: all subsystem states, DB sizes, model, feed state."""
+    import datetime
+    from memory import list_memories
+    from notes_manager import get_notes
+    from reminder_manager import list_reminders
+    from skills.skill_router import list_skills
+    from settings_manager import get_appdata_dir
+
+    appdata = get_appdata_dir()
+
+    # DB file sizes
+    db_sizes = {}
+    for db_name in ("memory.db", "chat.db"):
+        p = appdata / db_name
+        db_sizes[db_name] = p.stat().st_size // 1024 if p.exists() else 0  # KB
+
+    # Last backup
+    last_backup_name = None
+    backups_dir = appdata / "backups"
+    if backups_dir.exists():
+        recent = sorted(backups_dir.glob("backup_*.zip"), reverse=True)
+        if recent:
+            last_backup_name = recent[0].name
+
+    # Feed activity
+    feed_len = len(core.feed.history)
+    active_window = core.feed.active_window_title or "Unknown"
+
+    # Counts
+    try: mem_count = len(list_memories())
+    except Exception: mem_count = 0
+    try: notes_count = len(get_notes())
+    except Exception: notes_count = 0
+    try: reminders_count = len(list_reminders())
+    except Exception: reminders_count = 0
+    try: skills_count = len(list_skills())
+    except Exception: skills_count = 0
+
+    return {
+        "status": "ok",
+        "version": "0.0.7-alpha",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "active_window": active_window,
+        "feed_events": feed_len,
+        "mic_muted": core.mic_muted,
+        "incognito": core.incognito,
+        "active_model": core.settings.get("active_model", "Groq_Llama_3"),
+        "has_api_key": bool(core.settings.get("groq_api_key") or core.settings.get("openai_api_key") or core.settings.get("anthropic_api_key")),
+        "memories_count": mem_count,
+        "notes_count": notes_count,
+        "reminders_count": reminders_count,
+        "skills_count": skills_count,
+        "db_sizes_kb": db_sizes,
+        "last_backup": last_backup_name,
+    }
+
 @app.get("/api/dashboard")
 async def get_dashboard():
-    from pathlib import Path
     import datetime
     from notes_manager import get_notes
     from memory import list_memories
+    from reminder_manager import list_reminders
+    from skills.skill_router import list_skills
 
     # Feed data — ambient + window events
     history = list(core.feed.history[-25:])
@@ -204,10 +340,18 @@ async def get_dashboard():
                     preview = summary_file.read_text(encoding="utf-8")[:250]
                 except Exception:
                     pass
+            # Try to parse a date from the folder name (format: YYYYMMDD_HHMMSS_AppName)
+            folder_date = None
+            try:
+                folder_date = datetime.datetime.strptime(d.name[:15], "%Y%m%d_%H%M%S").date()
+            except Exception:
+                pass
             meetings.append({
                 "name": d.name,
                 "has_summary": has_summary,
-                "summary_preview": preview
+                "summary_preview": preview,
+                "date": folder_date.isoformat() if folder_date else None,
+                "is_today": folder_date == datetime.date.today() if folder_date else False,
             })
 
     # Counts
@@ -219,6 +363,37 @@ async def get_dashboard():
         memories_count = len(list_memories())
     except Exception:
         memories_count = 0
+
+    # Pending reminders
+    try:
+        reminders = list_reminders()
+        reminders_count = len(reminders)
+    except Exception:
+        reminders = []
+        reminders_count = 0
+
+    # Last backup info
+    last_backup = None
+    try:
+        from settings_manager import get_appdata_dir
+        backups_dir = get_appdata_dir() / "backups"
+        if backups_dir.exists():
+            recent = sorted(backups_dir.glob("backup_*.zip"), reverse=True)
+            if recent:
+                bp = recent[0]
+                last_backup = {
+                    "filename": bp.name,
+                    "size_kb": bp.stat().st_size // 1024,
+                    "timestamp": bp.stat().st_mtime,
+                }
+    except Exception:
+        pass
+
+    # Registered skills count
+    try:
+        skills_count = len(list_skills())
+    except Exception:
+        skills_count = 0
 
     # Flag whether the primary AI key is configured (don't expose the key itself)
     has_api_key = bool(core.settings.get("groq_api_key") or
@@ -235,6 +410,10 @@ async def get_dashboard():
         "notes_count": notes_count,
         "memories_count": memories_count,
         "has_api_key": has_api_key,
+        "reminders_count": reminders_count,
+        "reminders": reminders,
+        "last_backup": last_backup,
+        "skills_count": skills_count,
     }
 
 @app.get("/api/ollama/status")
@@ -246,10 +425,40 @@ async def ollama_status():
     base_url = s.get("ollama_base_url", "http://localhost:11434")
     return get_ollama_status(base_url)
 
+@app.get("/api/profile")
+async def get_profile():
+    """Return the current user emotion + learning profile."""
+    from settings_manager import load_settings
+    s = load_settings()
+    return {
+        "mood": s.get("current_mood"),
+        "onboarding_profile": s.get("onboarding_profile", {}),
+        "onboarding_completed": s.get("onboarding_completed", False),
+    }
+
+
 @app.post("/api/daily_brief")
 async def post_daily_brief(background_tasks: BackgroundTasks):
-    """Trigger daily debrief generation — result is broadcast via WS."""
-    background_tasks.add_task(core.feed.generate_daily_debrief)
+    """Trigger daily debrief via DailyBriefSkill — result is broadcast via WS."""
+    def _run_brief():
+        from notes_manager import get_notes
+        from skills.skill_router import route_skill
+        notes_count = 0
+        try:
+            notes_count = len(get_notes())
+        except Exception:
+            pass
+        result = route_skill(
+            user_message="daily brief",
+            metadata={
+                "notes_count": notes_count,
+                "feed_history": list(core.feed.history[-100:]),
+            }
+        )
+        brief_text = result.get("output_text") or "Daily brief unavailable."
+        broadcast("daily_debrief", {"debrief": brief_text})
+
+    background_tasks.add_task(_run_brief)
     return {"status": "generating"}
 
 @app.post("/api/error_explain")
@@ -279,6 +488,58 @@ async def explain_error(request: Request):
             "fix": "check the logs bro",
             "hover_text": "click to copy the fix"
         }
+
+
+@app.post("/api/media/control")
+async def media_control(request: Request):
+    """Send a playback command (play_pause / next / prev / stop) to whatever
+    app is currently registered with Windows SMTC.
+    Uses the same persistent SMTC event loop as feed_manager so the Windows
+    Runtime COM apartment stays stable."""
+    try:
+        from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as _M
+        import asyncio as _aio
+        from feed_manager import _get_smtc_loop
+    except ImportError:
+        return {"success": False, "error": "winsdk not available"}
+
+    body   = await request.json()
+    action = body.get("action", "")
+
+    async def _do():
+        mgr     = await _M.request_async()
+        session = mgr.get_current_session()
+        if not session:
+            return False
+        if action == "play_pause": await session.try_toggle_play_pause_async()
+        elif action == "next":     await session.try_skip_next_async()
+        elif action == "prev":     await session.try_skip_previous_async()
+        elif action == "stop":     await session.try_stop_async()
+        else: return False
+        return True
+
+    try:
+        future = _aio.run_coroutine_threadsafe(_do(), _get_smtc_loop())
+        ok = await asyncio.to_thread(lambda: future.result(timeout=4))
+        return {"success": ok}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/calendar/events")
+async def get_calendar_events(days: int = 7):
+    """Return upcoming calendar events for the next N days (default 7).
+    Delegates to CalendarIslandSkill which handles provider loading & caching."""
+    try:
+        from skills.calendar_skill import CalendarIslandSkill
+        skill  = CalendarIslandSkill()
+        events = skill._fetch_events()
+        from datetime import datetime, timezone, timedelta
+        cutoff = datetime.now(timezone.utc) + timedelta(days=days)
+        events = [e for e in events if e.start <= cutoff]
+        return {"events": [e.to_dict() for e in events], "count": len(events)}
+    except Exception as e:
+        return {"events": [], "count": 0, "error": str(e)}
 
 
 @app.post("/api/smart_paste")
@@ -575,10 +836,32 @@ async def get_tasks():
     from notes_manager import get_tasks
     return get_tasks()
 
+@app.post("/tasks")
+async def create_task(request: Request):
+    """Create a new task. Body: {text, priority?, due_date?}"""
+    from notes_manager import add_task
+    body = await request.json()
+    text = body.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    priority = body.get("priority", "normal")
+    due_date = body.get("due_date")
+    task = add_task(text, priority=priority, due_date=due_date)
+    broadcast("task_added", {"text": text})
+    return {"success": True, "task": task}
+
 @app.post("/tasks/{id}/complete")
 async def complete_task(id: int):
     from notes_manager import complete_task
     return {"success": complete_task(id)}
+
+@app.delete("/tasks/{id}")
+async def delete_task_endpoint(id: int):
+    from notes_manager import delete_task
+    ok = delete_task(id)
+    if ok:
+        broadcast("task_added", {})  # refresh frontend task list
+    return {"success": ok}
 
 @app.get("/memory")
 async def get_memory():
@@ -811,10 +1094,130 @@ async def startup_event():
     register_observer_callback(broadcast)
     # Start the clipboard monitor task in the background
     asyncio.create_task(start_clipboard_monitor())
-    log.info("Primnox Startup Complete - Event loop and clipboard monitor initialized.")
+    # Start auto-cleanup scheduler (runs once at startup + every 24h)
+    from cleanup_manager import start_cleanup_scheduler
+    await asyncio.to_thread(start_cleanup_scheduler)
+    log.info("Primnox Startup Complete - Event loop, clipboard monitor and cleanup scheduler initialized.")
+
+
+@app.post("/api/cleanup")
+async def trigger_cleanup():
+    """Manually trigger a cleanup pass. Returns what was deleted."""
+    from cleanup_manager import run_cleanup
+    result = await asyncio.to_thread(run_cleanup)
+    return result
+
+
+@app.get("/api/storage")
+async def storage_info():
+    """Return storage usage for meetings, memories, TTS cache."""
+    import sqlite3
+    from cleanup_manager import _meetings_dir
+    from memory import DB_PATH
+    from pathlib import Path
+    import tempfile
+
+    info: dict = {}
+
+    # Meetings
+    meetings_dir = _meetings_dir()
+    if meetings_dir.exists():
+        folders = [f for f in meetings_dir.iterdir() if f.is_dir()]
+        total_mb = sum(
+            sum(fi.stat().st_size for fi in f.rglob("*") if fi.is_file())
+            for f in folders
+        ) / (1024 * 1024)
+        info["meetings"] = {"count": len(folders), "size_mb": round(total_mb, 1)}
+    else:
+        info["meetings"] = {"count": 0, "size_mb": 0}
+
+    # Memories
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM memories")
+            mem_count = c.fetchone()[0]
+        db_size = Path(DB_PATH).stat().st_size / (1024 * 1024) if Path(DB_PATH).exists() else 0
+        info["memories"] = {"count": mem_count, "size_mb": round(db_size, 2)}
+    except Exception:
+        info["memories"] = {"count": 0, "size_mb": 0}
+
+    return info
+
+@app.get("/api/meetings")
+async def list_meetings():
+    """List all meeting recording folders with metadata."""
+    from cleanup_manager import _meetings_dir
+    from datetime import datetime
+    import json
+
+    meetings_dir = _meetings_dir()
+    if not meetings_dir.exists():
+        return {"meetings": []}
+
+    items = []
+    for folder in sorted(meetings_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True):
+        if not folder.is_dir():
+            continue
+        try:
+            files  = list(folder.rglob("*"))
+            files  = [f for f in files if f.is_file()]
+            size_b = sum(f.stat().st_size for f in files)
+            mtime  = datetime.fromtimestamp(folder.stat().st_mtime)
+
+            # Try to read a summary if one exists
+            summary_text = ""
+            for candidate in ("summary.txt", "summary.md", "transcript.txt"):
+                p = folder / candidate
+                if p.exists():
+                    try:
+                        summary_text = p.read_text(encoding="utf-8", errors="replace")[:300]
+                    except Exception:
+                        pass
+                    break
+
+            # Collect audio/video files
+            media_exts  = {".mp3", ".wav", ".mp4", ".m4a", ".ogg", ".webm"}
+            media_files = [f.name for f in files if f.suffix.lower() in media_exts]
+
+            items.append({
+                "name":        folder.name,
+                "date":        mtime.isoformat(timespec="seconds"),
+                "size_mb":     round(size_b / (1024 * 1024), 2),
+                "file_count":  len(files),
+                "media_files": media_files,
+                "summary":     summary_text,
+            })
+        except Exception as e:
+            log.warning(f"Could not read meeting folder {folder.name}: {e}")
+
+    return {"meetings": items}
+
+
+@app.delete("/api/meetings/{folder_name}")
+async def delete_meeting(folder_name: str):
+    """Delete a specific meeting folder by name."""
+    import re, shutil
+    from cleanup_manager import _meetings_dir
+
+    # Sanitise — only allow folder names that look like meeting names (no path traversal)
+    if not re.match(r'^[\w\-\. ]+$', folder_name):
+        raise HTTPException(status_code=400, detail="Invalid folder name")
+
+    target = _meetings_dir() / folder_name
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    try:
+        shutil.rmtree(target)
+        log.info(f"Deleted meeting folder on request: {folder_name}")
+        return {"deleted": folder_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/feedback")
-async def receive_feedback(request: Request):
+async def receive_feedback(request: Request, background_tasks: BackgroundTasks):
     import time
     from pathlib import Path
     try:
@@ -823,48 +1226,84 @@ async def receive_feedback(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
     category = body.get("category", "General")
-    content = body.get("content", "")
-    contact = body.get("contact", "")
+    content = body.get("content", "").strip()
+    contact = body.get("contact", "").strip()
+
+    if not content:
+        raise HTTPException(status_code=400, detail="Feedback content is required")
 
     log.info(f"User Feedback Received [{category}]: {content}")
-    feedback_file = Path(__file__).parent / "feedback.json"
 
+    # ── Save locally as backup ────────────────────────────────────────────────
+    feedback_file = Path(__file__).parent / "feedback.json"
     feedback_entry = {
         "timestamp": time.time(),
         "category": category,
         "content": content,
-        "contact": contact
+        "contact": contact or None
     }
-
     try:
+        data = []
         if feedback_file.exists():
             with open(feedback_file, "r") as f:
                 data = json.load(f)
-        else:
-            data = []
         data.append(feedback_entry)
         with open(feedback_file, "w") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
-        log.error(f"Failed to save feedback: {e}")
+        log.error(f"Failed to save feedback locally: {e}")
+
+    # ── Send to Discord in background (non-blocking) ──────────────────────────
+    if FEEDBACK_DISCORD_WEBHOOK:
+        background_tasks.add_task(_send_feedback_to_discord, category, content, contact)
 
     return {"status": "ok"}
 
-if __name__ == "__main__":
-    loop_type = "asyncio"
-    try:
-        import uvloop
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-        loop_type = "uvloop"
-        log.info("Forced high-performance event loop policy via uvloop.")
-    except ImportError:
-        log.info("uvloop not supported on this platform. Falling back to default asyncio loop policy.")
 
-    config = uvicorn.Config(app=app, host="127.0.0.1", port=8000, loop=loop_type)
-    server = uvicorn.Server(config)
-    
-    # Run uvicorn natively, it manages the loop
-    server.run()
+def _send_feedback_to_discord(category: str, content: str, contact: str):
+    """Send a formatted feedback embed to Discord webhook. Runs in background."""
+    import requests as req
+    import time
+
+    CATEGORY_COLORS = {
+        "Bug":     0xef4444,   # red
+        "Feature": 0x6366f1,   # indigo
+        "General": 0x3b82f6,   # blue
+    }
+    CATEGORY_EMOJI = {
+        "Bug":     "🐛",
+        "Feature": "✨",
+        "General": "💬",
+    }
+
+    color = CATEGORY_COLORS.get(category, 0x3b82f6)
+    emoji = CATEGORY_EMOJI.get(category, "💬")
+
+    fields = []
+    if contact:
+        fields.append({"name": "Contact", "value": contact, "inline": True})
+    fields.append({"name": "Category", "value": f"{emoji} {category}", "inline": True})
+
+    payload = {
+        "embeds": [{
+            "title": f"{emoji} New Primnox Feedback",
+            "description": content,
+            "color": color,
+            "fields": fields,
+            "footer": {"text": "Primnox Feedback System"},
+            "timestamp": __import__('datetime').datetime.utcnow().isoformat()
+        }]
+    }
+
+    try:
+        resp = req.post(FEEDBACK_DISCORD_WEBHOOK, json=payload, timeout=10)
+        if resp.status_code not in (200, 204):
+            log.warning(f"Discord webhook returned {resp.status_code}: {resp.text}")
+        else:
+            log.info("Feedback delivered to Discord.")
+    except Exception as e:
+        log.error(f"Failed to send feedback to Discord: {e}")
+
 
 
 import threading
@@ -883,3 +1322,247 @@ from emotion_agent import run_emotion_analysis
 async def analyze_emotion():
     threading.Thread(target=run_emotion_analysis).start()
     return {"status": "started"}
+
+
+# ── Reminders ──────────────────────────────────────────────────────────────────
+from reminder_manager import list_reminders, add_reminder as _add_reminder
+
+@app.get("/api/reminders")
+async def get_reminders():
+    """Return all pending reminders with seconds remaining."""
+    return {"reminders": list_reminders()}
+
+@app.post("/api/reminders")
+async def create_reminder(request: Request):
+    """Manually set a reminder: {message, delay_secs}"""
+    body = await request.json()
+    message = body.get("message", "reminder")
+    delay = int(body.get("delay_secs", 300))
+    _add_reminder(message, delay)
+    return {"status": "ok", "message": message, "delay_secs": delay}
+
+
+@app.delete("/api/reminders/{index}")
+async def delete_reminder(index: int):
+    """Cancel a pending reminder by its index in the pending list."""
+    from reminder_manager import cancel_reminder
+    ok = cancel_reminder(index)
+    return {"status": "ok" if ok else "not_found"}
+
+
+# ── Backup ─────────────────────────────────────────────────────────────────────
+@app.post("/api/backup")
+async def trigger_backup(background_tasks: BackgroundTasks):
+    """
+    Zip memory.db + chat.db + settings.json into
+    %APPDATA%/primnox_extension/backups/backup_YYYYMMDD_HHMMSS.zip
+    and broadcast backup_complete / backup_failed.
+    """
+    background_tasks.add_task(_run_backup)
+    return {"status": "started"}
+
+def _run_backup():
+    import zipfile, time as _time
+    from settings_manager import get_appdata_dir
+    try:
+        appdata = get_appdata_dir()
+        backups_dir = appdata / "backups"
+        backups_dir.mkdir(parents=True, exist_ok=True)
+
+        stamp = _time.strftime("%Y%m%d_%H%M%S")
+        zip_path = backups_dir / f"backup_{stamp}.zip"
+
+        files_to_backup = [
+            appdata / "memory.db",
+            appdata / "chat.db",
+            appdata / "settings.json",
+        ]
+
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for fp in files_to_backup:
+                if fp.exists():
+                    zf.write(fp, fp.name)
+
+        # Keep only the 5 most recent backups
+        all_backups = sorted(backups_dir.glob("backup_*.zip"), reverse=True)
+        for old in all_backups[5:]:
+            try:
+                old.unlink()
+            except Exception:
+                pass
+
+        size_kb = zip_path.stat().st_size // 1024
+        log.info(f"Backup complete: {zip_path.name} ({size_kb} KB)")
+        broadcast("backup_complete", {"path": str(zip_path), "size_kb": size_kb})
+    except Exception as e:
+        log.error(f"Backup failed: {e}")
+        broadcast("backup_failed", {"error": str(e)})
+
+
+# ── Skills ─────────────────────────────────────────────────────────────────────
+
+@app.get("/api/skills")
+async def get_skills():
+    """Return all registered skills with name, description, and trigger words."""
+    from skills.skill_router import list_skills
+    return {"skills": list_skills()}
+
+
+# ── Memory search ──────────────────────────────────────────────────────────────
+
+@app.get("/api/memories")
+async def get_memories_list():
+    """Return all stored memories (non-stale)."""
+    from memory import list_memories
+    return {"memories": list_memories()}
+
+
+@app.get("/api/memories/search")
+async def search_memories_api(q: str = "", limit: int = 20):
+    """Semantic full-text search over stored memories."""
+    if not q.strip():
+        from memory import list_memories
+        return {"memories": list_memories()[:limit], "query": q}
+    from memory import search_memories
+    results = search_memories(q.strip(), limit=limit)
+    return {"memories": results, "query": q}
+
+
+@app.post("/api/memories")
+async def create_memory_api(request: Request):
+    """Manually add a memory. Body: {text, category}"""
+    from memory import add_memory
+    body = await request.json()
+    text = body.get("text", "").strip()
+    category = body.get("category", "personal")
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    ok = add_memory(text, category=category)
+    return {"success": ok, "duplicate": not ok}
+
+
+@app.delete("/api/memories/{key}")
+async def delete_memory_api(key: str):
+    """Delete a memory by its key."""
+    from memory import delete_memory
+    delete_memory(key)
+    return {"status": "ok"}
+
+
+# ── Notes search ───────────────────────────────────────────────────────────────
+
+@app.get("/api/notes/search")
+async def search_notes_api(q: str = "", limit: int = 20):
+    """Full-text search over notes titles and bodies."""
+    from notes_manager import search_notes, get_notes
+    if not q.strip():
+        notes = get_notes()[:limit]
+        return {"notes": notes, "query": q}
+    results = search_notes(q.strip(), limit=limit)
+    return {"notes": results, "query": q}
+
+
+# ── Research / web search ──────────────────────────────────────────────────────
+
+@app.post("/api/research/deep")
+async def deep_research_stream(request: Request):
+    """
+    Deep multi-round research with full page reading and gap analysis.
+    Returns a Server-Sent Events stream of progress + final report.
+    Body: { query: str, depth: 1|2|3 }
+    """
+    from fastapi.responses import StreamingResponse
+    body  = await request.json()
+    query = body.get("query", "").strip()
+    depth = int(body.get("depth", 2))
+
+    if not query:
+        return {"error": "No query provided"}
+
+    async def generate():
+        try:
+            from research_engine import DeepResearchEngine
+            engine = DeepResearchEngine(query, depth)
+            async for event in engine.run():
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            log.error(f"Deep research error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/research")
+async def research_search(q: str = ""):
+    """
+    Run a DuckDuckGo web search and return structured results for the
+    ResearchView frontend. Each result has title, url, body (snippet).
+    """
+    if not q.strip():
+        return {"results": [], "query": q, "summary": ""}
+
+    def _search():
+        try:
+            from ddgs import DDGS
+            ddgs = DDGS()
+            return list(ddgs.text(q.strip(), max_results=8))
+        except Exception as e:
+            log.error(f"Research search failed: {e}")
+            return []
+
+    results = await asyncio.to_thread(_search)
+
+    # Ask LLM to produce a one-paragraph synthesis of the results
+    summary = ""
+    if results:
+        def _summarize():
+            from brain import think
+            snippets = "\n".join(
+                f"- {r.get('title', '')}: {r.get('body', '')[:200]}"
+                for r in results[:5]
+            )
+            resp = think(
+                f"Synthesize these web search results for the query '{q}' into a 2-3 sentence summary:\n{snippets}",
+                system_override=(
+                    "You are a research assistant. Write a concise, factual synthesis. "
+                    "No preamble, no 'Here is a summary' — just the synthesis."
+                )
+            )
+            return resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+        try:
+            summary = await asyncio.to_thread(_summarize)
+        except Exception as e:
+            log.warning(f"Research summarize failed: {e}")
+
+    structured = [
+        {
+            "title": r.get("title", ""),
+            "url": r.get("href", r.get("url", "")),
+            "body": r.get("body", "")[:300],
+        }
+        for r in results
+    ]
+    return {"results": structured, "query": q, "summary": summary}
+
+if __name__ == "__main__":
+    loop_type = "asyncio"
+    try:
+        import uvloop
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        loop_type = "uvloop"
+        log.info("Forced high-performance event loop policy via uvloop.")
+    except ImportError:
+        log.info("uvloop not supported on this platform. Falling back to default asyncio loop policy.")
+
+    config = uvicorn.Config(app=app, host="127.0.0.1", port=8000, loop=loop_type)
+    server = uvicorn.Server(config)
+    
+    # Run uvicorn natively, it manages the loop
+    server.run()
+

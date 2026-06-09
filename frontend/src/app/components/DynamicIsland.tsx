@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle, Terminal, Copy, X, Music, Maximize2 } from 'lucide-react';
+import { CheckCircle, Terminal, Copy, X, Music, Maximize2, SkipBack, Play, Pause, SkipForward, Calendar } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 
 type AppMode = 'chat' | 'notes' | 'research';
@@ -44,8 +44,13 @@ export const DynamicIsland = ({
   productivityScore = 100,
   parallelTasks = [],
   onSmartPaste,
+  onMediaControl,
+  proactiveAlert = null,
+  onDismissProactive,
+  onSuggestionClick,
   isWindowIsland = false,
   onRestoreWindow,
+  islandSkills = {},
 }: {
   mode: AppMode;
   setMode: (m: AppMode) => void;
@@ -59,10 +64,15 @@ export const DynamicIsland = ({
   onClearError?: () => void;
   flowState?: { duration_minutes: number; started_at: number; app: string } | null;
   errorStreak?: { error: string; duration_minutes: number } | null;
-  nowPlaying?: { title: string; artist: string; source: string } | null;
+  nowPlaying?: { title: string; artist: string; album?: string; source: string; is_playing?: boolean; position_ms?: number; duration_ms?: number; sampled_at?: number } | null;
   productivityScore?: number;
   parallelTasks?: { id: string; label: string; color: string }[];
   onSmartPaste?: () => void;
+  onMediaControl?: (action: 'play_pause' | 'next' | 'prev' | 'stop') => void;
+  proactiveAlert?: { message: string; suggestions: string[] } | null;
+  islandSkills?: Record<string, any>;
+  onDismissProactive?: () => void;
+  onSuggestionClick?: (s: string) => void;
   /** True when the main window has been shrunk to island-pill mode by Electron */
   isWindowIsland?: boolean;
   /** Called when the user clicks to restore the full window from island-pill mode */
@@ -88,6 +98,9 @@ export const DynamicIsland = ({
 
   // ── Flow elapsed (live counter) ────────────────────────────────────────
   const [flowElapsed, setFlowElapsed] = useState('');
+
+  // ── Now Playing progress (0-100) ──────────────────────────────────────
+  const [npProgress, setNpProgress] = useState(0);
 
   // ── Chord hints ────────────────────────────────────────────────────────
   const [showChordHints, setShowChordHints] = useState(false);
@@ -176,6 +189,25 @@ export const DynamicIsland = ({
     const iv = setInterval(tick, 30000);
     return () => clearInterval(iv);
   }, [flowState]);
+
+  // ── Now Playing progress tick (1 s) ───────────────────────────────────
+  useEffect(() => {
+    if (!nowPlaying?.duration_ms || nowPlaying.duration_ms === 0) {
+      setNpProgress(0);
+      return;
+    }
+    const tick = () => {
+      if (!nowPlaying?.duration_ms) return;
+      const elapsed = nowPlaying.is_playing !== false
+        ? (Date.now() / 1000 - (nowPlaying.sampled_at ?? 0)) * 1000
+        : 0;
+      const pos = (nowPlaying.position_ms ?? 0) + elapsed;
+      setNpProgress(Math.min(100, Math.max(0, (pos / nowPlaying.duration_ms) * 100)));
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [nowPlaying]);
 
   // ── Global keyboard shortcuts ──────────────────────────────────────────
   useEffect(() => {
@@ -270,6 +302,16 @@ export const DynamicIsland = ({
         }}
         style={{ borderRadius: '0 0 28px 28px', WebkitAppRegion: 'no-drag' } as any}
         className={`pointer-events-auto bg-black/90 backdrop-blur-2xl border-b border-l border-r flex flex-col shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden min-h-[52px] ${islandBorderClass}`}
+        onMouseEnter={() => {
+          if (isWindowIsland && (window as any).electron) {
+            (window as any).electron.ipcRenderer.send('island:set-ignore-mouse', false);
+          }
+        }}
+        onMouseLeave={() => {
+          if (isWindowIsland && (window as any).electron) {
+            (window as any).electron.ipcRenderer.send('island:set-ignore-mouse', true);
+          }
+        }}
       >
         <AnimatePresence mode="wait">
 
@@ -392,6 +434,37 @@ export const DynamicIsland = ({
                   {fixCopied ? 'Copied' : 'Copy'}
                 </button>
               </div>
+            </motion.div>
+
+          ) : proactiveAlert ? (
+            /* ── Proactive Alert ────────────────────────────────────── */
+            <motion.div
+              key="proactive"
+              initial={{ opacity: 0, filter: 'blur(5px)' }}
+              animate={{ opacity: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, filter: 'blur(5px)' }}
+              className="flex flex-col w-[440px] p-4 space-y-3"
+            >
+              <div className="flex justify-between items-center">
+                <span className="font-mono text-[9px] text-primary/50 uppercase tracking-widest">⬡ Primnox</span>
+                <button onClick={onDismissProactive} className="text-white/30 hover:text-white transition-colors">
+                  <X size={13} />
+                </button>
+              </div>
+              <p className="text-[12px] text-white/80 leading-relaxed font-light">{proactiveAlert.message}</p>
+              {proactiveAlert.suggestions.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {proactiveAlert.suggestions.map(s => (
+                    <button
+                      key={s}
+                      onClick={() => { onSuggestionClick?.(s); onDismissProactive?.(); }}
+                      className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-mono text-white/50 hover:bg-primary/20 hover:text-primary hover:border-primary/30 transition-all"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
             </motion.div>
 
           ) : status === 'copy' ? (
@@ -606,18 +679,108 @@ export const DynamicIsland = ({
                     exit={{ opacity: 0, height: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="flex items-center gap-2 px-5 pb-2 border-t border-white/[0.04] pt-1.5">
-                      <Music size={10} className="text-white/20 shrink-0" />
-                      <span className="text-[9px] font-mono text-white/35 truncate">
-                        {nowPlaying.artist} — {nowPlaying.title}
-                      </span>
-                      <span className="ml-auto text-[7px] font-mono text-white/15 uppercase shrink-0">
-                        {nowPlaying.source}
-                      </span>
+                    <div className="flex flex-col px-5 pb-2 border-t border-white/[0.04] pt-1.5 gap-1">
+                      {/* Track row: icon · title · source · controls */}
+                      <div className="flex items-center gap-2">
+                        <Music size={10} className="text-white/20 shrink-0" />
+                        <span className="text-[9px] font-mono text-white/35 truncate flex-1 min-w-0">
+                          {nowPlaying.artist ? `${nowPlaying.artist} — ${nowPlaying.title}` : nowPlaying.title}
+                        </span>
+                        <span className="text-[7px] font-mono text-white/15 uppercase shrink-0">
+                          {nowPlaying.source}
+                        </span>
+                        {onMediaControl && (
+                          <div className="flex items-center shrink-0 ml-0.5">
+                            <button
+                              onClick={() => onMediaControl('prev')}
+                              className="p-1 rounded-full text-white/20 hover:text-white/60 hover:bg-white/10 transition-colors"
+                              title="Previous"
+                            >
+                              <SkipBack size={9} />
+                            </button>
+                            <button
+                              onClick={() => onMediaControl('play_pause')}
+                              className="p-1 rounded-full text-white/20 hover:text-white/60 hover:bg-white/10 transition-colors"
+                              title={nowPlaying.is_playing !== false ? 'Pause' : 'Play'}
+                            >
+                              {nowPlaying.is_playing !== false ? <Pause size={9} /> : <Play size={9} />}
+                            </button>
+                            <button
+                              onClick={() => onMediaControl('next')}
+                              className="p-1 rounded-full text-white/20 hover:text-white/60 hover:bg-white/10 transition-colors"
+                              title="Next"
+                            >
+                              <SkipForward size={9} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {/* Progress bar — only shown when SMTC reports a duration */}
+                      {(nowPlaying.duration_ms ?? 0) > 0 && (
+                        <div className="h-0.5 w-full bg-white/5 rounded-full overflow-hidden">
+                          <motion.div
+                            className="h-full bg-white/25 rounded-full"
+                            style={{ width: `${npProgress}%` }}
+                          />
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
+              {/* Island skill strips (pluggable — e.g. calendar) */}
+              {Object.entries(islandSkills).map(([skillName, data]) => {
+                if (!data) return null;
+                const urgent  = data.urgent as boolean | undefined;
+                const color   = (data.color as string | undefined) || '#6366f1';
+                const borderColor = urgent ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)';
+                return (
+                  <AnimatePresence key={skillName}>
+                    <motion.div
+                      key={`skill-${skillName}`}
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div
+                        className="flex items-center gap-2 px-5 pb-2 pt-1.5 border-t"
+                        style={{ borderColor }}
+                      >
+                        <Calendar size={10} className="shrink-0" style={{ color: `${color}99` }} />
+                        <span
+                          className="font-mono text-[8px] uppercase tracking-widest shrink-0"
+                          style={{ color: urgent ? '#fbbf24' : `${color}80` }}
+                        >
+                          {data.label}
+                        </span>
+                        <span
+                          className="text-[9px] font-medium truncate flex-1 min-w-0"
+                          style={{ color: urgent ? '#fde68a' : 'rgba(255,255,255,0.65)' }}
+                        >
+                          {data.title}
+                        </span>
+                        {data.subtitle && (
+                          <span className="text-[8px] font-mono text-white/20 shrink-0 truncate max-w-[180px]">
+                            {data.subtitle}
+                          </span>
+                        )}
+                        {data.badge && (
+                          <span
+                            className="font-mono text-[8px] px-1.5 py-0.5 rounded shrink-0"
+                            style={{
+                              background: urgent ? 'rgba(245,158,11,0.12)' : `${color}18`,
+                              color: urgent ? '#fbbf24' : color,
+                            }}
+                          >
+                            {data.badge}
+                          </span>
+                        )}
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
+                );
+              })}
             </motion.div>
           )}
         </AnimatePresence>

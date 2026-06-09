@@ -1,8 +1,54 @@
+import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Download, Package } from 'lucide-react';
+import { Download, Package, CheckCircle } from 'lucide-react';
 import { APP_VERSION } from './TitleBar';
 
 export const LogsPage = ({ activity = [] }: { activity: any[] }) => {
+  const [copied, setCopied] = useState(false);
+
+  const exportLogs = () => {
+    const lines: string[] = [
+      `PRIMNOX Diagnostic Log — ${new Date().toLocaleString()}`,
+      `Version: ${APP_VERSION}`,
+      `Entries: ${activity.length}`,
+      '─'.repeat(60),
+      '',
+    ];
+    for (const entry of activity) {
+      const ts = new Date(entry.ts * 1000).toISOString();
+      lines.push(`[${ts}] [${entry.level ?? 'INFO'}] ${entry.module ?? 'system'} » ${entry.msg ?? JSON.stringify(entry)}`);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Primnox_Diagnostics_${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyDiagnostics = async () => {
+    const lines: string[] = [
+      `Primnox ${APP_VERSION} — Diagnostic Snapshot — ${new Date().toLocaleString()}`,
+      '',
+      `Total log entries: ${activity.length}`,
+      `Errors: ${activity.filter(e => e.level === 'ERROR').length}`,
+      '',
+      'Recent entries:',
+    ];
+    for (const entry of activity.slice(-20)) {
+      lines.push(`  [${entry.level ?? 'INFO'}] ${entry.module ?? ''}: ${entry.msg ?? ''}`);
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard permission denied — fall back to download
+      exportLogs();
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-black animate-in fade-in slide-in-from-right-8 duration-1000 overflow-hidden">
       <div className="p-8 lg:p-12 border-b border-white/5 bg-zinc-950 flex items-center justify-between">
@@ -11,19 +57,19 @@ export const LogsPage = ({ activity = [] }: { activity: any[] }) => {
           <h2 className="text-white text-xl font-bold tracking-tighter italic">system_terminal.exe</h2>
         </div>
         <div className="flex gap-4">
-          <button 
-            onClick={() => alert("Logs exported to Primnox_Diagnostics.txt")}
+          <button
+            onClick={exportLogs}
             className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg flex items-center gap-2 text-white/70 hover:text-white transition-colors"
           >
             <Download size={14} />
             <span className="font-mono text-[9px] uppercase tracking-widest font-bold">Export Logs</span>
           </button>
-          <button 
-            onClick={() => alert("Diagnostic package sent to Neural Orchestration Labs securely.")}
+          <button
+            onClick={copyDiagnostics}
             className="px-4 py-2 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-lg flex items-center gap-2 text-primary hover:text-primary-light transition-colors"
           >
-            <Package size={14} />
-            <span className="font-mono text-[9px] uppercase tracking-widest font-bold">Send Diagnostics</span>
+            {copied ? <CheckCircle size={14} /> : <Package size={14} />}
+            <span className="font-mono text-[9px] uppercase tracking-widest font-bold">{copied ? 'Copied!' : 'Copy Diagnostics'}</span>
           </button>
         </div>
       </div>

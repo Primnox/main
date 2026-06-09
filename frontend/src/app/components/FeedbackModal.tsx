@@ -12,6 +12,7 @@ export const FeedbackModal = ({ isOpen, onClose }: FeedbackModalProps) => {
   const [contact, setContact] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
@@ -20,6 +21,7 @@ export const FeedbackModal = ({ isOpen, onClose }: FeedbackModalProps) => {
     if (!content.trim()) return;
 
     setIsSubmitting(true);
+    setError('');
     try {
       const res = await fetch('http://127.0.0.1:8000/api/feedback', {
         method: 'POST',
@@ -35,9 +37,11 @@ export const FeedbackModal = ({ isOpen, onClose }: FeedbackModalProps) => {
           setCategory('General');
           onClose();
         }, 2000);
+      } else {
+        setError('Failed to send — backend returned an error. Try again.');
       }
-    } catch (error) {
-      console.error('Failed to submit feedback:', error);
+    } catch {
+      setError('Could not reach backend. Make sure Primnox is running.');
     } finally {
       setIsSubmitting(false);
     }
@@ -107,6 +111,9 @@ export const FeedbackModal = ({ isOpen, onClose }: FeedbackModalProps) => {
               />
             </div>
 
+            {error && (
+              <p className="text-xs text-red-400/80 text-center -mt-1">{error}</p>
+            )}
             <button
               type="submit"
               disabled={isSubmitting || !content.trim()}
