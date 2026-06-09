@@ -1,6 +1,12 @@
 # Changelog
 
-## v0.1.0 (2026-06-09)
+## v0.0.10 (2026-06-09)
+
+### 🤖 Automation & System Intelligence
+- Expanded `backend/automation.py` and `backend/screen_reader.py` for deeper OS-level system control.
+- Upgraded `backend/feed_manager.py` to support more granular real-time event routing.
+- Added strict AI prompt boundaries and refined `backend/vad_listener.py`.
+- Bumped dependencies in `backend/requirements.txt` to support the new automation framework.
 
 ### 📅 Calendar
 - New **Calendar** screen: month grid, week strip, day agenda with live "Now / in Nm" badges.
