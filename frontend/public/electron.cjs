@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, globalShortcut, clipboard } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
+const http = require('http');
 
 // ── Load .env (GH_TOKEN for private-release auto-updater) ────────────────────
 try {
@@ -44,6 +45,56 @@ let tray         = null;
 let pythonProcess = null;
 let forceQuit     = false; // true only when quitting via tray menu
 let isIslandMode  = false;
+
+// ── Smart Paste (global shortcut helper) ─────────────────────────────────────
+
+function fetchSmartPaste(content) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ content });
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: 8000,
+        path: '/api/smart_paste',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let raw = '';
+        res.on('data', (chunk) => { raw += chunk; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(raw)); }
+          catch { resolve({ transformed: content }); }
+        });
+      }
+    );
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+function runSmartPaste() {
+  const content = clipboard.readText();
+  if (!content.trim()) return;
+
+  const notify = (ok) => {
+    const target = (isIslandMode && islandWindow && !islandWindow.isDestroyed())
+      ? islandWindow : (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null);
+    if (target) target.webContents.send('smart-paste-result', { ok });
+  };
+
+  fetchSmartPaste(content)
+    .then(({ transformed }) => {
+      clipboard.writeText(transformed || content);
+      notify(true);
+    })
+    .catch(() => notify(false));
+}
 
 // ── Island overlay window ─────────────────────────────────────────────────────
 // This is a SEPARATE 900×220 window that loads the same React app with
@@ -329,6 +380,11 @@ app.whenReady().then(async () => {
   createIslandWindow();
   await createTray();
 
+  // ── Global keyboard shortcut: Smart Paste ────────────────────────────────
+  // Works even when Primnox is in island mode (focusable:false) or the user
+  // is in a different app entirely — global shortcuts fire regardless of focus.
+  globalShortcut.register('CommandOrControl+Shift+P', runSmartPaste);
+
   autoUpdater.on('checking-for-update',  ()    => logUpdater('Checking for update...'));
   autoUpdater.on('update-not-available', ()    => logUpdater('No update.'));
   autoUpdater.on('error',               (err)  => logUpdater(`Updater error: ${err.stack || err}`));
@@ -355,6 +411,7 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => { /* intentional no-op */ });
 
 app.on('quit', () => {
+  globalShortcut.unregisterAll();
   if (pythonProcess) pythonProcess.kill();
   if (tray) tray.destroy();
   if (islandWindow && !islandWindow.isDestroyed()) islandWindow.destroy();

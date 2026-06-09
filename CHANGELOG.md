@@ -41,6 +41,12 @@
 - Inline quick-add forms for tasks and reminders directly on the dashboard.
 - Calendar and Recordings added to sidebar navigation.
 
+### ⚡ Smart Paste — Global Shortcut Overhaul
+- `Ctrl+Shift+P` (Windows/Linux) / `Cmd+Shift+P` (Mac) now registered as a **global shortcut** via Electron's `globalShortcut` API — fires from any app, not just when Primnox has focus.
+- Smart Paste now works correctly in **Island Mode**: the island window has `focusable: false` (by design), so keyboard listeners inside React could never fire — the global shortcut bypasses this entirely.
+- Clipboard is read and written in the Electron main process using `clipboard.readText()` / `clipboard.writeText()` — no browser clipboard permission needed.
+- Result IPC event (`smart-paste-result`) triggers toast notification in the renderer via `preload.js`.
+
 ### 🐛 Bug Fixes & Reliability
 - `socket.onmessage` wrapped in `try/catch` — malformed backend messages no longer kill the WebSocket connection.
 - All `fetch()` calls in `usePrimnox` now have `AbortSignal.timeout(5000)` — a hanging backend can't freeze the UI.

@@ -96,6 +96,9 @@ export function usePrimnox() {
   }, []);
 
   // ── Smart Paste (defined after addToast so dep array is valid) ─────────
+  // Primary path: global shortcut in electron.cjs reads clipboard natively
+  // and sends 'smart-paste-result' IPC — no focus required, works in island mode.
+  // Fallback path: if called in-app (e.g. future button), uses navigator.clipboard.
   const triggerSmartPaste = useCallback(async () => {
     try {
       const clipboardContent = await navigator.clipboard.readText();
@@ -114,6 +117,17 @@ export function usePrimnox() {
       console.error('Smart paste failed', e);
       addToast('error', 'Smart paste failed — clipboard permission?');
     }
+  }, [addToast]);
+
+  // ── Listen for global-shortcut smart paste result from main process ──────
+  useEffect(() => {
+    const electron = (window as any).electron;
+    if (!electron?.ipcRenderer) return;
+    const unsub = electron.ipcRenderer.on('smart-paste-result', ({ ok }: { ok: boolean }) => {
+      if (ok) addToast('success', 'Clipboard transformed — paste away');
+      else    addToast('error',   'Smart paste failed — is the backend running?');
+    });
+    return () => { if (typeof unsub === 'function') unsub(); };
   }, [addToast]);
 
   useEffect(() => {

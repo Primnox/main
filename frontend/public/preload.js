@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('electron', {
         'friday:mic-state', 'friday:state',
         'morph-island', 'render-token-binary',
         'update-available', 'update-downloaded',
+        // Smart Paste result from global shortcut
+        'smart-paste-result',
       ];
       if (validChannels.includes(channel)) {
         const subscription = (_event, ...args) => func(...args);
