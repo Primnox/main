@@ -50,7 +50,7 @@ pypdf
 reportlab
 pdf2image
 python-docx
-docx2pdf
+docx2pdf; sys_platform == 'win32'
 openpyxl
 pandas
 xlrd

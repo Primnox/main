@@ -27,7 +27,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install System Dependencies for Linux Build
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -41,7 +41,17 @@ jobs:
             libxtst6 \
             xauth \
             xvfb \
-            libfuse2
+            libfuse2 \
+            libsndfile1-dev \
+            libzbar0 \
+            zbar-tools \
+            poppler-utils \
+            espeak-ng \
+            xclip \
+            xdotool \
+            playerctl \
+            libxkbcommon-x11-0 \
+            libgbm-dev
 
       - name: Install Python Dependencies
         run: |

@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-14   # arm64 (Apple Silicon) — macos-14 is arm64 only
 
     steps:
       - name: Checkout Code
@@ -26,6 +26,10 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+
+      - name: Install macOS System Dependencies
+        run: |
+          brew install zbar poppler libsndfile
 
       - name: Install Python Dependencies
         run: |
@@ -55,15 +59,12 @@ jobs:
           cd frontend
           npx vite build
 
-      - name: Package macOS DMG
+      - name: Package macOS DMG (arm64)
         run: |
           cd frontend
-          npx electron-builder --mac dmg
+          npx electron-builder --mac dmg --arm64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code signing is OFF by default.
-          # To enable: add CSC_LINK (base64 .p12) and CSC_KEY_PASSWORD secrets,
-          # then remove the line below.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Upload Artifact
