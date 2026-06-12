@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Paperclip, ArrowUp, Sparkles, X, Plus, MessageSquare, Pin, Folder, FolderPlus, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check, Copy, Terminal } from 'lucide-react';
+import { Paperclip, ArrowUp, Sparkles, X, Plus, MessageSquare, Pin, Folder, FolderPlus, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check, Copy, Terminal, FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -131,6 +131,36 @@ const QUICK_ACTIONS = [
   { label: "Set a reminder",      prompt: "Remind me to " },
   { label: "Research something",  prompt: "Search the web for " },
 ];
+
+// ── User message: renders file attachment chips ────────────────────────────────
+const FILE_CHIP_RE = /\[📎\s*(.+?)\]/g;
+
+const UserMessage = ({ text }: { text: string }) => {
+  const chips: string[] = [];
+  let clean = text;
+  let match;
+  while ((match = FILE_CHIP_RE.exec(text)) !== null) {
+    chips.push(match[1]);
+  }
+  if (chips.length > 0) {
+    clean = text.replace(FILE_CHIP_RE, '').trim();
+  }
+  return (
+    <>
+      {clean && <p className="text-sm text-white/90 leading-6 break-words whitespace-pre-wrap">{clean}</p>}
+      {chips.length > 0 && (
+        <div className={`flex flex-wrap gap-1.5 ${clean ? 'mt-2' : ''}`}>
+          {chips.map((name, i) => (
+            <span key={i} className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/[0.08] text-white/60 px-2.5 py-1 rounded-lg text-xs font-medium">
+              <FileText size={12} className="text-white/30 shrink-0" />
+              <span className="max-w-[180px] truncate">{name}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </>
+  );
+};
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export const ChatExpandedSidebar = ({
@@ -613,7 +643,7 @@ export const ChatExpandedSidebar = ({
                         <div className="flex justify-end group">
                           <div className="max-w-[65%]">
                             <div className="bg-white/[0.07] border border-white/[0.08] rounded-2xl rounded-br-sm px-4 py-2.5">
-                              <p className="text-sm text-white/90 leading-6 break-words whitespace-pre-wrap">{msg.text}</p>
+                              <UserMessage text={msg.text || ''} />
                             </div>
                             {msg.timestamp && (
                               <p className="text-[10px] text-white/15 mt-1 text-right opacity-0 group-hover:opacity-100 transition-opacity">

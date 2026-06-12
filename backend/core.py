@@ -247,29 +247,41 @@ class PrimnoxCore:
         
         self._process_input(text, speaker, input_mode="voice")
 
-    def handle_text_input(self, text: str, session_id="current"):
-        log.info(f"Handling text input: {text[:50]}...")
+    def handle_text_input(self, text: str, session_id="current", display_text: str = None):
+        """Process a user message. If display_text is provided, it is shown in
+        the chat UI while `text` (which may contain extracted file contents) is
+        sent to the LLM for processing."""
+        shown = display_text or text
+        log.info(f"Handling text input: {shown[:50]}...")
         if not self.incognito:
-            append_message_to_session(session_id, text, speaker="User")
+            append_message_to_session(session_id, shown, speaker="User")
         
         if self.broadcast_callback:
             self.broadcast_callback("message", {
                 "sender": "User",
-                "text": text,
+                "text": shown,
                 "speaker": "User"
             })
             
-        self._process_input(text, "User", input_mode="text", session_id=session_id)
+        self._process_input(text, "User", input_mode="text", session_id=session_id,
+                            user_text=display_text or text)
 
 
-    def _process_input(self, raw_text, speaker, input_mode="text", session_id="current"):
-        """Unified Processing Logic for Voice and Text (Agentic)."""
+    def _process_input(self, raw_text, speaker, input_mode="text", session_id="current", user_text=None):
+        """Unified Processing Logic for Voice and Text (Agentic).
+        
+        raw_text:  full text sent to LLM (may include extracted file contents).
+        user_text: the original short user message (used for trigger matching).
+        """
         if not raw_text:
             log.debug("Empty input, skipping.")
             return
 
+        # Use user_text for trigger/reminder matching; fall back to raw_text
+        trigger_text = user_text or raw_text
+
         # ── Reminder intercept (before LLM) ──────────────────────────────
-        reminder = parse_reminder(raw_text)
+        reminder = parse_reminder(trigger_text)
         if reminder:
             add_reminder(reminder["message"], reminder["delay_secs"])
             mins = reminder["delay_secs"] // 60
@@ -294,13 +306,13 @@ class PrimnoxCore:
         if not self.incognito:
             append_message_to_session(session_id, raw_text, speaker=speaker)
 
-        log.info(f"Agentic processing input '{raw_text[:30]}'")
+        log.info(f"Agentic processing input '{trigger_text[:30]}'")
 
         # ── Skill intercept (before LLM) ─────────────────────────────────
-        # Check trigger words; if a skill matches, run it and skip the LLM.
+        # Only match triggers against the original user message, NOT file contents
         try:
             from skills.skill_router import get_skill_for_trigger
-            skill_cls = get_skill_for_trigger(raw_text)
+            skill_cls = get_skill_for_trigger(trigger_text)
             if skill_cls:
                 log.info(f"Skill trigger matched: {skill_cls.name}")
                 # Broadcast skill_started so the frontend task pill appears

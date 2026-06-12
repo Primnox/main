@@ -226,13 +226,17 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
                 log.warning(f"Failed to extract content from {filename}: {e}")
                 extracted_parts.append(f"[File: {filename} — extraction failed: {e}]")
 
-        # Build the final message with file contents injected
+        # Build the final message with file contents injected for LLM
         full_text = text
         if extracted_parts:
             full_text = (text + "\n\n" + "\n\n".join(extracted_parts)).strip()
 
+        # Build a clean display message with just file chips for the UI
+        file_chips = " ".join(f"[📎 {getattr(uf, 'filename', 'file')}]" for uf in uploaded_files if hasattr(uf, "read"))
+        display_text = (text + "\n" + file_chips).strip() if text else file_chips
+
         log.info(f"Received message with {len(uploaded_files)} file(s): {text[:50]}...")
-        background_tasks.add_task(core.handle_text_input, full_text, session_id=session_id)
+        background_tasks.add_task(core.handle_text_input, full_text, session_id=session_id, display_text=display_text)
         return {"status": "ok", "files_processed": len(uploaded_files)}
 
     raise HTTPException(status_code=400, detail="Unsupported content type")
