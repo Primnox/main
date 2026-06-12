@@ -21,6 +21,12 @@ GROQ_FALLBACK_CHAIN = [
     "llama-3.1-8b-instant"                         # fallback 5 — last resort
 ]
 
+GEMINI_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+]
+
 def get_adaptive_system_prompt(settings):
     """Injects user onboarding profile into the base persona."""
     base_prompt = MASTER_PROMPT
@@ -75,6 +81,15 @@ def get_api_key(provider):
         return os.getenv("OPENAI_API_KEY")
     elif provider.lower() == "anthropic":
         return os.getenv("ANTHROPIC_API_KEY")
+    elif provider.lower() == "gemini":
+        try:
+            import keyring
+            key = keyring.get_password("primnox", "gemini_api_key")
+            if key:
+                return key
+        except Exception:
+            pass
+        return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     return None
 
 def get_groq_api_key():
@@ -265,6 +280,33 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
                 log.error("Ollama not reachable — is it running? (ollama serve)")
                 return {"choices": [{"message": {"content": "ollama isn't running bro. start it with `ollama serve`."}}]}
 
+        elif active_model == "Gemini_Flash":
+            api_key = get_api_key("gemini")
+            if not api_key:
+                log.error("Gemini API key missing!")
+                return {"choices": [{"message": {"content": "Gemini API key not set. Add it in Settings or set GEMINI_API_KEY env var."}}]}
+            gemini_model = settings.get("gemini_model", "gemini-2.0-flash")
+            log.info(f"Routing think() → Gemini ({gemini_model})")
+            resp = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": gemini_model,
+                    "messages": [
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": user_content}
+                    ]
+                },
+                timeout=30
+            )
+            try:
+                res = resp.json()
+            except Exception:
+                return {"choices": [{"message": {"content": f"Gemini returned non-JSON (HTTP {resp.status_code})"}}]}
+            if "error" in res:
+                log.warning(f"Gemini error: {res['error']}")
+            return res
+
         else: # Default/Groq_Llama_3
             api_key = get_api_key("groq")
             if not api_key:
@@ -315,6 +357,31 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
                     return res
                 # if there is an error, we can try the next model
                 log.warning(f"Groq model {groq_model} failed: {res.get('error')}")
+
+            # ── Gemini automatic fallback when all Groq models fail ──────
+            gemini_key = get_api_key("gemini")
+            if gemini_key:
+                for gm in GEMINI_MODELS:
+                    log.info(f"All Groq models failed. Trying Gemini fallback: {gm}")
+                    try:
+                        resp = requests.post(
+                            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                            headers={"Authorization": f"Bearer {gemini_key}", "Content-Type": "application/json"},
+                            json={
+                                "model": gm,
+                                "messages": [
+                                    {"role": "system", "content": system_content},
+                                    {"role": "user", "content": msg_content}
+                                ]
+                            },
+                            timeout=30
+                        )
+                        res = resp.json()
+                        if "error" not in res:
+                            return res
+                        log.warning(f"Gemini model {gm} failed: {res.get('error')}")
+                    except Exception as e:
+                        log.warning(f"Gemini fallback {gm} exception: {e}")
 
             return last_res
     except requests.exceptions.RequestException as e:
@@ -385,6 +452,7 @@ def think_stream(prompt, context="", session_id=""):
     model_name = ""
     headers = {}
     is_ollama = False
+    is_gemini = False
 
     if active_model == "OpenAI_GPT_4o":
         api_key = get_api_key("openai")
@@ -404,6 +472,14 @@ def think_stream(prompt, context="", session_id=""):
         api_key = "ollama"   # sentinel — Ollama needs no real key
         is_ollama = True
         log.info(f"Routing think_stream() → Ollama ({model_name} @ {ollama_url})")
+    elif active_model == "Gemini_Flash":
+        api_key = get_api_key("gemini")
+        gemini_model = settings.get("gemini_model", "gemini-2.0-flash")
+        url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        model_name = gemini_model
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        is_gemini = True
+        log.info(f"Routing think_stream() → Gemini ({model_name})")
     else:
         api_key = get_api_key("groq")
         url = "https://api.groq.com/openai/v1/chat/completions"
@@ -411,7 +487,7 @@ def think_stream(prompt, context="", session_id=""):
         headers = {"Authorization": f"Bearer {api_key}"}
 
     if not api_key:
-        yield "Sorry, cannot process this request without AI. Please add your Groq API key in Settings."
+        yield "Sorry, cannot process this request without AI. Please add your API key in Settings."
         return
 
     # ── Ollama fast-path: no tool-calling loop, direct streaming ─────────────
@@ -445,8 +521,37 @@ def think_stream(prompt, context="", session_id=""):
             yield "ollama isn't running bro. start it with `ollama serve`."
         return
 
+    # ── Gemini fast-path: direct streaming, no tool-calling loop ─────────────
+    if is_gemini:
+        try:
+            resp_stream = requests.post(
+                url, headers=headers,
+                json={"model": model_name, "messages": messages, "stream": True},
+                stream=True, timeout=60
+            )
+            if resp_stream.status_code != 200:
+                yield f"[Gemini error {resp_stream.status_code}]: {resp_stream.text[:200]}"
+                return
+            for line in resp_stream.iter_lines():
+                if line:
+                    decoded = line.decode("utf-8")
+                    if decoded.startswith("data: "):
+                        data_str = decoded[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            token = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            if token:
+                                yield token
+                        except Exception:
+                            pass
+        except Exception as e:
+            yield f"gemini error: {e}"
+        return
+
     try:
-        if active_model != "Anthropic_Claude_3":
+        if active_model not in ("Anthropic_Claude_3", "Gemini_Flash"):
             max_steps = 5
             for step in range(max_steps):
                 for _retry in range(3):
@@ -469,6 +574,15 @@ def think_stream(prompt, context="", session_id=""):
                                 log.warning(f"Rate limit hit. Falling back to {next_model}...")
                                 model_name = next_model
                                 continue
+                            else:
+                                # All Groq models exhausted — try Gemini
+                                gemini_key = get_api_key("gemini")
+                                if gemini_key:
+                                    log.warning("All Groq models rate-limited. Falling back to Gemini...")
+                                    url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                                    model_name = "gemini-2.0-flash"
+                                    headers = {"Authorization": f"Bearer {gemini_key}", "Content-Type": "application/json"}
+                                    continue
                         log.warning("Rate limit hit. Retrying in 2 seconds...")
                         import time
                         time.sleep(2)
