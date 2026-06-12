@@ -118,7 +118,7 @@ export interface Note {
 // ─── Auto-Save Status Type ──────────────────────────────────────
 type SaveStatus = 'idle' | 'saving' | 'saved';
 
-export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onExport?: () => void, sendMessage?: (text: string) => void }) => {
+export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: Note[], onExport?: () => void, onRefresh?: () => void, sendMessage?: (text: string) => void }) => {
   const [activeNoteId, setActiveNoteId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editText, setEditText] = useState("");
@@ -131,8 +131,11 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
   const [activeWorkspace, setActiveWorkspace] = useState<string>("General");
   const [showGenerator, setShowGenerator] = useState(false);
   const [showContextPanel, setShowContextPanel] = useState(true);
+  const [addingWorkspace, setAddingWorkspace] = useState(false);
+  const [newWsName, setNewWsName] = useState('');
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wsEscapeRef  = useRef(false);
 
   const activeNote = notes.find(n => n.id === activeNoteId) ?? notes[0];
 
@@ -235,6 +238,7 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
         method: 'DELETE'
       });
       setActiveNoteId(null);
+      onRefresh?.();
     } catch (e) {
       console.error("Delete failed:", e);
     }
@@ -249,13 +253,16 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
         body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace })
       });
       const data = await res.json();
-      if (data.id) setActiveNoteId(data.id);
+      if (data.id) {
+        await onRefresh?.();
+        setActiveNoteId(data.id);
+      }
     } catch (e) {
       console.error("Failed to create note:", e);
     }
-  }, [activeWorkspace]);
+  }, [activeWorkspace, onRefresh]);
 
-  // Keyboard shortcut: Ctrl+S and Ctrl+N
+  // Keyboard shortcut: Ctrl+S and Ctrl+N; also respond to palette new-note event
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
@@ -268,8 +275,13 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
         handleNewNote();
       }
     };
+    const paletteNewNote = () => handleNewNote();
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener('primnox:new-note', paletteNewNote);
+    return () => {
+      window.removeEventListener('keydown', handler);
+      window.removeEventListener('primnox:new-note', paletteNewNote);
+    };
   }, [editTitle, editText, activeNote?.id, persistNote, handleNewNote, activeWorkspace]);
 
   const onTitleChange = (val: string) => {
@@ -326,7 +338,10 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
         body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace, parent_id: parentId })
       });
       const data = await res.json();
-      if (data.id) setActiveNoteId(data.id);
+      if (data.id) {
+        await onRefresh?.();
+        setActiveNoteId(data.id);
+      }
     } catch (e) {
       console.error("Failed to create subnote:", e);
     }
@@ -421,13 +436,8 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
                   {ws}
                 </button>
               ))}
-              <button 
-                onClick={() => {
-                  const newWs = window.prompt("Enter new project name:");
-                  if (newWs && newWs.trim() !== "") {
-                    setActiveWorkspace(newWs.trim());
-                  }
-                }}
+              <button
+                onClick={() => { setAddingWorkspace(true); setNewWsName(''); }}
                 className="px-2 py-1 rounded transition-colors text-white/40 hover:text-white hover:bg-white/10 flex items-center shrink-0"
                 title="Add Project"
               >
@@ -435,6 +445,29 @@ export const NotesIconSidebar = ({ notes = [], onExport }: { notes: Note[], onEx
               </button>
             </div>
           </div>
+          {addingWorkspace && (
+            <div className="flex gap-2 mt-1">
+              <input
+                autoFocus
+                value={newWsName}
+                onChange={e => setNewWsName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && newWsName.trim()) {
+                    setActiveWorkspace(newWsName.trim());
+                    setAddingWorkspace(false);
+                  }
+                  if (e.key === 'Escape') { wsEscapeRef.current = true; setAddingWorkspace(false); }
+                }}
+                onBlur={() => {
+                  if (!wsEscapeRef.current && newWsName.trim()) setActiveWorkspace(newWsName.trim());
+                  wsEscapeRef.current = false;
+                  setAddingWorkspace(false);
+                }}
+                placeholder="Workspace name…"
+                className="flex-1 bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-primary/40 placeholder-white/25"
+              />
+            </div>
+          )}
           <div className="flex justify-between items-center">
             <h2 className="text-sm font-semibold text-white/80 tracking-wide flex items-center gap-2">
               <Folder size={14} /> {activeWorkspace}

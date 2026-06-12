@@ -1,4 +1,4 @@
-import { useState, ReactNode, useEffect } from 'react';
+import { useState, ReactNode, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Terminal, MessageSquare, FileText, Database, History, Settings, ChevronRight, Network, LayoutDashboard, Globe, BookOpen, Calendar, Mic } from 'lucide-react';
 import { DynamicIsland } from './DynamicIsland';
@@ -122,10 +122,20 @@ export const Layout = ({
   onRestoreWindow?: () => void,
 }) => {
   const [localSidebar, setLocalSidebar] = useState<SidebarState>(sidebarState);
+  // Once the user manually toggles the sidebar, stop syncing from parent prop.
+  // This prevents navigation from collapsing/expanding a sidebar the user set.
+  const userControlled = useRef(false);
 
   useEffect(() => {
-    setLocalSidebar(sidebarState);
+    if (!userControlled.current) {
+      setLocalSidebar(sidebarState);
+    }
   }, [sidebarState]);
+
+  const handleSidebarToggle = () => {
+    userControlled.current = true;
+    setLocalSidebar(s => s === 'expanded' ? 'icon' : 'expanded');
+  };
 
   // ── Island-pill mode: render ONLY the Dynamic Island ──────────────────────
   // The Electron main process has already shrunk the window to 900×200 and
@@ -169,6 +179,7 @@ export const Layout = ({
       <AnimatePresence mode="wait">
           {isIslandVisible && (
           <DynamicIsland
+            key="island"
             mode={appMode}
             setMode={setAppMode}
             status={status}
@@ -272,8 +283,8 @@ export const Layout = ({
                 </nav>
 
                 <div className="p-6 mt-auto">
-                  <button 
-                    onClick={() => setLocalSidebar(localSidebar === 'expanded' ? 'icon' : 'expanded')}
+                  <button
+                    onClick={handleSidebarToggle}
                     className={`w-full p-3 rounded flex items-center gap-3 text-white/20 hover:text-white transition-all duration-300 overflow-hidden whitespace-nowrap
                       ${localSidebar === 'icon' ? 'justify-center' : ''}`}
                   >

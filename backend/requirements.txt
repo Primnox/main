@@ -17,6 +17,7 @@ cryptography
 keyring
 pywin32; sys_platform == 'win32'
 winsdk; sys_platform == 'win32'
+pycaw; sys_platform == 'win32'
 
 # ————— AUDIO + VOICE —————————————————————
 pyaudiowpatch; sys_platform == 'win32'
@@ -73,3 +74,10 @@ keyboard
 pyautogui
 duckduckgo-search
 rapidfuzz
+
+# ————— BACKUP ────────────────────────────────────────────────────────────────
+mnemonic                          # BIP-39 wordlist + checksum utilities
+boto3                             # S3 / Backblaze B2 / Cloudflare R2 / Wasabi
+google-api-python-client          # Google Drive
+google-auth-oauthlib              # Google OAuth flow
+dropbox                           # Dropbox SDK

@@ -1,33 +1,60 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Paperclip, ArrowUp, Sparkles, X, Plus, MessageSquare, Pin, Folder, FolderPlus, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check, Terminal } from 'lucide-react';
+import { Paperclip, ArrowUp, Sparkles, X, Plus, MessageSquare, Pin, Folder, FolderPlus, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check, Copy, Terminal } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy';
 
+// ── Code block: syntax highlighting + copy button ─────────────────────────────
+const CodeBlock = ({ language, value }: { language: string; value: string }) => {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(value)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+      .catch(() => {});
+  };
+  return (
+    <div className="my-3 rounded-xl overflow-hidden border border-white/10 bg-black/60">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-white/[0.03]">
+        <span className="text-[9px] font-mono text-white/30 uppercase tracking-widest">{language}</span>
+        <button onClick={copy}
+          className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest text-white/30 hover:text-primary transition-colors active:scale-95">
+          {copied ? <><Check size={11} /> Copied</> : <><Copy size={11} /> Copy</>}
+        </button>
+      </div>
+      <SyntaxHighlighter
+        language={language}
+        style={oneDark}
+        PreTag="div"
+        customStyle={{ margin: 0, background: 'transparent', padding: '1rem', fontSize: '0.78rem', lineHeight: 1.65 }}
+        codeTagProps={{ style: { fontFamily: 'inherit' } }}
+      >
+        {value}
+      </SyntaxHighlighter>
+    </div>
+  );
+};
+
 // ── Markdown component overrides ──────────────────────────────────────────────
 const MD_COMPONENTS: any = {
-  code({ inline, children, className, ...props }: any) {
-    if (inline) {
+  code({ children, className, ...props }: any) {
+    // react-markdown v8 removed the `inline` prop; detect by language class or newlines.
+    const lang = /language-(\w+)/.exec(className || '')?.[1];
+    const text = String(children).replace(/\n$/, '');
+    if (!lang && !text.includes('\n')) {
       return (
         <code className="bg-white/10 text-primary/90 px-1.5 py-0.5 rounded-md text-[0.82em] font-mono" {...props}>
           {children}
         </code>
       );
     }
-    const lang = (className || '').replace('language-', '') || 'code';
-    return (
-      <div className="my-3 rounded-xl overflow-hidden border border-white/10 bg-black/60">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-white/[0.03]">
-          <span className="text-[9px] font-mono text-white/30 uppercase tracking-widest">{lang}</span>
-        </div>
-        <pre className="p-4 overflow-x-auto m-0 text-xs text-white/80 font-mono leading-relaxed">
-          <code {...props}>{children}</code>
-        </pre>
-      </div>
-    );
+    return <CodeBlock language={lang || 'text'} value={text} />;
   },
+  pre({ children }: any) { return <>{children}</>; },
   p({ children }: any) {
     return <p className="mb-3 last:mb-0 leading-7 text-white/85">{children}</p>;
   },
@@ -505,7 +532,7 @@ export const ChatExpandedSidebar = ({
                               <TypingDots />
                             ) : (
                               <div className="text-sm leading-6 text-white/80 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                                <ReactMarkdown components={MD_COMPONENTS}>{msg.text || ''}</ReactMarkdown>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{msg.text || ''}</ReactMarkdown>
                               </div>
                             )}
                             {msg.timestamp && (

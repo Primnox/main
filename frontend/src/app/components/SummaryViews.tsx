@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, memo } from 'react';
-import { Database, MessageSquare, FileText, CheckCircle, Terminal, Mic, Brain, FileEdit, Video, Monitor, Zap, RefreshCw, AlertTriangle, Bell, Shield, ListTodo, Plus, Clock, Trash2, Activity, Radio } from 'lucide-react';
+import { Database, MessageSquare, FileText, CheckCircle, Terminal, Brain, FileEdit, Video, Monitor, Zap, RefreshCw, AlertTriangle, Bell, Shield, ListTodo, Plus, Clock, Trash2, Activity, Radio } from 'lucide-react';
 
 type ScreenId =
   | 'summaries_expanded'
@@ -166,6 +166,17 @@ export const SummariesExpanded = memo(({
   const pendingTasks    = tasks.filter((t: any) => !t.completed && !t.is_complete);
   const doneTasks       = tasks.filter((t: any) => t.completed || t.is_complete);
 
+  // Greeting + a single "what matters right now" focal line for the hero
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const clip = (s: string) => (s && s.length > 46 ? s.slice(0, 46) + '…' : s);
+  const _urgent = pendingTasks.find((t: any) => t.priority === 'urgent');
+  const _rem    = dash?.reminders?.[0];
+  const focus =
+    _urgent ? `Urgent — ${clip(_urgent.text)}` :
+    _rem    ? `Soon — ${clip(_rem.message)}` :
+    pendingTasks[0] ? `Up next — ${clip(pendingTasks[0].text)}` : '';
+
   return (
     <div className="h-full overflow-y-auto custom-scrollbar">
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-7 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]">
@@ -184,17 +195,21 @@ export const SummariesExpanded = memo(({
           </div>
         )}
 
-        {/* ── Header ── */}
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="font-bold lowercase italic text-white text-2xl tracking-tight leading-none">
-              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        {/* ── Hero ── */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold text-white tracking-tight leading-tight">
+              {greeting}{dash?.user_name ? <span className="text-white/50">, {dash.user_name}</span> : ''}
             </h2>
-            <p className="font-mono text-[10px] text-white/20 uppercase tracking-[0.4em] mt-1.5">Primnox_Dashboard // Live</p>
+            <p className="text-sm text-white/40 mt-1 font-light truncate">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              {focus && <span className="text-white/25"> · </span>}
+              {focus && <span className="text-primary/80">{focus}</span>}
+            </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button onClick={fetchDash}
-              className="p-2 rounded-lg text-white/20 hover:text-white/60 hover:bg-white/5 transition-all" title="Refresh">
+              className="p-2 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/5 transition-all" title="Refresh">
               <RefreshCw size={13} />
             </button>
             <button onClick={triggerBrief} disabled={briefStatus === 'generating'}
@@ -206,21 +221,24 @@ export const SummariesExpanded = memo(({
         </div>
 
         {/* ── Stat Row ── */}
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'Words', value: dash?.words_heard_today ?? '—', icon: Mic,      sub: `${dash?.ambient_count ?? 0} moments` },
-            { label: 'Notes',     value: dash?.notes_count ?? '—',        icon: FileEdit, sub: 'in workspace'  },
-            { label: 'Memories',  value: dash?.memories_count ?? '—',     icon: Brain,    sub: 'stored'        },
-            { label: 'Tasks',     value: pendingTasks.length,              icon: ListTodo, sub: `${doneTasks.length} done` },
-            { label: 'Skills',    value: dash?.skills_count ?? '—',        icon: Zap,      sub: 'loaded'        },
-          ].map(({ label, value, icon: Icon, sub }) => (
-            <div key={label} className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl p-4 flex flex-col gap-2 hover:border-primary/20 transition-all">
+            { label: 'Tasks',    value: pendingTasks.length,         icon: ListTodo, sub: `${doneTasks.length} done`, tint: 'text-violet-300 bg-violet-500/10 border-violet-500/20' },
+            { label: 'Notes',    value: dash?.notes_count ?? '—',    icon: FileEdit, sub: 'in workspace',            tint: 'text-sky-300 bg-sky-500/10 border-sky-500/20' },
+            { label: 'Memories', value: dash?.memories_count ?? '—', icon: Brain,    sub: 'stored',                  tint: 'text-primary bg-primary/10 border-primary/20' },
+            { label: 'Skills',   value: dash?.skills_count ?? '—',   icon: Zap,      sub: 'loaded',                  tint: 'text-amber-300 bg-amber-500/10 border-amber-500/20' },
+          ].map(({ label, value, icon: Icon, sub, tint }) => (
+            <div key={label} className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl p-4 flex flex-col gap-3 hover:border-white/15 hover:-translate-y-0.5 transition-all duration-200">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-[9px] text-white/25 uppercase tracking-[0.3em]">{label}</span>
-                <Icon size={12} className="text-white/15" />
+                <div className={`w-7 h-7 rounded-lg border flex items-center justify-center ${tint}`}>
+                  <Icon size={13} />
+                </div>
+                <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.3em]">{label}</span>
               </div>
-              <p className="text-2xl font-bold text-white tracking-tight leading-none">{value}</p>
-              <p className="text-[9px] text-white/25 font-mono">{sub}</p>
+              <div>
+                <p className="text-2xl font-bold text-white tracking-tight leading-none">{value}</p>
+                <p className="text-[10px] text-white/35 font-mono mt-1.5">{sub}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -398,16 +416,16 @@ export const SummariesExpanded = memo(({
 
               {dash?.reminders && dash.reminders.length > 0 ? (
                 <div className="divide-y divide-white/[0.03]">
-                  {dash.reminders.slice(0, 4).map((r: any, i: number) => {
+                  {dash.reminders.slice(0, 4).map((r: any) => {
                     const mins = Math.ceil(r.seconds_remaining / 60);
                     return (
-                      <div key={i} className="px-5 py-2.5 flex items-center gap-3 group">
+                      <div key={r.id} className="px-5 py-2.5 flex items-center gap-3 group">
                         <Clock size={10} className="text-amber-400/40 shrink-0" />
                         <p className="text-xs text-white/55 font-light truncate flex-1">{r.message}</p>
                         <span className="shrink-0 font-mono text-[9px] text-amber-400/60 bg-amber-500/10 px-2 py-0.5 rounded-full">
                           {mins < 1 ? '<1m' : `${mins}m`}
                         </span>
-                        <button onClick={async () => { await fetch(`http://localhost:8000/api/reminders/${i}`, { method: 'DELETE' }); fetchDash(); }}
+                        <button onClick={async () => { await fetch(`http://localhost:8000/api/reminders/${r.id}`, { method: 'DELETE' }); fetchDash(); }}
                           className="shrink-0 opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-400 transition-all">×</button>
                       </div>
                     );

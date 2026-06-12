@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { User, Terminal, Database, Shield, Cpu, Wifi, WifiOff, RefreshCw, DownloadCloud, Brain, Zap, Calendar, Plus, Trash2, Link } from 'lucide-react';
+import { User, Terminal, Database, Shield, Cpu, Wifi, WifiOff, RefreshCw, DownloadCloud, Brain, Zap, Calendar, Plus, Trash2, Link, Cloud, Key, Copy, Eye, EyeOff, AlertTriangle, CheckCircle, HardDrive } from 'lucide-react';
 
 type ScreenId = 
   | 'summaries_expanded'
@@ -35,6 +35,8 @@ export const IslandSettings = ({
   setWakeWord,
   wakeWordEnabled,
   setWakeWordEnabled,
+  dynamicIslandEnabled,
+  setDynamicIslandEnabled,
   ollamaModel,
   setOllamaModel,
   ollamaBaseUrl,
@@ -64,6 +66,8 @@ export const IslandSettings = ({
   setWakeWord: (v: string) => void,
   wakeWordEnabled: boolean,
   setWakeWordEnabled: (v: boolean) => void,
+  dynamicIslandEnabled: boolean,
+  setDynamicIslandEnabled: (v: boolean) => void,
   ollamaModel: string,
   setOllamaModel: (v: string) => void,
   ollamaBaseUrl: string,
@@ -74,11 +78,28 @@ export const IslandSettings = ({
   setMeetingRetentionDays: (v: number) => void,
   onSync: () => void
 }) => {
-  const [activeTab, setActiveTab] = useState<'System_Core' | 'Identity' | 'Security' | 'Calendar'>('System_Core');
+  const [activeTab, setActiveTab] = useState<'System_Core' | 'Identity' | 'Security' | 'Calendar' | 'Backup'>('System_Core');
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
   const [checkingOllama, setCheckingOllama] = useState(false);
   const [backupStatus, setBackupStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [profile, setProfile] = useState<any>(null);
+
+  // ── Cloud backup state ────────────────────────────────────────────────────────
+  const [cloudBackupInfo, setCloudBackupInfo]         = useState<any>(null);
+  const [cloudBackupList, setCloudBackupList]         = useState<any[]>([]);
+  const [cloudBackupOp, setCloudBackupOp]             = useState<'idle'|'running'|'done'|'error'>('idle');
+  const [cloudOpMsg, setCloudOpMsg]                   = useState('');
+  const [showSetup, setShowSetup]                     = useState(false);
+  const [mnemonic, setMnemonic]                       = useState('');
+  const [showMnemonic, setShowMnemonic]               = useState(false);
+  const [mnemonicGenLoading, setMnemonicGenLoading]   = useState(false);
+  const [providerType, setProviderType]               = useState<'s3'|'gdrive'|'dropbox'|'https'>('s3');
+  const [backupInterval, setBackupInterval]           = useState(24);
+  const [s3Cfg, setS3Cfg] = useState({ bucket: '', endpoint_url: '', region: 'us-east-1', access_key: '', secret_key: '' });
+  const [httpsCfg, setHttpsCfg]                       = useState({ url: '', auth_header: '' });
+  const [restoreFile, setRestoreFile]                 = useState('');
+  const [restoreMnemonic, setRestoreMnemonic]         = useState('');
+  const [showRestoreMnemonic, setShowRestoreMnemonic] = useState(false);
 
   useEffect(() => {
     fetch('http://localhost:8000/api/profile')
@@ -86,6 +107,19 @@ export const IslandSettings = ({
       .then(d => d && setProfile(d))
       .catch(() => {});
   }, []);
+
+  // Load cloud backup status + list whenever the Backup tab is opened
+  useEffect(() => {
+    if (activeTab !== 'Backup') return;
+    fetch('http://localhost:8000/api/backup/status')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setCloudBackupInfo(d); })
+      .catch(() => {});
+    fetch('http://localhost:8000/api/backup/list')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.backups) setCloudBackupList(d.backups); })
+      .catch(() => {});
+  }, [activeTab]);
 
   const triggerBackup = async () => {
     setBackupStatus('running');
@@ -118,11 +152,80 @@ export const IslandSettings = ({
     if (activeModel === 'Ollama_Local') checkOllama();
   }, [activeModel]);
 
+  const generateMnemonic = async () => {
+    setMnemonicGenLoading(true);
+    try {
+      const r = await fetch('http://localhost:8000/api/backup/generate-mnemonic', { method: 'POST' });
+      const d = await r.json();
+      if (r.ok) { setMnemonic(d.mnemonic); setShowMnemonic(true); }
+      else setCloudOpMsg(d.detail || 'Failed to generate phrase');
+    } catch { setCloudOpMsg('Backend unavailable'); }
+    setMnemonicGenLoading(false);
+  };
+
+  const setupCloudBackup = async () => {
+    if (!mnemonic.trim()) return;
+    const cfg = providerType === 's3' ? s3Cfg : providerType === 'https' ? httpsCfg : {};
+    setCloudBackupOp('running'); setCloudOpMsg('');
+    try {
+      const r = await fetch('http://localhost:8000/api/backup/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mnemonic: mnemonic.trim(), provider: providerType, provider_config: cfg, interval_hours: backupInterval }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Backup configured');
+        setShowSetup(false);
+        try {
+          const st = await fetch('http://localhost:8000/api/backup/status').then(x => x.json());
+          setCloudBackupInfo(st);
+        } catch { /* status refresh is best-effort */ }
+      } else {
+        setCloudBackupOp('error'); setCloudOpMsg(d.detail || 'Setup failed');
+      }
+    } catch { setCloudBackupOp('error'); setCloudOpMsg('Backend unavailable'); }
+    setTimeout(() => setCloudBackupOp('idle'), 4000);
+  };
+
+  const runCloudBackupNow = async () => {
+    setCloudBackupOp('running'); setCloudOpMsg('');
+    try {
+      const r = await fetch('http://localhost:8000/api/backup/now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const d = await r.json();
+      if (r.ok) { setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Backup started'); }
+      else { setCloudBackupOp('error'); setCloudOpMsg(d.detail || 'Backup failed'); }
+    } catch { setCloudBackupOp('error'); setCloudOpMsg('Backend unavailable'); }
+    setTimeout(() => { setCloudBackupOp('idle'); setCloudOpMsg(''); }, 5000);
+  };
+
+  const runCloudRestore = async () => {
+    if (!restoreFile || !restoreMnemonic.trim()) return;
+    setCloudBackupOp('running'); setCloudOpMsg('Restoring…');
+    try {
+      const r = await fetch('http://localhost:8000/api/backup/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: restoreFile, mnemonic: restoreMnemonic.trim() }),
+      });
+      const d = await r.json();
+      if (r.ok) { setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Restore complete — restart Primnox'); }
+      else { setCloudBackupOp('error'); setCloudOpMsg(d.detail || 'Restore failed'); }
+    } catch { setCloudBackupOp('error'); setCloudOpMsg('Backend unavailable'); }
+    setTimeout(() => { setCloudBackupOp('idle'); setCloudOpMsg(''); }, 6000);
+  };
+
+  const disableCloudBackup = async () => {
+    await fetch('http://localhost:8000/api/backup/disable', { method: 'POST' });
+    setCloudBackupInfo(null); setShowSetup(false); setMnemonic('');
+  };
+
   const tabs = [
     { id: 'System_Core', label: 'System_Core', icon: Cpu },
     { id: 'Identity', label: 'Identity', icon: User },
     { id: 'Security', label: 'Security', icon: Shield },
     { id: 'Calendar', label: 'Calendar', icon: Calendar },
+    { id: 'Backup', label: 'Backup', icon: Cloud },
   ] as const;
 
   // ── Calendar add-form state ──────────────────────────────────────────────
@@ -329,6 +432,28 @@ export const IslandSettings = ({
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Dynamic Island toggle (#13) */}
+                  <div className="bg-black/40 border border-white/5 p-4 rounded-xl flex items-center justify-between gap-6">
+                    <div className="space-y-1 min-w-0">
+                      <label className="block font-mono text-[10px] text-white/25 uppercase tracking-[0.3em] font-bold">Dynamic_Island</label>
+                      <p className="text-[11px] text-white/30 font-light">Floating pill overlay when minimized. Off = normal minimize to taskbar.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const v = !dynamicIslandEnabled;
+                        setDynamicIslandEnabled(v);
+                        (window as any).electron?.ipcRenderer?.send('island:set-enabled', v);
+                      }}
+                      className={`shrink-0 w-32 py-3 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold border transition-all active:scale-95 cursor-pointer
+                        ${dynamicIslandEnabled
+                          ? 'bg-primary/10 border-primary/20 text-primary hover:bg-primary/20'
+                          : 'bg-white/5 border-transparent text-white/40 hover:text-white/60'}`}
+                    >
+                      {dynamicIslandEnabled ? "Enabled" : "Disabled"}
+                    </button>
                   </div>
                 </motion.section>
               )}
@@ -661,6 +786,301 @@ export const IslandSettings = ({
                           onClick={() => { setShowAddCal(false); setCalUrl(''); setCalName(''); }}
                           className="px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white/20 hover:text-white/50 transition-colors"
                         >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </motion.section>
+              )}
+
+              {activeTab === 'Backup' && (
+                <motion.section
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="space-y-6"
+                >
+                  {/* Status banner */}
+                  {cloudBackupInfo?.enabled ? (
+                    <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                      <CheckCircle size={14} className="text-emerald-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-mono text-[10px] text-emerald-300 uppercase tracking-widest font-bold">Cloud_Backup_Active</p>
+                        <p className="text-[10px] text-white/30 font-mono mt-0.5">
+                          Provider: <span className="text-white/50">{cloudBackupInfo.provider}</span>
+                          {cloudBackupInfo.last_sync && <> · Last sync: <span className="text-white/50">{new Date(cloudBackupInfo.last_sync).toLocaleString()}</span></>}
+                          {cloudBackupInfo.key_unlocked && <> · Key_Unlocked</>}
+                        </p>
+                      </div>
+                      <button
+                        onClick={disableCloudBackup}
+                        className="shrink-0 font-mono text-[9px] text-red-400/50 hover:text-red-400 uppercase tracking-widest transition-colors"
+                      >
+                        Disable
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                      <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-mono text-[10px] text-amber-300 uppercase tracking-widest font-bold">Cloud_Backup_Not_Configured</p>
+                        <p className="text-[10px] text-white/30 mt-0.5">
+                          Your data is only saved locally. Set up cloud backup to protect against data loss.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Op message */}
+                  {cloudOpMsg && (
+                    <p className={`text-[11px] font-mono px-1 ${cloudBackupOp === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {cloudOpMsg}
+                    </p>
+                  )}
+
+                  {/* Backup Now + Test Connection (when configured) */}
+                  {cloudBackupInfo?.enabled && !showSetup && (
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={runCloudBackupNow}
+                        disabled={cloudBackupOp === 'running'}
+                        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95 border ${
+                          cloudBackupOp === 'done'    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                          cloudBackupOp === 'error'   ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                          cloudBackupOp === 'running' ? 'bg-white/5 text-white/30 border-white/10' :
+                          'bg-primary/10 text-primary border-primary/20 hover:bg-primary hover:text-black'
+                        }`}
+                      >
+                        <Cloud size={13} />
+                        {cloudBackupOp === 'running' ? 'Uploading…' : cloudBackupOp === 'done' ? 'Done ✓' : 'Backup_Now'}
+                      </button>
+                      <button
+                        onClick={() => setShowSetup(true)}
+                        className="px-4 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white/25 hover:text-white/60 border border-white/5 hover:border-white/20 transition-all"
+                      >
+                        Reconfigure
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Setup panel */}
+                  {(!cloudBackupInfo?.enabled || showSetup) && (
+                    <div className="space-y-5 p-5 bg-black/30 border border-white/10 rounded-xl">
+                      <p className="font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">
+                        {showSetup ? 'Reconfigure_Backup' : 'Setup_Cloud_Backup'}
+                      </p>
+
+                      {/* Mnemonic */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Seed_Phrase (12 words)</label>
+                          <a
+                            href="https://seed.primnox.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-mono text-[9px] text-primary/60 hover:text-primary transition-colors uppercase tracking-widest"
+                          >
+                            Get phrase at seed.primnox.com ↗
+                          </a>
+                        </div>
+                        <div className="relative">
+                          <Key size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 pointer-events-none" />
+                          <input
+                            type={showMnemonic ? 'text' : 'password'}
+                            value={mnemonic}
+                            onChange={e => setMnemonic(e.target.value)}
+                            placeholder="word1 word2 word3 … word12"
+                            className="w-full bg-black/60 border border-white/10 rounded-xl py-3 pl-10 pr-20 font-mono text-[11px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
+                          />
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                            <button type="button" onClick={() => setShowMnemonic(v => !v)} className="text-white/20 hover:text-white/60 transition-colors">
+                              {showMnemonic ? <EyeOff size={13} /> : <Eye size={13} />}
+                            </button>
+                            {mnemonic && (
+                              <button type="button" onClick={() => navigator.clipboard.writeText(mnemonic)} className="text-white/20 hover:text-primary transition-colors" title="Copy">
+                                <Copy size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={generateMnemonic}
+                            disabled={mnemonicGenLoading}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl font-mono text-[9px] uppercase tracking-widest bg-white/5 text-white/30 border border-white/10 hover:text-white/60 hover:bg-white/10 transition-all active:scale-95 disabled:opacity-40"
+                          >
+                            <RefreshCw size={11} className={mnemonicGenLoading ? 'animate-spin' : ''} />
+                            Generate New Phrase
+                          </button>
+                          <p className="text-[9px] text-white/20 font-mono italic">
+                            Write it down — it cannot be recovered.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Provider selector */}
+                      <div className="space-y-3">
+                        <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Storage_Provider</label>
+                        <div className="flex gap-2 flex-wrap">
+                          {(['s3', 'gdrive', 'dropbox', 'https'] as const).map(t => (
+                            <button key={t} type="button" onClick={() => setProviderType(t)}
+                              className={`px-3 py-1.5 rounded-lg font-mono text-[9px] uppercase tracking-widest font-bold border transition-all ${
+                                providerType === t ? 'bg-primary/20 text-primary border-primary/30' : 'text-white/20 border-white/10 hover:text-white/50'
+                              }`}
+                            >
+                              {t === 's3' ? 'S3 / B2 / R2' : t === 'gdrive' ? 'Google Drive' : t === 'dropbox' ? 'Dropbox' : 'Self-Hosted'}
+                            </button>
+                          ))}
+                        </div>
+                        {(providerType === 'gdrive' || providerType === 'dropbox') && (
+                          <p className="text-[9px] text-amber-400/60 font-mono italic">
+                            {providerType === 'gdrive' ? 'Requires google-api-python-client. Use OAuth token from Google Cloud Console.' : 'Requires Dropbox SDK. Coming soon — use S3 or self-hosted for now.'}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* S3 config */}
+                      {providerType === 's3' && (
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            { key: 'bucket',       label: 'Bucket Name',    placeholder: 'my-primnox-backup', pw: false },
+                            { key: 'endpoint_url', label: 'Endpoint URL',   placeholder: 'https://s3.wasabisys.com (blank for AWS)', pw: false },
+                            { key: 'region',       label: 'Region',         placeholder: 'us-east-1', pw: false },
+                            { key: 'access_key',   label: 'Access Key ID',  placeholder: 'AKIAIOSFODNN7EXAMPLE', pw: false },
+                            { key: 'secret_key',   label: 'Secret Key',     placeholder: '••••••••', pw: true },
+                          ].map(({ key, label, placeholder, pw }) => (
+                            <div key={key} className={`space-y-1 ${key === 'endpoint_url' || key === 'secret_key' ? 'col-span-2' : ''}`}>
+                              <label className="font-mono text-[8px] text-white/20 uppercase tracking-widest">{label}</label>
+                              <input
+                                type={pw ? 'password' : 'text'}
+                                value={(s3Cfg as any)[key]}
+                                onChange={e => setS3Cfg(c => ({ ...c, [key]: e.target.value }))}
+                                placeholder={placeholder}
+                                className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[10px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* HTTPS config */}
+                      {providerType === 'https' && (
+                        <div className="space-y-3">
+                          <div className="space-y-1">
+                            <label className="font-mono text-[8px] text-white/20 uppercase tracking-widest">Server URL</label>
+                            <input
+                              type="url" value={httpsCfg.url}
+                              onChange={e => setHttpsCfg(c => ({ ...c, url: e.target.value }))}
+                              placeholder="https://myserver.com/primnox-backup"
+                              className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[10px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="font-mono text-[8px] text-white/20 uppercase tracking-widest">Auth Header (optional)</label>
+                            <input
+                              type="password" value={httpsCfg.auth_header}
+                              onChange={e => setHttpsCfg(c => ({ ...c, auth_header: e.target.value }))}
+                              placeholder="Bearer your-token"
+                              className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[10px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="space-y-1">
+                        <label className="font-mono text-[8px] text-white/20 uppercase tracking-widest">Backup Every (hours)</label>
+                        <input
+                          type="number" min={1} max={168} value={backupInterval}
+                          onChange={e => setBackupInterval(Math.max(1, parseInt(e.target.value) || 24))}
+                          className="w-24 bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[10px] focus:ring-1 focus:ring-primary outline-none"
+                        />
+                      </div>
+
+                      <div className="flex gap-3 pt-1">
+                        <button
+                          type="button"
+                          onClick={setupCloudBackup}
+                          disabled={!mnemonic.trim() || cloudBackupOp === 'running' || providerType === 'gdrive' || providerType === 'dropbox'}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-black transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                        >
+                          {cloudBackupOp === 'running' ? <RefreshCw size={12} className="animate-spin" /> : <HardDrive size={12} />}
+                          {cloudBackupOp === 'running' ? 'Saving…' : 'Save_Setup'}
+                        </button>
+                        {showSetup && (
+                          <button type="button" onClick={() => setShowSetup(false)}
+                            className="px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white/20 hover:text-white/50 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Backup list */}
+                  {cloudBackupInfo?.enabled && cloudBackupList.length > 0 && (
+                    <div className="space-y-3">
+                      <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">
+                        Remote_Backups <span className="text-primary">({cloudBackupList.length})</span>
+                      </label>
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        {cloudBackupList.map((b: any) => (
+                          <div key={b.name} className="flex items-center gap-3 px-4 py-3 bg-black/30 border border-white/5 rounded-xl group">
+                            <HardDrive size={12} className="text-white/20 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <span className="font-mono text-[10px] text-white/60 truncate block">{b.name}</span>
+                              <span className="font-mono text-[9px] text-white/20">
+                                {b.timestamp ? new Date(b.timestamp).toLocaleString() : ''}
+                                {b.size ? ` · ${Math.ceil(b.size / 1024)} KB` : ''}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setRestoreFile(b.name); }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity font-mono text-[9px] text-primary/60 hover:text-primary uppercase tracking-widest"
+                            >
+                              Restore
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Restore panel */}
+                  {cloudBackupInfo?.enabled && restoreFile && (
+                    <div className="space-y-4 p-5 bg-red-500/5 border border-red-500/20 rounded-xl">
+                      <p className="font-mono text-[10px] text-red-300 uppercase tracking-widest font-bold">Restore_From_Backup</p>
+                      <p className="text-[10px] text-white/30 font-mono">
+                        Restoring <span className="text-white/60">{restoreFile}</span> will overwrite current data. Enter your seed phrase to decrypt.
+                      </p>
+                      <div className="relative">
+                        <Key size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 pointer-events-none" />
+                        <input
+                          type={showRestoreMnemonic ? 'text' : 'password'}
+                          value={restoreMnemonic}
+                          onChange={e => setRestoreMnemonic(e.target.value)}
+                          placeholder="Enter your 12-word seed phrase…"
+                          className="w-full bg-black/60 border border-red-500/20 rounded-xl py-3 pl-10 pr-10 font-mono text-[11px] focus:ring-1 focus:ring-red-500 outline-none placeholder-white/10"
+                        />
+                        <button type="button" onClick={() => setShowRestoreMnemonic(v => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 hover:text-white/60 transition-colors">
+                          {showRestoreMnemonic ? <EyeOff size={13} /> : <Eye size={13} />}
+                        </button>
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={runCloudRestore}
+                          disabled={!restoreMnemonic.trim() || cloudBackupOp === 'running'}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                        >
+                          {cloudBackupOp === 'running' ? <RefreshCw size={12} className="animate-spin" /> : null}
+                          {cloudBackupOp === 'running' ? 'Restoring…' : 'Confirm_Restore'}
+                        </button>
+                        <button type="button" onClick={() => { setRestoreFile(''); setRestoreMnemonic(''); }}
+                          className="px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white/20 hover:text-white/50 transition-colors">
                           Cancel
                         </button>
                       </div>

@@ -32,6 +32,7 @@ DEFAULT_SETTINGS = {
     "ai_codename": "PRIMNOX",
     "vad_sensitivity": 0.5,
     "theme": "dark",
+    "dynamic_island_enabled": True,
     "wake_word": "hey primnox",
     "wake_word_enabled": True,
     "privacy_mirror_enabled": True,

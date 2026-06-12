@@ -13,7 +13,8 @@ contextBridge.exposeInMainWorld('electron', {
         // App IPC
         'friday:proactive', 'friday:reply', 'friday:clear-clipboard',
         'friday:mic-state', 'friday:state',
-        'island:set-ignore-mouse',
+        'island:set-ignore-mouse', 'island:set-enabled',
+        'run-smart-paste',
         'window-minimize', 'window-maximize', 'window-close',
       ];
       if (validChannels.includes(channel)) {

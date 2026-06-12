@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { usePrimnox } from '../hooks/usePrimnox';
+import { CommandPalette } from './components/CommandPalette';
 
 // Components
 import { Layout } from './components/Layout';
@@ -66,6 +67,7 @@ export default function App() {
     sendMessage,
     updateSettings,
     exportNotes,
+    fetchNotes,
     chatSessions,
     chatFolders,
     activeChatId,
@@ -99,6 +101,26 @@ export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('notes');
   const [status, setStatus] = useState<AiStatus>('idle');
   const [isIslandVisible, setIsIslandVisible] = useState(true);
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+
+  // Global Ctrl+K handler
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdPaletteOpen(p => !p);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const handlePaletteNavigate = useCallback((screen: ScreenId) => {
+    setCurrentScreen(screen);
+    if (screen === 'notes_icon_sidebar') setAppMode('notes');
+    if (screen === 'chat_expanded_sidebar') setAppMode('chat');
+    if (screen === 'research_workspace') setAppMode('research');
+  }, []);
 
   // Send "restore full window" to Electron (island pill logo click / restore button)
   const handleRestoreWindow = () => {
@@ -158,6 +180,7 @@ export default function App() {
   const [vadSensitivity, setVadSensitivity] = useState(0.5);
   const [wakeWord, setWakeWord] = useState('hey primnox');
   const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
+  const [dynamicIslandEnabled, setDynamicIslandEnabled] = useState(true);
   const [ollamaModel, setOllamaModel] = useState('llama3.2');
   const [ollamaBaseUrl, setOllamaBaseUrl] = useState('http://localhost:11434');
   const [calendarProviders,   setCalendarProviders]   = useState<any[]>([]);
@@ -175,6 +198,7 @@ export default function App() {
     if (settings.vad_sensitivity !== undefined) setVadSensitivity(settings.vad_sensitivity);
     if (settings.wake_word !== undefined) setWakeWord(settings.wake_word);
     if (settings.wake_word_enabled !== undefined) setWakeWordEnabled(settings.wake_word_enabled);
+    if (settings.dynamic_island_enabled !== undefined) setDynamicIslandEnabled(settings.dynamic_island_enabled);
     if (settings.ollama_model !== undefined) setOllamaModel(settings.ollama_model);
     if (settings.ollama_base_url !== undefined) setOllamaBaseUrl(settings.ollama_base_url);
     if (settings.calendar_providers !== undefined) setCalendarProviders(settings.calendar_providers);
@@ -194,6 +218,7 @@ export default function App() {
       vad_sensitivity: vadSensitivity,
       wake_word: wakeWord,
       wake_word_enabled: wakeWordEnabled,
+      dynamic_island_enabled: dynamicIslandEnabled,
       ollama_model: ollamaModel,
       ollama_base_url: ollamaBaseUrl,
       calendar_providers: calendarProviders,
@@ -258,6 +283,8 @@ export default function App() {
             setWakeWord={setWakeWord}
             wakeWordEnabled={wakeWordEnabled}
             setWakeWordEnabled={setWakeWordEnabled}
+            dynamicIslandEnabled={dynamicIslandEnabled}
+            setDynamicIslandEnabled={setDynamicIslandEnabled}
             ollamaModel={ollamaModel}
             setOllamaModel={setOllamaModel}
             ollamaBaseUrl={ollamaBaseUrl}
@@ -272,7 +299,7 @@ export default function App() {
       case 'summaries_icon_sidebar':
         return <SummariesIconSidebar onNavigate={setCurrentScreen} notes={notes} />;
       case 'notes_icon_sidebar':
-        return <NotesIconSidebar notes={notes} onExport={exportNotes} sendMessage={sendMessage} />;
+        return <NotesIconSidebar notes={notes} onExport={exportNotes} sendMessage={sendMessage} onRefresh={fetchNotes} />;
       case 'chat_expanded_sidebar':
         return (
           <ChatExpandedSidebar 
@@ -296,7 +323,7 @@ export default function App() {
       case 'meetings':
         return <MeetingsView onNavigate={setCurrentScreen} />;
       default:
-        return <SummariesExpanded onNavigate={setCurrentScreen} />;
+        return <SummariesExpanded onNavigate={setCurrentScreen} activity={activity} tasks={tasks} onTaskCompleted={fetchTasks} />;
     }
   };
 
@@ -321,6 +348,14 @@ export default function App() {
 
   return (
     <div className={`${isIslandMode ? 'bg-transparent' : 'bg-black text-on-surface selection:bg-primary/30 selection:text-white'} h-screen w-full relative`}>
+      <CommandPalette
+        isOpen={cmdPaletteOpen}
+        onClose={() => setCmdPaletteOpen(false)}
+        onNavigate={handlePaletteNavigate}
+        onNewNote={() => window.dispatchEvent(new CustomEvent('primnox:new-note'))}
+        onNewChat={createNewChat}
+        onSendMessage={(t) => sendMessage(t, activeChatId)}
+      />
       {/* Disconnect Banner — hidden in island-pill mode */}
       {connectionLost && !isIslandMode && (
         <div className="fixed top-0 left-0 right-0 z-[300] bg-red-500/90 backdrop-blur-sm text-white text-center py-3 px-6 flex items-center justify-center gap-4 shadow-lg">

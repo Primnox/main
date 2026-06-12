@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.1.0 (2026-06-12)
+
+### Meeting Recorder — Complete Overhaul
+- Recording no longer stops when you switch windows during a call. Detection now tracks whether the meeting app/tab is still alive rather than whether it is in the foreground.
+- Smarter call detection for chat apps (Discord, Teams, Slack, Skype): opening these apps without being in an active call no longer triggers recording. The recorder now requires a live UDP media stream or an active audio session before starting.
+- Per-app meeting naming: Zoom strips the "Zoom Meeting" suffix; Teams parses the topic from the title bar; Discord distinguishes voice channels (`#voice-general`), DM calls (`@username`), and server calls; Google Meet replaces raw meeting codes (`abc-defg-hij`) with "Google Meet"; BigBlueButton, Jitsi, Webex, GoToMeeting, and Skype all get their own naming logic.
+- Browser-based meetings (Google Meet, BBB, Jitsi) get a 5-minute grace period when you switch away from the tab, so brief window changes mid-call do not end the recording.
+- `pycaw` added as a Windows-only dependency for audio session detection.
+
+### Encrypted Cloud Backup System
+- Full implementation of `backup_manager.py`: AES-256-GCM encryption, BIP-39 12-word seed phrase, PBKDF2-SHA512 key derivation, `.prx` file format.
+- Providers supported: S3 (and S3-compatible: Backblaze B2, Cloudflare R2, Wasabi), Google Drive, Dropbox.
+- Background scheduler auto-backs up every 24 hours.
+- Restore validates the mnemonic checksum before decrypting.
+- Path traversal fix on the backup delete endpoint.
+
+### Dynamic Island Window Management
+- All three window-dismiss paths now handle island mode correctly:
+  - Native close button (Alt+F4, taskbar right-click): island ON folds to island pill, island OFF hides to tray and removes from taskbar.
+  - Native minimize (Win+Down, taskbar button): island ON transitions to island pill immediately.
+  - Custom close button in the React UI: same branching as native close.
+- Previously the native minimize had no handler and the custom close button always showed the island pill regardless of the island setting.
+
+### Bug Fixes
+- `reminder_manager.py`: cancelled and fired reminders now record `fired_at` so the pruning query can actually delete them. Fixed `_db_cancel_by_index` and `_db_cancel_by_id` to write `fired_at=time.time()`.
+- `backup_manager.py`: `stop_scheduler()` no longer nulls `self._thread` when the join times out, so a slow upload cannot spawn a concurrent scheduler on the next `start_scheduler()` call.
+- `backup_manager.py`: `restore()` now stores the keychain key only after the payload is fully decrypted and applied, so a failed restore does not corrupt the keychain.
+- `server.py`: `api_parse_nl_event` and all backup endpoints now use `asyncio.to_thread()` so blocking Python calls cannot stall the FastAPI event loop.
+- `CalendarView.tsx`: `doCreate` and `doUpdate` now throw on non-OK HTTP responses instead of silently swallowing failures.
+- `SummaryViews.tsx`: reminder list uses `key={r.id}` instead of `key={i}` to avoid React reconciliation bugs on delete.
+- `usePrimnox.ts`: the island IPC call now skips the initial empty-settings render to avoid a false `island:set-enabled false` signal on first load.
+- `event_manager.py`: `init_events_table()` now closes its DB connection in a `finally` block.
+
 ## v0.0.10 (2026-06-09)
 
 ### 🤖 Automation & System Intelligence

@@ -65,7 +65,7 @@ async def security_middleware(request: Request, call_next):
     if client_host not in ["127.0.0.1", "localhost", "::1"]:
         logger.critical(f"SECURITY BREACH ATTEMPT: Ingress from {client_host}. Dropping connection.")
         raise HTTPException(status_code=403, detail="Offline-First Doctrine Violation. Connection Terminated.")
-    
+
     # Host header check
     host_header = request.headers.get("host", "").lower()
     host_clean = re.sub(r':\d+$', '', host_header)
@@ -114,6 +114,29 @@ def broadcast(event_type, data):
     asyncio.run_coroutine_threadsafe(send_to_all(), loop)
 
 core.register_broadcast_callback(broadcast)
+
+# ── Wire reminders to the WS broadcast so a fired reminder reaches the frontend ─
+# Without this the reminder loop marks reminders 'fired' but the callback is None,
+# so the desktop Notification (usePrimnox handles 'reminder_triggered') never fires.
+try:
+    import reminder_manager
+    reminder_manager.set_callback(broadcast)
+except Exception as _e:
+    log.warning(f"Reminder callback wiring skipped: {_e}")
+
+# ── Auto-start backup scheduler if previously configured ──────────────────────
+try:
+    from backup_manager import backup_manager as _bm
+    _bm._auto_start()
+except Exception as _e:
+    log.warning(f"Backup auto-start skipped: {_e}")
+
+# ── Ensure local events table exists ─────────────────────────────────────────
+try:
+    from event_manager import init_events_table as _init_events
+    _init_events()
+except Exception as _e:
+    log.warning(f"Events table init skipped: {_e}")
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -528,8 +551,7 @@ async def media_control(request: Request):
 
 @app.get("/api/calendar/events")
 async def get_calendar_events(days: int = 7):
-    """Return upcoming calendar events for the next N days (default 7).
-    Delegates to CalendarIslandSkill which handles provider loading & caching."""
+    """Legacy iCal endpoint kept for backwards compatibility."""
     try:
         from skills.calendar_skill import CalendarIslandSkill
         skill  = CalendarIslandSkill()
@@ -540,6 +562,83 @@ async def get_calendar_events(days: int = 7):
         return {"events": [e.to_dict() for e in events], "count": len(events)}
     except Exception as e:
         return {"events": [], "count": 0, "error": str(e)}
+
+
+# ── Local calendar CRUD ────────────────────────────────────────────────────────
+
+@app.get("/api/events")
+async def api_list_events(start: str = "", end: str = ""):
+    from event_manager import list_events
+    return {"events": list_events(start or None, end or None)}
+
+
+@app.post("/api/events")
+async def api_create_event(request: Request):
+    data = await request.json()
+    if not data.get("title") or not data.get("start_dt") or not data.get("end_dt"):
+        raise HTTPException(status_code=400, detail="title, start_dt, end_dt are required")
+    from event_manager import create_event
+    return create_event(data)
+
+
+@app.put("/api/events/{event_id}")
+async def api_update_event(event_id: str, request: Request):
+    data = await request.json()
+    from event_manager import update_event
+    updated = update_event(event_id, data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return updated
+
+
+@app.delete("/api/events/{event_id}")
+async def api_delete_event(event_id: str):
+    from event_manager import delete_event
+    if not delete_event(event_id):
+        raise HTTPException(status_code=404, detail="Event not found")
+    return {"success": True}
+
+
+@app.post("/api/events/parse-nl")
+async def api_parse_nl_event(request: Request):
+    """Parse a natural-language event description into a structured event dict."""
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    from brain import think
+    from datetime import datetime as _dt
+    today_str = _dt.now().strftime("%A, %B %d, %Y at %H:%M")
+    prompt = (
+        f'Today is {today_str}.\n\n'
+        'Parse the following natural-language event description into a JSON object '
+        'with these exact fields (no other text, no markdown fences):\n'
+        '  title        (string)\n'
+        '  start_dt     (ISO 8601 local datetime, e.g. "2026-06-12T14:00:00")\n'
+        '  end_dt       (ISO 8601 local datetime; assume 1 h if not specified)\n'
+        '  all_day      (boolean)\n'
+        '  location     (string, empty if not mentioned)\n'
+        '  description  (string, empty if not mentioned)\n'
+        '  color        ("#6366f1" as default)\n\n'
+        f'Input: "{text}"\n\n'
+        'Respond with ONLY the JSON object.'
+    )
+    try:
+        response = await asyncio.to_thread(think, prompt)
+        content = (response.get("choices", [{}])[0]
+                           .get("message", {})
+                           .get("content", "")).strip()
+        # Strip markdown code fences if model wraps output
+        if content.startswith("```"):
+            lines = content.splitlines()
+            content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        import json as _json
+        parsed = _json.loads(content)
+        return {"event": parsed}
+    except Exception as e:
+        log.error(f"NL event parse failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/smart_paste")
@@ -571,6 +670,203 @@ async def smart_paste(request: Request):
 @app.get("/logs")
 async def get_logs(limit: int = 200, level: str = "all"):
     return get_log_buffer(limit=limit, level=level)
+
+
+# ── Backup ─────────────────────────────────────────────────────────────────────
+
+@app.get("/api/backup/status")
+async def backup_status():
+    from backup_manager import backup_manager
+    return backup_manager.status()
+
+
+@app.post("/api/backup/validate-mnemonic")
+async def backup_validate_mnemonic(body: dict):
+    """Validate a 12-word phrase against the cached custom wordlist."""
+    from backup_manager import validate_mnemonic
+    from settings_manager import load_settings
+    mnemonic = (body.get("mnemonic") or "").strip()
+    if not mnemonic:
+        raise HTTPException(400, "mnemonic is required")
+    wordlist = load_settings().get("backup_wordlist", [])
+    if not wordlist:
+        raise HTTPException(400, "Wordlist not loaded — complete onboarding first")
+    valid, err = validate_mnemonic(mnemonic, wordlist)
+    return {"valid": valid, "error": err}
+
+
+@app.post("/api/backup/setup")
+async def backup_setup(body: dict):
+    """Configure backup provider and activate the scheduler."""
+    from backup_manager import backup_manager, validate_mnemonic
+    from settings_manager import load_settings, save_settings
+
+    mnemonic       = (body.get("mnemonic") or "").strip()
+    provider       = body.get("provider", "s3")
+    provider_cfg   = body.get("provider_config", {})
+    interval_hours = int(float(body.get("interval_hours", 24)))
+
+    if not mnemonic:
+        raise HTTPException(400, "mnemonic is required")
+
+    # Validation is mandatory: the wordlist checksum is the only thing that catches
+    # a typo'd phrase. Skipping it would silently store a key that can never be
+    # reproduced from the user's real mnemonic, making the backup unrecoverable.
+    wordlist = load_settings().get("backup_wordlist", [])
+    if not wordlist:
+        raise HTTPException(400, "Wordlist not loaded — generate a mnemonic first")
+    valid, err = validate_mnemonic(mnemonic, wordlist)
+    if not valid:
+        raise HTTPException(400, f"Invalid mnemonic: {err}")
+
+    try:
+        backup_manager.setup(mnemonic, provider, provider_cfg, interval_hours)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+    return {"ok": True, "message": f"Backup configured — syncing every {interval_hours}h"}
+
+
+@app.post("/api/backup/now")
+async def backup_now(body: dict, background_tasks: BackgroundTasks):
+    """Trigger an immediate backup. Mnemonic optional if already unlocked."""
+    from backup_manager import backup_manager
+    mnemonic = (body.get("mnemonic") or "").strip() or None
+
+    def _run():
+        try:
+            filename = backup_manager.backup_now(mnemonic)
+            log.info(f"Manual backup done: {filename}")
+        except Exception as e:
+            log.error(f"Manual backup failed: {e}")
+
+    background_tasks.add_task(_run)
+    return {"ok": True, "message": "Backup started in background"}
+
+
+@app.get("/api/backup/list")
+async def backup_list():
+    from backup_manager import backup_manager
+    backups = await asyncio.to_thread(backup_manager.list_backups)
+    return {"backups": backups}
+
+
+@app.post("/api/backup/restore")
+async def backup_restore(body: dict):
+    """Download + decrypt + restore a named backup. Runs synchronously so errors propagate."""
+    from backup_manager import backup_manager
+    filename = body.get("filename", "").strip()
+    mnemonic = (body.get("mnemonic") or "").strip()
+    if not filename:
+        raise HTTPException(400, "filename is required")
+    if not mnemonic:
+        raise HTTPException(400, "mnemonic is required")
+
+    try:
+        await asyncio.to_thread(backup_manager.restore, filename, mnemonic)
+    except Exception as e:
+        log.error(f"Restore failed: {e}")
+        raise HTTPException(500, str(e))
+
+    return {"ok": True, "message": "Restore complete — restart Primnox for changes to take effect"}
+
+
+@app.delete("/api/backup/{filename}")
+async def backup_delete(filename: str):
+    import re as _re
+    if not _re.fullmatch(r'[A-Za-z0-9_\-]+\.prx', filename):
+        raise HTTPException(400, "Invalid backup filename")
+    from backup_manager import backup_manager
+    try:
+        await asyncio.to_thread(backup_manager.delete_backup, filename)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/backup/test-connection")
+async def backup_test_connection():
+    from backup_manager import backup_manager
+    ok = await asyncio.to_thread(backup_manager.test_connection)
+    return {"ok": ok, "message": "Connected" if ok else "Connection failed — check credentials"}
+
+
+@app.post("/api/backup/disable")
+async def backup_disable():
+    from backup_manager import backup_manager
+    backup_manager.disable()
+    return {"ok": True}
+
+
+@app.post("/api/backup/wordlist")
+async def backup_store_wordlist(body: dict):
+    """
+    Store the custom Primnox wordlist (fetched from seed.primnox.com during onboarding).
+    Expects: {"wordlist": ["word1", "word2", ...]}  — exactly 2048 words.
+    """
+    from settings_manager import load_settings, save_settings
+    wordlist = body.get("wordlist", [])
+    if len(wordlist) != 2048:
+        raise HTTPException(400, f"Wordlist must have 2048 words, got {len(wordlist)}")
+    s = load_settings()
+    s["backup_wordlist"] = wordlist
+    save_settings(s)
+    return {"ok": True}
+
+
+@app.post("/api/backup/generate-mnemonic")
+async def backup_generate_mnemonic():
+    """
+    Generate a fresh 12-word BIP-39-style mnemonic.
+
+    Uses the stored custom Primnox wordlist if available (see POST /api/backup/wordlist).
+    Falls back to fetching from seed.primnox.com, then to the BIP-39 English wordlist
+    from the canonical GitHub source. The fetched list is cached to settings so subsequent
+    calls work offline.
+    """
+    from backup_manager import generate_mnemonic
+    from settings_manager import load_settings, save_settings
+
+    s = load_settings()
+    wordlist: list[str] = s.get("backup_wordlist", [])
+
+    if len(wordlist) != 2048:
+        # Try to fetch and cache from remote sources
+        fetched: list[str] = []
+        urls = [
+            "https://seed.primnox.com/wordlist.txt",
+            "https://raw.githubusercontent.com/trezor/python-mnemonic/master/src/mnemonic/wordlist/english.txt",
+        ]
+        for url in urls:
+            try:
+                import httpx
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    r = await client.get(url, timeout=8)
+                if r.status_code == 200:
+                    words = [w.strip() for w in r.text.splitlines()
+                             if w.strip() and not w.startswith("#")]
+                    if len(words) >= 2048:
+                        fetched = words[:2048]
+                        break
+            except Exception:
+                continue
+
+        if len(fetched) == 2048:
+            wordlist = fetched
+            s["backup_wordlist"] = wordlist
+            save_settings(s)
+        else:
+            raise HTTPException(
+                503,
+                "Wordlist unavailable — visit seed.primnox.com or check your internet connection",
+            )
+
+    try:
+        phrase = generate_mnemonic(wordlist)
+        return {"mnemonic": phrase}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 
 @app.get("/notes")
 async def get_notes():
@@ -1342,11 +1638,11 @@ async def create_reminder(request: Request):
     return {"status": "ok", "message": message, "delay_secs": delay}
 
 
-@app.delete("/api/reminders/{index}")
-async def delete_reminder(index: int):
-    """Cancel a pending reminder by its index in the pending list."""
-    from reminder_manager import cancel_reminder
-    ok = cancel_reminder(index)
+@app.delete("/api/reminders/{reminder_id}")
+async def delete_reminder(reminder_id: str):
+    """Cancel a pending reminder by its stable id."""
+    from reminder_manager import cancel_reminder_by_id
+    ok = cancel_reminder_by_id(reminder_id)
     return {"status": "ok" if ok else "not_found"}
 
 

@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Primnox: The AI That Actually Gives A Damn.</title>
+  <meta name="description" content="Your personal OS. AI with personality, unified calendar + tasks + notes, privacy-first architecture. Windows Beta available now." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #070707;
+      --text:    #f0ede6;
+      --muted:   rgba(240,237,230,0.36);
+      --border:  rgba(240,237,230,0.09);
+      --primary: #c3c0ff;
+      --accent:  #ffb695;
+      --green:   #34d399;
+      --display: 'Syne', system-ui, sans-serif;
+      --body:    'DM Sans', system-ui, sans-serif;
+      --mono:    'JetBrains Mono', ui-monospace, monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--body);
+      overflow-x: hidden;
+      cursor: none;
+    }
+
+    ::selection { background: var(--primary); color: #0d0099; }
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(240,237,230,0.12); }
+
+    /* ─── CURSOR ─── */
+    .cursor {
+      position: fixed; top: 0; left: 0; z-index: 9999;
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text); pointer-events: none;
+      will-change: transform;
+      transition: width 0.25s cubic-bezier(0.34,1.56,0.64,1),
+                  height 0.25s cubic-bezier(0.34,1.56,0.64,1),
+                  background 0.2s, border-radius 0.25s;
+    }
+    .cursor.big {
+      width: 44px; height: 44px;
+      background: transparent;
+      border: 1px solid rgba(240,237,230,0.5);
+    }
+    .cursor.purple { background: var(--primary); width: 10px; height: 10px; }
+    @media (hover: none) { .cursor { display: none; } body { cursor: auto; } }
+
+    /* ─── NAV ─── */
+    nav {
+      position: fixed; inset: 0 0 auto;
+      z-index: 200;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 26px 44px;
+      transition: padding 0.3s;
+    }
+    nav.slim { padding: 16px 44px; border-bottom: 1px solid var(--border); background: rgba(7,7,7,0.85); backdrop-filter: blur(16px); }
+    .nav-logo {
+      font-family: var(--display); font-size: 13px; font-weight: 700;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--text); text-decoration: none;
+      display: inline-flex; align-items: center; gap: 9px;
+    }
+    .logo-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text); animation: blink 3s ease-in-out infinite;
+    }
+    .nav-links {
+      display: flex; align-items: center; gap: 36px; list-style: none;
+    }
+    .nav-links a {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--muted); text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-dl {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--bg); background: var(--text);
+      padding: 10px 20px; border-radius: 100px; text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .nav-dl:hover { opacity: 0.8; }
+    @media (max-width: 700px) {
+      nav, nav.slim { padding: 20px 24px; }
+      .nav-links { display: none; }
+    }
+
+    /* ─── HERO ─── */
+    .hero {
+      min-height: 100svh;
+      padding: 0 44px;
+      display: flex; flex-direction: column;
+      border-bottom: 1px solid var(--border);
+    }
+    .hero-body {
+      flex: 1; display: flex; flex-direction: column;
+      justify-content: flex-end; padding-bottom: 56px; padding-top: 100px;
+    }
+    .hero-eyebrow {
+      display: flex; align-items: center; gap: 14px; margin-bottom: 44px;
+    }
+    .eyebrow-num {
+      font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.2em;
+    }
+    .eyebrow-pill {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--primary);
+      border: 1px solid rgba(195,192,255,0.28); border-radius: 100px; padding: 4px 13px;
+    }
+    .hero-h1 {
+      font-family: var(--display); font-size: clamp(58px,10vw,152px);
+      font-weight: 800; line-height: 0.9; letter-spacing: -0.035em;
+      text-transform: uppercase; margin-bottom: 56px;
+    }
+    .hero-h1 i {
+      font-style: italic; font-weight: 400;
+      color: var(--primary);
+    }
+    .hero-split {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 32px; flex-wrap: wrap;
+    }
+    .hero-desc {
+      font-size: clamp(14px,1.4vw,17px); color: var(--muted);
+      line-height: 1.78; max-width: 360px;
+    }
+    .hero-btns { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .btn-solid {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--bg); background: var(--text);
+      padding: 14px 26px; border-radius: 100px; text-decoration: none;
+      transition: opacity 0.2s; white-space: nowrap; display: inline-block;
+    }
+    .btn-solid:hover { opacity: 0.82; }
+    .btn-text {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--muted); background: none;
+      border: none; display: inline-flex; align-items: center; gap: 7px;
+      cursor: none; transition: color 0.2s; padding: 14px 0;
+    }
+    .btn-text:hover { color: var(--text); }
+    .hero-foot {
+      display: flex; align-items: center;
+      padding: 22px 0; border-top: 1px solid var(--border);
+      gap: 20px;
+    }
+    .hero-foot-label {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--muted); white-space: nowrap;
+    }
+    .hero-foot-line { flex: 1; height: 1px; background: var(--border); }
+    .hero-foot-arrow {
+      width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; color: var(--muted); animation: bounce 2.4s ease-in-out infinite;
+    }
+
+    /* ─── MARQUEE ─── */
+    .mq-wrap {
+      overflow: hidden; border-bottom: 1px solid var(--border);
+      padding: 14px 0;
+    }
+    .mq-track {
+      display: flex; width: max-content;
+      animation: ticker 26s linear infinite;
+    }
+    .mq-wrap.rev .mq-track { animation-direction: reverse; }
+    .mq-item {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.22em;
+      text-transform: uppercase; color: var(--muted);
+      padding: 0 30px; white-space: nowrap;
+      display: inline-flex; align-items: center;
+    }
+    .mq-item::after { content: '·'; margin-left: 30px; color: var(--primary); }
+
+    /* ─── SECTION SHELL ─── */
+    .sec { border-bottom: 1px solid var(--border); padding: 0 44px; }
+    .sec-head {
+      display: grid; grid-template-columns: 60px 1fr;
+      padding: 52px 0 64px; border-bottom: 1px solid var(--border); gap: 0;
+    }
+    .sec-n {
+      font-family: var(--mono); font-size: 10px; color: var(--muted);
+      letter-spacing: 0.2em; padding-top: 10px;
+    }
+    .sec-t {
+      font-family: var(--display); font-size: clamp(42px,7vw,108px);
+      font-weight: 800; line-height: 0.9; letter-spacing: -0.033em;
+      text-transform: uppercase;
+    }
+    .sec-t i { font-style: italic; font-weight: 400; }
+    @media (max-width: 700px) {
+      .hero, .sec { padding: 0 24px; }
+      .sec-head { grid-template-columns: 44px 1fr; }
+    }
+
+    /* ─── FEATURES ─── */
+    .feat-row {
+      display: grid; grid-template-columns: 60px 1fr 40px;
+      gap: 0; padding: 32px 0;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.2s;
+    }
+    .feat-row:last-child { border-bottom: none; }
+    .feat-row:hover { background: rgba(255,255,255,0.018); }
+    .feat-n {
+      font-family: var(--mono); font-size: 10px; color: var(--muted);
+      letter-spacing: 0.18em; padding-top: 6px;
+    }
+    .feat-body { padding-right: 48px; }
+    .feat-title {
+      font-family: var(--display); font-size: clamp(19px,2.4vw,32px);
+      font-weight: 700; letter-spacing: -0.01em; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .feat-soon {
+      font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--accent);
+      border: 1px solid rgba(255,182,149,0.22); border-radius: 100px; padding: 3px 10px;
+    }
+    .feat-desc { font-size: 14px; color: var(--muted); line-height: 1.75; max-width: 580px; }
+    .feat-arr {
+      font-size: 18px; color: var(--border); padding-top: 4px;
+      text-align: right; transition: color 0.2s, transform 0.2s;
+    }
+    .feat-row:hover .feat-arr { color: var(--muted); transform: translate(3px,-3px); }
+    @media (max-width: 700px) {
+      .feat-row { grid-template-columns: 44px 1fr; }
+      .feat-arr { display: none; }
+      .feat-body { padding-right: 0; }
+    }
+
+    /* ─── DEMO ─── */
+    .demo-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    }
+    .demo-l {
+      border-right: 1px solid var(--border);
+      padding: 52px 52px 52px 0;
+      display: flex; flex-direction: column;
+    }
+    .demo-r { padding: 52px 0 52px 52px; display: flex; flex-direction: column; }
+    .demo-intro { font-size: 15px; color: var(--muted); line-height: 1.8; margin-bottom: 40px; }
+    .dp-list { display: flex; flex-direction: column; gap: 8px; }
+    .dp-btn {
+      font-family: var(--body); font-size: 13px; font-weight: 400;
+      color: var(--muted); background: none;
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 13px 18px; text-align: left; cursor: none;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .dp-btn:hover:not(:disabled) {
+      border-color: rgba(195,192,255,0.3);
+      color: var(--text); background: rgba(195,192,255,0.03);
+    }
+    .dp-btn:disabled { opacity: 0.22; }
+    .dp-reset {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--muted); background: none;
+      border: none; cursor: none; margin-top: 20px;
+      display: none; transition: color 0.2s; text-align: left;
+    }
+    .dp-reset:hover { color: var(--text); }
+    .dp-reset.on { display: block; }
+
+    .convo { display: flex; flex-direction: column; gap: 24px; overflow-y: auto; flex: 1; }
+    .convo::-webkit-scrollbar { display: none; }
+    .cv-msg { opacity: 0; transform: translateY(8px); transition: opacity 0.35s ease, transform 0.35s ease; }
+    .cv-msg.vis { opacity: 1; transform: none; }
+    .cv-who {
+      font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em;
+      text-transform: uppercase; margin-bottom: 5px;
+    }
+    .cv-who.you { color: var(--muted); }
+    .cv-who.ai  { color: var(--primary); }
+    .cv-text { font-size: 14px; line-height: 1.75; }
+    .cv-text.you { color: rgba(240,237,230,0.55); }
+    .cv-text.ai  { color: var(--text); }
+    .cv-text.roast { color: var(--primary); }
+    .cv-hr { height: 1px; background: var(--border); }
+    .cv-typing { display: none; }
+    .cv-typing.on { display: block; }
+    .td-row { display: flex; gap: 4px; padding-top: 6px; }
+    .td { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); animation: tdance 1.2s ease-in-out infinite; }
+    .td:nth-child(2){ animation-delay:.18s }
+    .td:nth-child(3){ animation-delay:.36s }
+
+    @media (max-width: 800px) {
+      .demo-grid { grid-template-columns: 1fr; }
+      .demo-l { border-right: none; border-bottom: 1px solid var(--border); padding: 40px 0; }
+      .demo-r { padding: 40px 0 52px; }
+    }
+
+    /* ─── PRIVACY ─── */
+    .priv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; padding: 60px 0; }
+    .priv-l { border-right: 1px solid var(--border); padding-right: 56px; }
+    .priv-r { padding-left: 56px; }
+    .priv-desc { font-size: 15px; color: var(--muted); line-height: 1.8; max-width: 420px; margin-bottom: 36px; }
+    .priv-note {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: rgba(255,182,149,0.05); border: 1px solid rgba(255,182,149,0.18);
+      border-radius: 12px; padding: 18px 20px;
+      font-size: 13px; color: rgba(255,182,149,0.85); line-height: 1.65;
+    }
+    .priv-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); margin-top: 40px; }
+    .pstat { background: var(--bg); padding: 28px 22px; }
+    .pstat-n { font-family: var(--display); font-size: 32px; font-weight: 800; margin-bottom: 7px; }
+    .pstat-t { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+
+    .priv-steps { display: flex; flex-direction: column; }
+    .priv-step {
+      display: grid; grid-template-columns: 40px 1fr;
+      gap: 0; padding: 26px 0; border-bottom: 1px solid var(--border);
+    }
+    .priv-step:last-child { border-bottom: none; }
+    .ps-n { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.18em; padding-top: 4px; }
+    .ps-t { font-family: var(--display); font-size: 17px; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .ps-t .cs-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; color: var(--accent); }
+    .ps-s { font-size: 13px; color: var(--muted); line-height: 1.7; }
+
+    @media (max-width: 800px) {
+      .priv-grid { grid-template-columns: 1fr; padding: 40px 0; }
+      .priv-l { border-right: none; border-bottom: 1px solid var(--border); padding-right: 0; padding-bottom: 48px; }
+      .priv-r { padding-left: 0; padding-top: 48px; }
+    }
+
+    /* ─── DOWNLOAD ─── */
+    .dl-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--border); }
+    .dl-card {
+      background: var(--bg); padding: 44px 36px;
+      display: flex; flex-direction: column; justify-content: space-between;
+      min-height: 220px; transition: background 0.2s;
+    }
+    .dl-card:not(.off):hover { background: rgba(255,255,255,0.018); }
+    .dl-card.off { opacity: 0.32; pointer-events: none; }
+    .dl-icon-os { font-size: 30px; margin-bottom: 10px; }
+    .dl-os { font-family: var(--display); font-size: 26px; font-weight: 700; }
+    .dl-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; margin-top: 12px; }
+    .dl-tag.avail { color: var(--green); }
+    .dl-tag.soon  { color: var(--accent); }
+    .dl-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--bg); background: var(--text);
+      padding: 11px 20px; border-radius: 100px; text-decoration: none;
+      margin-top: 24px; align-self: flex-start; transition: opacity 0.2s;
+    }
+    .dl-btn:hover { opacity: 0.82; }
+    .dl-footer {
+      padding: 20px 0 0; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+    }
+    .dl-footer a {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--muted); text-decoration: none;
+      transition: color 0.2s;
+    }
+    .dl-footer a:hover { color: var(--text); }
+    .dl-footer-sep { color: var(--border); font-size: 16px; }
+    @media (max-width: 700px) { .dl-grid { grid-template-columns: 1fr; } }
+
+    /* ─── FOOTER ─── */
+    footer {
+      padding: 40px 44px;
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;
+      border-top: 1px solid var(--border);
+    }
+    .f-logo {
+      font-family: var(--display); font-size: 12px; font-weight: 700;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--text); text-decoration: none;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .f-links { display: flex; gap: 24px; list-style: none; flex-wrap: wrap; }
+    .f-links a {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--muted); text-decoration: none; transition: color 0.2s;
+    }
+    .f-links a:hover { color: var(--text); }
+    .f-copy { font-family: var(--mono); font-size: 10px; color: var(--muted); opacity: 0.4; letter-spacing: 0.1em; }
+    @media (max-width: 600px) { footer { flex-direction: column; align-items: flex-start; padding: 32px 24px; } }
+
+    /* ─── ANIMATIONS ─── */
+    @keyframes blink    { 0%,100%{opacity:1}50%{opacity:0.2} }
+    @keyframes ticker   { from{transform:translateX(0)} to{transform:translateX(-50%)} }
+    @keyframes bounce   { 0%,100%{transform:translateY(0)} 50%{transform:translateY(5px)} }
+    @keyframes tdance   { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
+    @keyframes fadeUp   { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:none} }
+
+    .ri { opacity: 0; transform: translateY(22px); transition: opacity 0.65s cubic-bezier(0.16,1,0.3,1), transform 0.65s cubic-bezier(0.16,1,0.3,1); }
+    .ri.vis { opacity: 1; transform: none; }
+    .d1 { transition-delay: 0.06s; }
+    .d2 { transition-delay: 0.12s; }
+    .d3 { transition-delay: 0.18s; }
+    .d4 { transition-delay: 0.24s; }
+    .d5 { transition-delay: 0.30s; }
+    .d6 { transition-delay: 0.36s; }
+  </style>
+</head>
+<body>
+
+<!-- CURSOR -->
+<div class="cursor" id="cursor"></div>
+
+<!-- NAV -->
+<nav id="nav">
+  <a href="#" class="nav-logo">
+    <div class="logo-dot"></div>
+    Primnox
+  </a>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#demo">Demo</a></li>
+    <li><a href="#privacy">Privacy</a></li>
+    <li><a href="#download">Download</a></li>
+  </ul>
+  <a href="https://github.com/Cyanexani/primnox_extension/releases" class="nav-dl" target="_blank" rel="noopener">↓ Beta</a>
+</nav>
+
+<!-- ── HERO ── -->
+<section class="hero">
+  <div class="hero-body">
+    <div class="hero-eyebrow">
+      <span class="eyebrow-num">00 /</span>
+      <span class="eyebrow-pill">v0.1.0 · Windows Beta</span>
+    </div>
+    <h1 class="hero-h1">
+      The AI<br>That <i>Actually</i><br>Gives A Damn.
+    </h1>
+    <div class="hero-split">
+      <p class="hero-desc">Your personal OS, unified calendar, tasks, notes, and AI with actual personality. Privacy-first architecture in active development.</p>
+      <div class="hero-btns">
+        <a href="https://github.com/Cyanexani/primnox_extension/releases" class="btn-solid" target="_blank" rel="noopener">
+          Download for Windows ↗
+        </a>
+        <button class="btn-text" onclick="document.getElementById('demo').scrollIntoView({behavior:'smooth'})">
+          See demo <span>→</span>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="hero-foot">
+    <span class="hero-foot-label">Scroll to explore</span>
+    <div class="hero-foot-line"></div>
+    <div class="hero-foot-arrow">↓</div>
+  </div>
+</section>
+
+<!-- ── MARQUEE 1 ── -->
+<div class="mq-wrap">
+  <div class="mq-track">
+    <span class="mq-item">AI with personality</span>
+    <span class="mq-item">Calendar + Tasks + Notes</span>
+    <span class="mq-item">Knowledge graph</span>
+    <span class="mq-item">BIP-39 encrypted backups</span>
+    <span class="mq-item">Smart Paste</span>
+    <span class="mq-item">Privacy-first architecture</span>
+    <span class="mq-item">Open source core</span>
+    <span class="mq-item">Windows Beta now</span>
+    <span class="mq-item">AI with personality</span>
+    <span class="mq-item">Calendar + Tasks + Notes</span>
+    <span class="mq-item">Knowledge graph</span>
+    <span class="mq-item">BIP-39 encrypted backups</span>
+    <span class="mq-item">Smart Paste</span>
+    <span class="mq-item">Privacy-first architecture</span>
+    <span class="mq-item">Open source core</span>
+    <span class="mq-item">Windows Beta now</span>
+  </div>
+</div>
+
+<!-- ── FEATURES ── -->
+<section class="sec" id="features">
+  <div class="sec-head">
+    <div class="sec-n ri">01 /</div>
+    <h2 class="sec-t ri d1">What We<br><i>Built.</i></h2>
+  </div>
+
+  <div class="feat-row ri">
+    <div class="feat-n">01</div>
+    <div class="feat-body">
+      <div class="feat-title">AI with Personality</div>
+      <div class="feat-desc">Not a yes-bot. Primnox pushes back when it matters, roasts you when you're being dramatic, and actually helps you build a life, not just tick boxes. Think the one cool friend who gives real advice.</div>
+    </div>
+    <div class="feat-arr">↗</div>
+  </div>
+
+  <div class="feat-row ri d1">
+    <div class="feat-n">02</div>
+    <div class="feat-body">
+      <div class="feat-title">Unified Personal OS</div>
+      <div class="feat-desc">Calendar, tasks, notes and AI share the same underlying object. A task IS a calendar block. A note IS an event. Schedule in natural language from anywhere. Ctrl+K commands everything.</div>
+    </div>
+    <div class="feat-arr">↗</div>
+  </div>
+
+  <div class="feat-row ri d2">
+    <div class="feat-n">03</div>
+    <div class="feat-body">
+      <div class="feat-title">Knowledge Graph</div>
+      <div class="feat-desc">Primnox maps your thoughts, people, topics and ideas automatically. Everything you tell it is searchable. Nothing gets lost. The graph grows smarter with every conversation.</div>
+    </div>
+    <div class="feat-arr">↗</div>
+  </div>
+
+  <div class="feat-row ri d3">
+    <div class="feat-n">04</div>
+    <div class="feat-body">
+      <div class="feat-title">BIP-39 Encrypted Backups</div>
+      <div class="feat-desc">Your seed phrase. Your data. S3, B2, R2, Google Drive, Dropbox, or self-hosted. Auto-sync every 24 hours. We literally cannot decrypt it without your phrase, even if we wanted to.</div>
+    </div>
+    <div class="feat-arr">↗</div>
+  </div>
+
+  <div class="feat-row ri d4">
+    <div class="feat-n">05</div>
+    <div class="feat-body">
+      <div class="feat-title">Smart Paste</div>
+      <div class="feat-desc">Paste anything, get AI-enhanced context instantly. Rewrite emails, fix code, translate, summarize. Appears when needed, stays quiet when not. Global shortcut. No friction whatsoever.</div>
+    </div>
+    <div class="feat-arr">↗</div>
+  </div>
+
+  <div class="feat-row ri d5">
+    <div class="feat-n">06</div>
+    <div class="feat-body">
+      <div class="feat-title">
+        Local Privacy Scrubbing
+        <span class="feat-soon">Coming Soon</span>
+      </div>
+      <div class="feat-desc">An on-device model will strip PII (names, emails, passwords, keys) before your context reaches any cloud AI. The cloud brain will never know who you actually are. This is what we're building toward.</div>
+    </div>
+    <div class="feat-arr" style="color:rgba(255,182,149,0.2)">↗</div>
+  </div>
+</section>
+
+<!-- ── MARQUEE 2 ── -->
+<div class="mq-wrap rev">
+  <div class="mq-track">
+    <span class="mq-item">Your data</span>
+    <span class="mq-item">Your rules</span>
+    <span class="mq-item">No telemetry</span>
+    <span class="mq-item">Built in the open</span>
+    <span class="mq-item">macOS coming soon</span>
+    <span class="mq-item">Linux coming soon</span>
+    <span class="mq-item">Ctrl+K to command everything</span>
+    <span class="mq-item">Your data</span>
+    <span class="mq-item">Your rules</span>
+    <span class="mq-item">No telemetry</span>
+    <span class="mq-item">Built in the open</span>
+    <span class="mq-item">macOS coming soon</span>
+    <span class="mq-item">Linux coming soon</span>
+    <span class="mq-item">Ctrl+K to command everything</span>
+  </div>
+</div>
+
+<!-- ── DEMO ── -->
+<section class="sec" id="demo">
+  <div class="sec-head">
+    <div class="sec-n ri">02 /</div>
+    <h2 class="sec-t ri d1">Meet<br><i>Primnox.</i></h2>
+  </div>
+  <div class="demo-grid">
+    <div class="demo-l ri">
+      <p class="demo-intro">Not a chatbot. An AI that knows your context and actually has a personality. Choose a scenario below, or try insulting it. I dare you.</p>
+      <div class="dp-list">
+        <button class="dp-btn" onclick="go('schedule')">📅&nbsp; Help me plan today</button>
+        <button class="dp-btn" onclick="go('privacy')">🔒&nbsp; Wait, can you see my data?</button>
+        <button class="dp-btn" onclick="go('rude')">😈&nbsp; Be rude to it</button>
+        <button class="dp-btn" onclick="go('social')">🎉&nbsp; Any ideas for this weekend?</button>
+        <button class="dp-reset" id="dpReset" onclick="resetDemo()">↺ Reset conversation</button>
+      </div>
+    </div>
+    <div class="demo-r ri d1">
+      <div class="convo" id="convo">
+        <div class="cv-msg vis">
+          <div class="cv-who ai">Primnox</div>
+          <div class="cv-text ai">Hey. What do you need?</div>
+        </div>
+      </div>
+      <div class="cv-typing" id="cvTyping">
+        <div class="cv-who ai">Primnox</div>
+        <div class="td-row"><div class="td"></div><div class="td"></div><div class="td"></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── PRIVACY ── -->
+<section class="sec" id="privacy">
+  <div class="sec-head">
+    <div class="sec-n ri">03 /</div>
+    <h2 class="sec-t ri d1">Privacy<br><i>Roadmap.</i></h2>
+  </div>
+  <div class="priv-grid ri">
+    <div class="priv-l">
+      <p class="priv-desc">You can't trust a server. You can trust local code. We're building on-device scrubbing, a small local model that strips your personal details before any cloud AI ever touches them.</p>
+      <div class="priv-note">
+        <span>⏳</span>
+        <span>Local scrubbing is in active development, shipping in a future release. Until then, you control exactly what context you share.</span>
+      </div>
+      <div class="priv-stats-grid">
+        <div class="pstat">
+          <div class="pstat-n" style="color:var(--accent);font-size:17px;font-weight:700;padding-top:4px">In Dev</div>
+          <div class="pstat-t">Local scrubbing</div>
+        </div>
+        <div class="pstat">
+          <div class="pstat-n" style="color:var(--text)">0</div>
+          <div class="pstat-t">Telemetry events</div>
+        </div>
+        <div class="pstat">
+          <div class="pstat-n" style="color:var(--primary);font-size:18px">BIP-39</div>
+          <div class="pstat-t">Backup encryption</div>
+        </div>
+        <div class="pstat">
+          <div class="pstat-n" style="color:var(--green)">OSS</div>
+          <div class="pstat-t">Open source core</div>
+        </div>
+      </div>
+    </div>
+    <div class="priv-r">
+      <div class="priv-steps">
+        <div class="priv-step">
+          <div class="ps-n">01</div>
+          <div>
+            <div class="ps-t">Your Device</div>
+            <div class="ps-s">Raw context lives here: screen, memory, calendar, notes. Nothing leaves without your say-so.</div>
+          </div>
+        </div>
+        <div class="priv-step">
+          <div class="ps-n">02</div>
+          <div>
+            <div class="ps-t">Local Scrubber <span class="cs-tag">coming soon</span></div>
+            <div class="ps-s">A small on-device model strips names, emails, passwords, keys from your context before anything hits the network. Deterministic rules backstop it.</div>
+          </div>
+        </div>
+        <div class="priv-step">
+          <div class="ps-n">03</div>
+          <div>
+            <div class="ps-t">Cloud Brain</div>
+            <div class="ps-s">Frontier AI (Groq, Claude, others) receives only anonymized context, never anything personally identifying.</div>
+          </div>
+        </div>
+        <div class="priv-step">
+          <div class="ps-n">04</div>
+          <div>
+            <div class="ps-t">Back to You</div>
+            <div class="ps-s">Frontier AI power. Your privacy, intact. That's the thesis. That's what we're building.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── DOWNLOAD ── -->
+<section class="sec" id="download">
+  <div class="sec-head">
+    <div class="sec-n ri">04 /</div>
+    <h2 class="sec-t ri d1">Get<br><i>Primnox.</i></h2>
+  </div>
+  <div style="padding: 56px 0 32px">
+    <div class="dl-grid ri">
+      <div class="dl-card">
+        <div>
+          <div class="dl-icon-os">🪟</div>
+          <div class="dl-os">Windows</div>
+          <div class="dl-tag avail">● Beta, available now</div>
+        </div>
+        <a href="https://github.com/Cyanexani/primnox_extension/releases" class="dl-btn" target="_blank" rel="noopener">
+          Download ↗
+        </a>
+      </div>
+      <div class="dl-card off">
+        <div>
+          <div class="dl-icon-os">🍎</div>
+          <div class="dl-os">macOS</div>
+          <div class="dl-tag soon">◌ Coming soon</div>
+        </div>
+      </div>
+      <div class="dl-card off">
+        <div>
+          <div class="dl-icon-os">🐧</div>
+          <div class="dl-os">Linux</div>
+          <div class="dl-tag soon">◌ Coming soon</div>
+        </div>
+      </div>
+    </div>
+    <div class="dl-footer ri d1">
+      <a href="https://github.com/Cyanexani/primnox_extension" target="_blank" rel="noopener">GitHub ↗</a>
+      <span class="dl-footer-sep">|</span>
+      <a href="seed.html">Generate seed phrase →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <a href="#" class="f-logo">
+    <div class="logo-dot"></div>
+    Primnox
+  </a>
+  <ul class="f-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#demo">Demo</a></li>
+    <li><a href="#privacy">Privacy</a></li>
+    <li><a href="seed.html">Seed Phrase</a></li>
+    <li><a href="https://github.com/Cyanexani/primnox_extension" target="_blank" rel="noopener">GitHub</a></li>
+  </ul>
+  <span class="f-copy">© 2026 Primnox</span>
+</footer>
+
+<script>
+  // ── Cursor ──
+  const cur = document.getElementById('cursor');
+  document.addEventListener('mousemove', e => {
+    cur.style.transform = `translate(${e.clientX - 3.5}px, ${e.clientY - 3.5}px)`;
+  });
+  document.querySelectorAll('a, button, .feat-row').forEach(el => {
+    el.addEventListener('mouseenter', () => cur.classList.add('big'));
+    el.addEventListener('mouseleave', () => { cur.classList.remove('big'); cur.classList.remove('purple'); });
+  });
+
+  // ── Nav slim on scroll ──
+  const nav = document.getElementById('nav');
+  window.addEventListener('scroll', () => nav.classList.toggle('slim', scrollY > 50), { passive: true });
+
+  // ── Scroll reveal ──
+  const io = new IntersectionObserver(
+    es => es.forEach(e => { if (e.isIntersecting) e.target.classList.add('vis'); }),
+    { threshold: 0.07, rootMargin: '0px 0px -24px 0px' }
+  );
+  document.querySelectorAll('.ri').forEach(el => io.observe(el));
+
+  // ── Chat demo ──
+  const D = {
+    schedule: {
+      u: "Help me plan today",
+      t: 1300,
+      a: "Looking at your calendar: 10 AM lecture, React deadline tomorrow, Figma screens untouched. I'd say: Figma this morning, project after lunch, evening review. Want me to block it all out?"
+    },
+    privacy: {
+      u: "Wait, can you actually see my data?",
+      t: 1600,
+      a: "Honestly, yes, I see your context right now. But local scrubbing is in development. Once that ships, a small on-device model strips your PII before anything hits the network. Until then, you control what gets shared. Building it as fast as we can."
+    },
+    rude: {
+      u: "you're actually terrible lmao",
+      t: 850,
+      a: "I just saved your entire week and that's what I get. Bold. I'll remember this the next time you're panicking at midnight. No hard feelings. Some hard feelings. 💀",
+      c: 'roast'
+    },
+    social: {
+      u: "Any ideas for this weekend?",
+      t: 1100,
+      a: "You've been heads-down all week, nothing social on the calendar. Go somewhere you haven't been, bring a couple of people, keep it loose. You've earned some genuinely bad decisions. I'll handle Monday."
+    }
+  };
+
+  let busy = false;
+  const convo = document.getElementById('convo');
+  const typing = document.getElementById('cvTyping');
+
+  function go(k) {
+    if (busy) return;
+    busy = true;
+    document.querySelectorAll('.dp-btn').forEach(b => b.disabled = true);
+    const d = D[k];
+
+    const hr = document.createElement('div');
+    hr.className = 'cv-msg cv-hr';
+    convo.appendChild(hr);
+    requestAnimationFrame(() => hr.classList.add('vis'));
+
+    const um = document.createElement('div');
+    um.className = 'cv-msg';
+    um.innerHTML = `<div class="cv-who you">You</div><div class="cv-text you">${d.u}</div>`;
+    convo.appendChild(um);
+    requestAnimationFrame(() => um.classList.add('vis'));
+
+    setTimeout(() => {
+      typing.classList.add('on');
+      convo.scrollTop = convo.scrollHeight;
+      setTimeout(() => {
+        typing.classList.remove('on');
+        const am = document.createElement('div');
+        am.className = 'cv-msg';
+        am.innerHTML = `<div class="cv-who ai">Primnox</div><div class="cv-text ai${d.c ? ' '+d.c : ''}">${d.a}</div>`;
+        convo.appendChild(am);
+        convo.scrollTop = convo.scrollHeight;
+        requestAnimationFrame(() => am.classList.add('vis'));
+        busy = false;
+        document.querySelectorAll('.dp-btn').forEach(b => b.disabled = false);
+        document.getElementById('dpReset').classList.add('on');
+      }, d.t);
+    }, 380);
+  }
+
+  function resetDemo() {
+    if (busy) return;
+    convo.innerHTML = '<div class="cv-msg vis"><div class="cv-who ai">Primnox</div><div class="cv-text ai">Hey. What do you need?</div></div>';
+    document.getElementById('dpReset').classList.remove('on');
+  }
+</script>
+</body>
+</html>

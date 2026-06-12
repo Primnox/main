@@ -101,6 +101,16 @@ export function usePrimnox() {
   // and sends 'smart-paste-result' IPC — no focus required, works in island mode.
   // Fallback path: if called in-app (e.g. future button), uses navigator.clipboard.
   const triggerSmartPaste = useCallback(async () => {
+    // Prefer the native main-process path. navigator.clipboard.readText() rejects
+    // when the island window is unfocused (focusable:false), so in Electron we
+    // delegate to the same handler the global shortcut uses; the result comes back
+    // over the 'smart-paste-result' IPC listener below.
+    const electron = (window as any).electron;
+    if (electron?.ipcRenderer) {
+      electron.ipcRenderer.send('run-smart-paste');
+      return;
+    }
+    // Fallback for non-Electron (browser) contexts: Web Clipboard API.
     try {
       const clipboardContent = await navigator.clipboard.readText();
       if (!clipboardContent.trim()) return;
@@ -124,12 +134,24 @@ export function usePrimnox() {
   useEffect(() => {
     const electron = (window as any).electron;
     if (!electron?.ipcRenderer) return;
-    const unsub = electron.ipcRenderer.on('smart-paste-result', ({ ok }: { ok: boolean }) => {
-      if (ok) addToast('success', 'Clipboard transformed — paste away');
-      else    addToast('error',   'Smart paste failed — is the backend running?');
+    const unsub = electron.ipcRenderer.on('smart-paste-result', ({ ok, changed }: { ok: boolean, changed?: boolean }) => {
+      if (!ok)          addToast('error',   'Smart paste failed — is the backend running?');
+      else if (changed) addToast('success', 'Clipboard transformed — paste away');
+      // silent when ok && !changed: content was already optimal, no toast needed
     });
     return () => { if (typeof unsub === 'function') unsub(); };
   }, [addToast]);
+
+  // ── Push the Dynamic Island on/off setting to the main process (#13) ──────
+  // Fires on initial settings load and whenever the toggle changes.
+  // Skip the first render where settings is still empty ({}) to avoid sending
+  // 'true' before the real value has loaded (race that could flip island on).
+  useEffect(() => {
+    if (Object.keys(settings || {}).length === 0) return;
+    const electron = (window as any).electron;
+    if (!electron?.ipcRenderer) return;
+    electron.ipcRenderer.send('island:set-enabled', settings?.dynamic_island_enabled !== false);
+  }, [settings?.dynamic_island_enabled]);
 
   useEffect(() => {
     let reconnectTimer: NodeJS.Timeout;
@@ -338,19 +360,20 @@ export function usePrimnox() {
         }
         else if (type === 'reminder_triggered') {
           const msg = payload?.text || 'reminder';
+          // Show in Dynamic Island (proactive alert panel)
+          const alert = { message: `⏰  ${msg}`, suggestions: ['Got it', 'Snooze 5 min'] };
+          setProactiveAlert(alert);
+          if (proactiveTimerRef.current) clearTimeout(proactiveTimerRef.current);
+          proactiveTimerRef.current = setTimeout(() => setProactiveAlert(null), 30000);
+          // Forward to island overlay window if in island mode
+          if ((window as any).electron) {
+            (window as any).electron.ipcRenderer.send('friday:proactive', {
+              message: `⏰  ${msg}`,
+              suggestions: ['Got it', 'Snooze 5 min'],
+            });
+          }
+          // Toast as secondary notification
           addToast('info', `⏰ ${msg}`);
-          // Native OS notification (works in Electron + modern browsers)
-          try {
-            if (typeof Notification !== 'undefined') {
-              if (Notification.permission === 'granted') {
-                new Notification('Primnox Reminder', { body: msg, silent: false });
-              } else if (Notification.permission === 'default') {
-                Notification.requestPermission().then(perm => {
-                  if (perm === 'granted') new Notification('Primnox Reminder', { body: msg });
-                });
-              }
-            }
-          } catch { /* Notifications not supported */ }
         }
         else if (type === 'navigate') {
           // Backend wants to navigate to a screen — dispatch custom event App.tsx listens to
@@ -614,7 +637,7 @@ export function usePrimnox() {
     flowState, errorStreak, nowPlaying, productivityScore, parallelTasks, proactiveAlert, dismissProactiveAlert,
     islandSkills,
     triggerSmartPaste, triggerMediaControl,
-    sendMessage, toggleMic, toggleIncognito, manualReconnect, addToast, updateSettings, exportNotes,
+    sendMessage, toggleMic, toggleIncognito, manualReconnect, addToast, updateSettings, exportNotes, fetchNotes,
     chatSessions,
     chatFolders,
     activeChatId,

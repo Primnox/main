@@ -45,6 +45,7 @@ let tray         = null;
 let pythonProcess = null;
 let forceQuit     = false; // true only when quitting via tray menu
 let isIslandMode  = false;
+let islandEnabled = true;   // #13 Dynamic-Island toggle; renderer pushes the real value from settings
 
 // ── Smart Paste (global shortcut helper) ─────────────────────────────────────
 
@@ -87,25 +88,24 @@ function runSmartPaste() {
 
   pasteInFlight = true;
 
-  const notify = (ok) => {
+  const notify = (payload) => {
     const target = (isIslandMode && islandWindow && !islandWindow.isDestroyed())
       ? islandWindow : (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null);
-    if (target) target.webContents.send('smart-paste-result', { ok });
+    if (target) target.webContents.send('smart-paste-result', payload);
   };
 
   fetchSmartPaste(content)
     .then(({ transformed }) => {
-      // Only write back (and show success) if the backend actually changed something.
-      // An empty or identical result means no transformation happened.
       const result = transformed && transformed.trim() ? transformed : null;
       if (result && result !== content) {
         clipboard.writeText(result);
-        notify(true);
+        notify({ ok: true, changed: true });
       } else {
-        notify(false);
+        // Content already optimal — not a failure, just nothing to transform
+        notify({ ok: true, changed: false });
       }
     })
-    .catch(() => notify(false))
+    .catch(() => notify({ ok: false }))
     .finally(() => { pasteInFlight = false; });
 }
 
@@ -202,12 +202,27 @@ function createWindow() {
     }
   });
 
-  // Close → hide to tray, not quit
+  // Native close (Alt+F4, taskbar right-click → Close)
   mainWindow.on('close', (e) => {
     if (!forceQuit) {
       e.preventDefault();
-      mainWindow.hide();
+      if (islandEnabled) {
+        enterIslandMode();           // fold to island pill
+      } else {
+        mainWindow.setSkipTaskbar(true);
+        mainWindow.hide();           // hide to tray, off taskbar
+      }
     }
+  });
+
+  // Native minimize (taskbar click, Win+Down, Alt+Space → Minimize).
+  // 'minimize' fires after the OS has already minimized; calling enterIslandMode
+  // immediately removes it from the taskbar and shows the island pill instead.
+  mainWindow.on('minimize', () => {
+    if (islandEnabled) {
+      enterIslandMode();
+    }
+    // Island OFF: standard minimize — window stays in taskbar, no action needed.
   });
 
   mainWindow.webContents.on('console-message', (_ev, _lvl, msg, line, src) => {
@@ -237,6 +252,8 @@ function createWindow() {
 
 function enterIslandMode() {
   if (!mainWindow) return;
+  // Dynamic Island disabled in settings → behave like a normal minimize instead.
+  if (!islandEnabled) { mainWindow.minimize(); return; }
   isIslandMode = true;
 
   // Remove from taskbar before hiding — island pill is the UI, not a taskbar entry
@@ -332,21 +349,35 @@ ipcMain.on('maximize-app', () => {
   else mainWindow.maximize();
 });
 
-// Close → hide everything to tray (remove from taskbar while hidden)
+// Custom close button in the React UI
 ipcMain.on('close-app', () => {
-  if (mainWindow) {
-    mainWindow.setSkipTaskbar(true);
-    mainWindow.hide();
+  if (islandEnabled) {
+    // Island ON: fold to island pill — same as minimize
+    enterIslandMode();
+  } else {
+    // Island OFF: hide everything to tray, remove from taskbar
+    if (mainWindow) {
+      mainWindow.setSkipTaskbar(true);
+      mainWindow.hide();
+    }
+    if (islandWindow && !islandWindow.isDestroyed()) {
+      islandWindow.setIgnoreMouseEvents(true, { forward: true });
+      islandWindow.hide();
+    }
+    isIslandMode = false;
   }
-  if (islandWindow && !islandWindow.isDestroyed()) {
-    islandWindow.setIgnoreMouseEvents(true, { forward: true });
-    islandWindow.hide();
-  }
-  isIslandMode = false;
 });
 
 // Island pill logo / expand button → restore full window
 ipcMain.on('show-full-window', () => exitIslandMode());
+
+// Run Smart Paste from the renderer (Dynamic Island) via the NATIVE clipboard.
+// navigator.clipboard.readText() rejects in the focusable:false island window,
+// so the in-app path must delegate to the same handler the global shortcut uses.
+ipcMain.on('run-smart-paste', () => runSmartPaste());
+
+// Dynamic Island on/off — the renderer pushes the setting value (#13).
+ipcMain.on('island:set-enabled', (_ev, enabled) => { islandEnabled = !!enabled; });
 
 // Forward proactive alerts from main window to the island overlay
 ipcMain.on('friday:proactive', (_ev, data) => {
