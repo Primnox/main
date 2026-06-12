@@ -162,6 +162,8 @@ export const ChatExpandedSidebar = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue]   = useState('');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
 
   // Sidebar
   const [historyOpen, setHistoryOpen]   = useState(true);
@@ -315,6 +317,31 @@ export const ChatExpandedSidebar = ({
         {c.isPinned && <Pin size={10} className="shrink-0 mt-1 text-primary/40" />}
       </button>
     );
+  };
+
+  // ── Drag & Drop ──────────────────────────────────────────────────────────
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    dragCounter.current += 1;
+    if (e.dataTransfer.types.includes('Files')) setIsDragging(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) { setIsDragging(false); dragCounter.current = 0; }
+  };
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    setIsDragging(false);
+    dragCounter.current = 0;
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      setAttachedFiles(prev => [...prev, ...droppedFiles]);
+      setStatus('copy');
+    }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -486,7 +513,35 @@ export const ChatExpandedSidebar = ({
       </div>
 
       {/* ── Main Chat Area ───────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col h-full min-w-0">
+      <div className="flex-1 flex flex-col h-full min-w-0 relative"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+
+        {/* Drop overlay */}
+        <AnimatePresence>
+          {isDragging && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm border-2 border-dashed border-primary/50 rounded-2xl flex flex-col items-center justify-center gap-3 pointer-events-none"
+            >
+              <motion.div
+                animate={{ scale: [1, 1.1, 1] }}
+                transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
+                className="w-14 h-14 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center"
+              >
+                <Paperclip size={24} className="text-primary" />
+              </motion.div>
+              <p className="text-sm font-medium text-white/70">Drop files here</p>
+              <p className="text-[11px] text-white/30">PDF, images, code, text — anything</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.08)_transparent]">
