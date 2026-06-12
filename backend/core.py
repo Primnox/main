@@ -395,8 +395,6 @@ class PrimnoxCore:
         context = (
             f"Time: {current_time}\n"
             f"Speaker: {speaker}\n"
-            f"Active OS Window: {uia_data.get('window_title')}\n"
-            f"{ui_context}"
             f"{memory_context}"
         )
 
