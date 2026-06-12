@@ -442,16 +442,26 @@ export function usePrimnox() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addToast, triggerIslandError]);
 
-  const sendMessage = useCallback(async (text: string, sessionId: string = 'current', file?: File | null) => {
-    let displayText = text;
-    if (file) {
-      displayText = text ? `${text}\n[Attached: ${file.name}]` : `[Attached: ${file.name}]`;
+  const sendMessage = useCallback(async (text: string, sessionId: string = 'current', files?: File[] | null) => {
+    if (files && files.length > 0) {
+      // Upload files via multipart FormData so the backend receives actual bytes
+      const formData = new FormData();
+      formData.append('text', text);
+      formData.append('sessionId', sessionId);
+      for (const f of files) {
+        formData.append('files', f);
+      }
+      await fetch(`${API_BASE_URL}/message`, {
+        method: 'POST',
+        body: formData,  // no Content-Type header — browser sets boundary automatically
+      });
+    } else {
+      await fetch(`${API_BASE_URL}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, sessionId })
+      });
     }
-    await fetch(`${API_BASE_URL}/message`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: displayText, sessionId })
-    });
   }, []);
 
   const toggleMic = useCallback(async () => {

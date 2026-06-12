@@ -53,15 +53,22 @@ def discover_skills():
     """
     skills_dir = Path(__file__).parent
 
+    # Files that are abstract base classes — never instantiate directly
+    _SKIP_FILES = {"base_skill.py", "base_island_skill.py"}
+
     for file_path in skills_dir.glob("*_skill.py"):
-        if file_path.name == "base_skill.py":
+        if file_path.name in _SKIP_FILES:
             continue
 
         module_name = f"skills.{file_path.stem}"
         try:
             module = importlib.import_module(module_name)
             for name, obj in inspect.getmembers(module, inspect.isclass):
-                if issubclass(obj, BaseSkill) and obj is not BaseSkill:
+                if (
+                    issubclass(obj, BaseSkill)
+                    and obj is not BaseSkill
+                    and not inspect.isabstract(obj)
+                ):
                     register_skill(obj)
         except Exception as e:
             log.error(f"Failed to load skill module {module_name}: {e}")

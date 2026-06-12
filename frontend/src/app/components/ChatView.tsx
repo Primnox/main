@@ -150,7 +150,7 @@ export const ChatExpandedSidebar = ({
   userName: string,
   setStatus: (s: AiStatus) => void,
   liveMessages?: any[],
-  sendMessage?: (text: string, sessionId?: string, file?: File | null) => void,
+  sendMessage?: (text: string, sessionId?: string, files?: File[] | null) => void,
   chatSessions?: any[],
   chatFolders?: any[],
   activeChatId?: string,
@@ -161,7 +161,7 @@ export const ChatExpandedSidebar = ({
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue]   = useState('');
-  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
   // Sidebar
   const [historyOpen, setHistoryOpen]   = useState(true);
@@ -252,26 +252,37 @@ export const ChatExpandedSidebar = ({
   };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) { setAttachedFile(e.target.files[0]); setStatus('copy'); }
+    if (e.target.files && e.target.files.length > 0) {
+      setAttachedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+      setStatus('copy');
+    }
   };
 
-  const removeAttachedFile = () => {
-    setAttachedFile(null);
+  const removeAttachedFile = (index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+    if (attachedFiles.length <= 1) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      setStatus('idle');
+    }
+  };
+
+  const clearAttachedFiles = () => {
+    setAttachedFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
     setStatus('idle');
   };
 
   const handleSend = async () => {
-    if (!inputValue.trim() && !attachedFile) return;
+    if (!inputValue.trim() && attachedFiles.length === 0) return;
     // Capture values before clearing — clear immediately for responsive feel
     const text = inputValue;
-    const file = attachedFile;
+    const files = attachedFiles.length > 0 ? [...attachedFiles] : null;
     setInputValue('');
-    setAttachedFile(null);
+    setAttachedFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
     setStatus('idle');
     try {
-      await sendMessage(text, activeChatId, file);
+      await sendMessage(text, activeChatId, files);
     } catch (e) {
       // Restore message text so the user doesn't lose it
       setInputValue(text);
@@ -569,27 +580,34 @@ export const ChatExpandedSidebar = ({
         {/* ── Input Bar ───────────────────────────────────────────────────── */}
         <div className="shrink-0 px-5 py-4 border-t border-white/[0.05]">
           <div>
-            {/* Attached file pill */}
+            {/* Attached file pills */}
             <AnimatePresence>
-              {attachedFile && (
+              {attachedFiles.length > 0 && (
                 <motion.div initial={{ opacity: 0, height: 0, marginBottom: 0 }}
                   animate={{ opacity: 1, height: 'auto', marginBottom: 8 }}
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                  className="flex items-center gap-2 w-fit">
-                  <div className="flex items-center gap-2 bg-primary/10 text-primary border border-primary/20 px-3 py-1.5 rounded-full text-xs font-medium">
-                    <Paperclip size={11} />
-                    <span className="max-w-[200px] truncate">{attachedFile.name}</span>
-                    <button onClick={removeAttachedFile} className="hover:text-white transition-colors ml-0.5">
-                      <X size={11} />
+                  className="flex flex-wrap items-center gap-2 w-full">
+                  {attachedFiles.map((file, i) => (
+                    <div key={`${file.name}-${i}`} className="flex items-center gap-2 bg-primary/10 text-primary border border-primary/20 px-3 py-1.5 rounded-full text-xs font-medium">
+                      <Paperclip size={11} />
+                      <span className="max-w-[200px] truncate">{file.name}</span>
+                      <button onClick={() => removeAttachedFile(i)} className="hover:text-white transition-colors ml-0.5">
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ))}
+                  {attachedFiles.length > 1 && (
+                    <button onClick={clearAttachedFiles} className="text-[10px] text-white/30 hover:text-red-400 transition-colors">
+                      Clear all
                     </button>
-                  </div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
 
             {/* Input row */}
             <div className="flex items-end gap-3 bg-white/[0.04] border border-white/[0.08] rounded-2xl px-4 py-3 focus-within:border-white/15 transition-colors">
-              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
+              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} multiple />
 
               <button onClick={() => fileInputRef.current?.click()}
                 className="p-1.5 text-white/20 hover:text-white/60 transition-colors shrink-0 self-end mb-0.5"
@@ -607,7 +625,7 @@ export const ChatExpandedSidebar = ({
               />
 
               <button onClick={handleSend}
-                disabled={!inputValue.trim() && !attachedFile}
+                disabled={!inputValue.trim() && attachedFiles.length === 0}
                 className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 self-end
                   disabled:bg-white/5 disabled:text-white/15 disabled:cursor-not-allowed
                   enabled:bg-primary enabled:text-black enabled:hover:bg-white enabled:active:scale-90">

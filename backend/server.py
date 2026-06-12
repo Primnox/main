@@ -157,17 +157,85 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.post("/message")
 async def post_message(request: Request, background_tasks: BackgroundTasks):
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-        
-    text = body.get("text", "")
-    session_id = body.get("sessionId", "current")
-    log.info(f"Received message: {text[:50]}...")
-    # Use BackgroundTasks to prevent blocking the async loop
-    background_tasks.add_task(core.handle_text_input, text, session_id=session_id)
-    return {"status": "ok"}
+    content_type = request.headers.get("content-type", "")
+
+    # ── JSON path (no files attached) ────────────────────────────────────
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON")
+        text = body.get("text", "")
+        session_id = body.get("sessionId", "current")
+        log.info(f"Received message: {text[:50]}...")
+        background_tasks.add_task(core.handle_text_input, text, session_id=session_id)
+        return {"status": "ok"}
+
+    # ── Multipart path (files attached) ──────────────────────────────────
+    if "multipart/form-data" in content_type:
+        import tempfile, os, io
+        form = await request.form()
+        text = form.get("text", "")
+        session_id = form.get("sessionId", "current")
+        uploaded_files = form.getlist("files")
+
+        extracted_parts = []
+        for uf in uploaded_files:
+            if not hasattr(uf, "read"):
+                continue
+            filename = getattr(uf, "filename", "unknown")
+            content = await uf.read()
+            lower = filename.lower()
+
+            try:
+                if lower.endswith(".pdf"):
+                    from pypdf import PdfReader
+                    reader = PdfReader(io.BytesIO(content))
+                    pdf_text = "\n".join(p.extract_text() or "" for p in reader.pages)
+                    extracted_parts.append(f"[File: {filename}]\n{pdf_text[:8000]}")
+
+                elif lower.endswith((".pptx", ".ppt")):
+                    from pptx import Presentation
+                    prs = Presentation(io.BytesIO(content))
+                    slides_text = []
+                    for slide in prs.slides:
+                        for shape in slide.shapes:
+                            if hasattr(shape, "text"):
+                                slides_text.append(shape.text)
+                    extracted_parts.append(f"[File: {filename}]\n{chr(10).join(slides_text)[:8000]}")
+
+                elif lower.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+                    # Save image to temp file, let vision skills handle it later
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1])
+                    tmp.write(content)
+                    tmp.close()
+                    extracted_parts.append(f"[Image attached: {filename} saved to {tmp.name}]")
+
+                elif lower.endswith((".txt", ".md", ".csv", ".json", ".py", ".js", ".ts", ".tsx", ".html", ".css", ".log", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".bat", ".sql", ".rs", ".go", ".java", ".c", ".cpp", ".h", ".rb")):
+                    file_text = content.decode("utf-8", errors="replace")
+                    extracted_parts.append(f"[File: {filename}]\n```\n{file_text[:8000]}\n```")
+
+                else:
+                    # Unknown file type — save to temp and mention it
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1])
+                    tmp.write(content)
+                    tmp.close()
+                    extracted_parts.append(f"[File attached: {filename} ({len(content)} bytes, saved to {tmp.name})]")
+
+            except Exception as e:
+                log.warning(f"Failed to extract content from {filename}: {e}")
+                extracted_parts.append(f"[File: {filename} — extraction failed: {e}]")
+
+        # Build the final message with file contents injected
+        full_text = text
+        if extracted_parts:
+            full_text = (text + "\n\n" + "\n\n".join(extracted_parts)).strip()
+
+        log.info(f"Received message with {len(uploaded_files)} file(s): {text[:50]}...")
+        background_tasks.add_task(core.handle_text_input, full_text, session_id=session_id)
+        return {"status": "ok", "files_processed": len(uploaded_files)}
+
+    raise HTTPException(status_code=400, detail="Unsupported content type")
 
 @app.get("/api/chats")
 async def get_chats():
