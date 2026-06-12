@@ -303,7 +303,7 @@ class PrimnoxCore:
         if self.broadcast_callback:
             self.broadcast_callback("state", {"value": "thinking"})
 
-        if not self.incognito:
+        if input_mode != "text" and not self.incognito:
             append_message_to_session(session_id, raw_text, speaker=speaker)
 
         log.info(f"Agentic processing input '{trigger_text[:30]}'")
