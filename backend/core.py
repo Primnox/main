@@ -184,17 +184,18 @@ class PrimnoxCore:
             self.broadcast_callback(event, data)
 
         # ── Proactive engine: fire every 20 feed events ──────────────────
-        if not self.incognito:
-            self._proactive_feed_counter += 1
-            if self._proactive_feed_counter >= 20:
-                self._proactive_feed_counter = 0
-                window = self.latest_uia_data.get("window_title", "Unknown")
-                threading.Thread(
-                    target=self._run_proactive_safe,
-                    args=(window,),
-                    daemon=True,
-                    name="proactive-bg"
-                ).start()
+        # DISABLED: Too heavy on token usage (TPD limit)
+        # if not self.incognito:
+        #     self._proactive_feed_counter += 1
+        #     if self._proactive_feed_counter >= 20:
+        #         self._proactive_feed_counter = 0
+        #         window = self.latest_uia_data.get("window_title", "Unknown")
+        #         threading.Thread(
+        #             target=self._run_proactive_safe,
+        #             args=(window,),
+        #             daemon=True,
+        #             name="proactive-bg"
+        #         ).start()
 
     def _run_proactive_safe(self, context_summary: str):
         try:
