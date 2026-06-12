@@ -192,7 +192,7 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
                     from pypdf import PdfReader
                     reader = PdfReader(io.BytesIO(content))
                     pdf_text = "\n".join(p.extract_text() or "" for p in reader.pages)
-                    extracted_parts.append(f"[File: {filename}]\n{pdf_text[:2500]}")
+                    extracted_parts.append(f"[File: {filename}]\n{pdf_text[:8000]}")
 
                 elif lower.endswith((".pptx", ".ppt")):
                     from pptx import Presentation
@@ -202,7 +202,7 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
                         for shape in slide.shapes:
                             if hasattr(shape, "text"):
                                 slides_text.append(shape.text)
-                    extracted_parts.append(f"[File: {filename}]\n{chr(10).join(slides_text)[:2500]}")
+                    extracted_parts.append(f"[File: {filename}]\n{chr(10).join(slides_text)[:8000]}")
 
                 elif lower.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
                     # Save image to temp file, let vision skills handle it later
@@ -213,7 +213,7 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
 
                 elif lower.endswith((".txt", ".md", ".csv", ".json", ".py", ".js", ".ts", ".tsx", ".html", ".css", ".log", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".bat", ".sql", ".rs", ".go", ".java", ".c", ".cpp", ".h", ".rb")):
                     file_text = content.decode("utf-8", errors="replace")
-                    extracted_parts.append(f"[File: {filename}]\n```\n{file_text[:2500]}\n```")
+                    extracted_parts.append(f"[File: {filename}]\n```\n{file_text[:8000]}\n```")
 
                 else:
                     # Unknown file type — save to temp and mention it

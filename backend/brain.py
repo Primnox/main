@@ -165,12 +165,7 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
                 matching = [s for s in sessions if s["id"].startswith(ref)]
                 if matching:
                     ref_hist = get_session_messages(matching[0]["id"])[-20:]
-                    ref_text_parts = []
-                    for msg in ref_hist:
-                        txt = msg['text']
-                        if len(txt) > 500: txt = txt[:500] + "...[truncated]"
-                        ref_text_parts.append(f"{msg['speaker']}: {txt}")
-                    ref_text = "\n".join(ref_text_parts)
+                    ref_text = "\n".join([f"{msg['speaker']}: {msg['text']}" for msg in ref_hist])
                     system_content += f"\n\n[REFERENCED CONTEXT FROM CHAT #{ref}]:\n{ref_text}"
         except Exception as e:
             log.error(f"Failed to load referenced chat context: {e}")
@@ -427,12 +422,7 @@ def think_stream(prompt, context="", session_id=""):
                 matching = [s for s in sessions if s["id"].startswith(ref)]
                 if matching:
                     ref_hist = get_session_messages(matching[0]["id"])[-20:]
-                    ref_text_parts = []
-                    for msg in ref_hist:
-                        txt = msg['text']
-                        if len(txt) > 500: txt = txt[:500] + "...[truncated]"
-                        ref_text_parts.append(f"{msg['speaker']}: {txt}")
-                    ref_text = "\n".join(ref_text_parts)
+                    ref_text = "\n".join([f"{msg['speaker']}: {msg['text']}" for msg in ref_hist])
                     system_content += f"\n\n[REFERENCED CONTEXT FROM CHAT #{ref}]:\n{ref_text}"
         except Exception as e:
             log.error(f"Failed to load referenced chat context: {e}")
@@ -450,10 +440,7 @@ def think_stream(prompt, context="", session_id=""):
                 if i == len(history) - 1 and msg["text"] == prompt and msg["speaker"] != "Primnox":
                     continue
                 role = "assistant" if msg["speaker"] == "Primnox" else "user"
-                msg_text = msg["text"]
-                if len(msg_text) > 1000:
-                    msg_text = msg_text[:1000] + "\n...[truncated for length]"
-                messages.append({"role": role, "content": msg_text})
+                messages.append({"role": role, "content": msg["text"]})
         except Exception as e:
             log.error(f"Failed to load chat history: {e}")
 
