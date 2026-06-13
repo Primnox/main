@@ -5,6 +5,8 @@ const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const http = require('http');
 
+app.disableHardwareAcceleration();
+
 // ── Load .env (GH_TOKEN for private-release auto-updater) ────────────────────
 try {
   const envPath = app.isPackaged
@@ -233,8 +235,12 @@ function createWindow() {
   if (baseUrl) {
     mainWindow.loadURL(baseUrl);
     mainWindow.webContents.openDevTools();
+    mainWindow.show();
+    mainWindow.focus();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.show();
+    mainWindow.focus();
   }
 
   // Ctrl+= / Ctrl+- zoom

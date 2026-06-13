@@ -101,6 +101,21 @@ export const IslandSettings = ({
   const [restoreMnemonic, setRestoreMnemonic]         = useState('');
   const [showRestoreMnemonic, setShowRestoreMnemonic] = useState(false);
 
+  // ── Local Vault state ─────────────────────────────────────────────────────────
+  const [vaultStatus, setVaultStatus] = useState<{enabled: boolean, locked: boolean} | null>(null);
+  const [vaultMnemonic, setVaultMnemonic] = useState('');
+  const [vaultMnemonicGenerated, setVaultMnemonicGenerated] = useState('');
+  const [vaultOp, setVaultOp] = useState<'idle'|'running'|'done'|'error'>('idle');
+  const [vaultOpMsg, setVaultOpMsg] = useState('');
+
+  useEffect(() => {
+    if (activeTab !== 'Security') return;
+    fetch('http://localhost:8000/api/vault/status')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setVaultStatus(d); })
+      .catch(() => {});
+  }, [activeTab]);
+
   useEffect(() => {
     fetch('http://localhost:8000/api/profile')
       .then(r => r.ok ? r.json() : null)
@@ -218,6 +233,59 @@ export const IslandSettings = ({
   const disableCloudBackup = async () => {
     await fetch('http://localhost:8000/api/backup/disable', { method: 'POST' });
     setCloudBackupInfo(null); setShowSetup(false); setMnemonic('');
+  };
+
+  const enableVault = async () => {
+    setVaultOp('running'); setVaultOpMsg(''); setVaultMnemonicGenerated('');
+    try {
+      const res = await fetch('http://localhost:8000/api/vault/setup', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setVaultOp('done');
+        setVaultOpMsg('Vault enabled!');
+        setVaultMnemonicGenerated(data.mnemonic);
+        setVaultStatus({ enabled: true, locked: false });
+      } else {
+        setVaultOp('error'); setVaultOpMsg(data.detail || 'Failed');
+      }
+    } catch { setVaultOp('error'); setVaultOpMsg('Backend unavailable'); }
+  };
+
+  const unlockVault = async () => {
+    if (!vaultMnemonic.trim()) return;
+    setVaultOp('running'); setVaultOpMsg('');
+    try {
+      const res = await fetch('http://localhost:8000/api/vault/unlock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mnemonic: vaultMnemonic.trim() })
+      });
+      if (res.ok) {
+        setVaultOp('done'); setVaultOpMsg('Vault unlocked!');
+        setVaultStatus({ enabled: true, locked: false });
+        setVaultMnemonic('');
+      } else {
+        const data = await res.json();
+        setVaultOp('error'); setVaultOpMsg(data.detail || 'Unlock failed');
+      }
+    } catch { setVaultOp('error'); setVaultOpMsg('Backend unavailable'); }
+    setTimeout(() => { if (vaultOp !== 'error') setVaultOp('idle'); }, 4000);
+  };
+
+  const disableVault = async () => {
+    setVaultOp('running'); setVaultOpMsg('');
+    try {
+      const res = await fetch('http://localhost:8000/api/vault/disable', { method: 'POST' });
+      if (res.ok) {
+        setVaultOp('done'); setVaultOpMsg('Vault disabled and fully decrypted.');
+        setVaultStatus({ enabled: false, locked: false });
+        setVaultMnemonicGenerated('');
+      } else {
+        const data = await res.json();
+        setVaultOp('error'); setVaultOpMsg(data.detail || 'Failed');
+      }
+    } catch { setVaultOp('error'); setVaultOpMsg('Backend unavailable'); }
+    setTimeout(() => { setVaultOp('idle'); setVaultOpMsg(''); }, 4000);
   };
 
   const tabs = [
@@ -535,6 +603,91 @@ export const IslandSettings = ({
                         placeholder="Anthropic API key..."
                       />
                     </div>
+                  </div>
+
+                  {/* Local Encryption Vault */}
+                  <div className="space-y-4 pt-2 border-t border-white/5">
+                    <div className="flex items-center justify-between">
+                      <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Local_Encryption_Vault</label>
+                      {vaultStatus?.enabled && (
+                        <div className={`px-2 py-1 rounded text-[9px] font-mono uppercase tracking-widest ${vaultStatus.locked ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                          {vaultStatus.locked ? 'LOCKED' : 'UNLOCKED'}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-white/50 font-light">
+                      Encrypts your SQLite databases at rest using AES-GCM and a 12-word seed phrase.
+                    </p>
+
+                    {!vaultStatus?.enabled && (
+                      <div className="space-y-4">
+                        <button
+                          onClick={enableVault}
+                          disabled={vaultOp === 'running'}
+                          className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-xl py-3 text-xs font-mono uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          <Shield size={14} /> Enable Local Vault
+                        </button>
+                        {vaultMnemonicGenerated && (
+                          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-3">
+                            <div className="flex items-center gap-2 text-emerald-400">
+                              <AlertTriangle size={14} />
+                              <span className="text-xs font-bold uppercase tracking-wider">Save This Recovery Phrase</span>
+                            </div>
+                            <p className="text-xs text-white/70">
+                              This is the only key that can decrypt your local database. If you lose it, you lose your data.
+                            </p>
+                            <div className="p-3 bg-black/60 rounded border border-emerald-500/20 font-mono text-sm text-white select-all text-center tracking-wide leading-relaxed">
+                              {vaultMnemonicGenerated}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {vaultStatus?.enabled && vaultStatus?.locked && (
+                      <div className="space-y-3 p-4 bg-red-500/5 border border-red-500/10 rounded-xl">
+                        <p className="text-xs text-white/70">Enter your 12-word recovery phrase to unlock your database.</p>
+                        <div className="relative group">
+                          <input
+                            type="text"
+                            value={vaultMnemonic}
+                            onChange={(e) => setVaultMnemonic(e.target.value)}
+                            placeholder="Enter 12-word phrase..."
+                            className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all placeholder-white/20 text-white"
+                          />
+                        </div>
+                        <button
+                          onClick={unlockVault}
+                          disabled={!vaultMnemonic.trim() || vaultOp === 'running'}
+                          className="w-full bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 rounded-xl py-3 text-xs font-mono uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          {vaultOp === 'running' ? 'Unlocking...' : 'Unlock Vault'}
+                        </button>
+                      </div>
+                    )}
+
+                    {vaultStatus?.enabled && !vaultStatus?.locked && (
+                      <div className="flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <CheckCircle size={16} className="text-emerald-400" />
+                          <span className="text-xs text-white/70">Vault is active and decrypted for this session.</span>
+                        </div>
+                        <button
+                          onClick={disableVault}
+                          disabled={vaultOp === 'running'}
+                          className="text-xs text-red-400 hover:text-red-300 font-mono tracking-widest uppercase transition-colors"
+                        >
+                          Disable Vault
+                        </button>
+                      </div>
+                    )}
+
+                    {vaultOpMsg && (
+                      <p className={`text-[10px] font-mono tracking-wider ${vaultOp === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>
+                        {vaultOpMsg}
+                      </p>
+                    )}
                   </div>
 
                   {/* Data Backup + Retention */}
