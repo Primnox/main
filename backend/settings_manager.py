@@ -73,14 +73,17 @@ _KEYRING_KEYS = ["groq_api_key", "openai_api_key", "anthropic_api_key"]
 _KEYRING_SERVICE = "primnox"
 
 
-def _keyring_set(key: str, value: str):
+def _keyring_set(key: str, value: str) -> bool:
+    """Returns True if the keyring write/delete succeeded, False otherwise."""
     try:
         import keyring
         if value:
             keyring.set_password(_KEYRING_SERVICE, key, value)
+            return True
         else:
             try:
                 keyring.delete_password(_KEYRING_SERVICE, key)
+                return True
             except Exception as del_err:
                 log.warning(f"keyring delete failed for {key}: {del_err}. Overwriting with empty string as fallback.")
                 # delete_password failed — overwrite with "" so _keyring_get (which
@@ -88,10 +91,13 @@ def _keyring_set(key: str, value: str):
                 # a stale key from resurrecting after the user explicitly cleared it.
                 try:
                     keyring.set_password(_KEYRING_SERVICE, key, "")
+                    return True
                 except Exception:
                     log.warning(f"keyring overwrite also failed for {key}. Old key may persist.")
+                    return False
     except Exception as e:
         log.debug(f"keyring write skipped ({key}): {e}")
+        return False
 
 
 def _keyring_get(key: str) -> str:
@@ -145,18 +151,25 @@ def save_settings(settings: dict):
     with _settings_lock:
         log.info("Saving settings to APPDATA...")
         merged = {**DEFAULT_SETTINGS, **settings}
+
+        # Mirror API keys to keyring — these survive NSIS reinstalls and APPDATA resets.
+        # Only scrub a key from the on-disk JSON if the keyring write actually
+        # succeeded; otherwise keep it in the file as a fallback so the key
+        # isn't lost on platforms without a working keyring backend (e.g.
+        # some Linux setups with no secret service running).
+        to_write = dict(merged)
+        for k in _KEYRING_KEYS:
+            if _keyring_set(k, merged.get(k, "")):
+                to_write[k] = ""
+
         try:
             tmp_path = str(SETTINGS_PATH) + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(merged, f, indent=2)
+                json.dump(to_write, f, indent=2)
             os.replace(tmp_path, SETTINGS_PATH)
             log.info("Settings saved to APPDATA.")
         except Exception as e:
             log.error(f"Failed to save settings to APPDATA: {e}")
-
-        # Mirror API keys to keyring — these survive NSIS reinstalls and APPDATA resets
-        for k in _KEYRING_KEYS:
-            _keyring_set(k, merged.get(k, ""))
 
 if __name__ == "__main__":
     s = load_settings()

@@ -405,7 +405,7 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
         return {"error": str(e)}
 
 
-def think_stream(prompt, context="", session_id=""):
+def think_stream(prompt, context="", session_id="", images_b64=None):
     try:
         from settings_manager import load_settings
         settings = load_settings()
@@ -458,6 +458,16 @@ def think_stream(prompt, context="", session_id=""):
             log.error(f"Failed to load chat history: {e}")
 
     user_content = f"Context:\n{context}\n\nUser: {prompt}" if context else prompt
+    if images_b64:
+        if active_model == "Anthropic_Claude_3":
+            content_arr = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}} for b64 in images_b64]
+            content_arr.append({"type": "text", "text": user_content})
+            user_content = content_arr
+        elif active_model not in ("Ollama_Local", "Gemini_Flash"):
+            content_arr = [{"type": "text", "text": user_content}]
+            content_arr.extend([{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}} for b64 in images_b64])
+            user_content = content_arr
+
     messages.append({"role": "user", "content": user_content})
 
     api_key = ""
@@ -496,7 +506,7 @@ def think_stream(prompt, context="", session_id=""):
     else:
         api_key = get_api_key("groq")
         url = "https://api.groq.com/openai/v1/chat/completions"
-        model_name = "llama-3.3-70b-versatile"
+        model_name = "llama-3.2-11b-vision-preview" if images_b64 else "llama-3.3-70b-versatile"
         headers = {"Authorization": f"Bearer {api_key}"}
 
     if not api_key:

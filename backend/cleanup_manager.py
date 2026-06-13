@@ -112,6 +112,29 @@ def cleanup_tts(max_age_hours: int = 1) -> int:
         return 0
 
 
+def cleanup_uploads(max_age_hours: int = 24) -> int:
+    """Delete orphaned chat-upload temp files (images/attachments saved by
+    /message but never tracked or cleaned up afterwards). Returns count deleted."""
+    try:
+        import tempfile
+        tmp = Path(tempfile.gettempdir())
+        cutoff = time.time() - max_age_hours * 3600
+        deleted = 0
+        for f in tmp.glob("primnox_upload_*"):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    deleted += 1
+            except Exception:
+                pass
+        if deleted:
+            log.debug(f"Deleted {deleted} orphaned upload temp files")
+        return deleted
+    except Exception as e:
+        log.debug(f"Upload cleanup error: {e}")
+        return 0
+
+
 # ── Full pass ──────────────────────────────────────────────────────────────────
 
 def compress_memories_pass() -> int:
@@ -139,6 +162,7 @@ def run_cleanup() -> dict:
         "memories_compressed": memories_compressed,
         "meetings_deleted":    cleanup_meetings(meeting_days),
         "tts_deleted":         cleanup_tts(max_age_hours=1),
+        "uploads_deleted":     cleanup_uploads(max_age_hours=24),
         "ran_at":              datetime.now().isoformat(timespec="seconds"),
     }
 

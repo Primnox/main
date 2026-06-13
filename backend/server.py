@@ -140,6 +140,22 @@ except Exception as _e:
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    # Cross-Site WebSocket Hijacking guard: FastAPI's @app.middleware("http")
+    # does NOT run for websocket connections, so any website could otherwise
+    # open ws://127.0.0.1:8000/ws and receive core.settings (incl. API keys)
+    # plus a live feed of mic/screen/chat events. Reject any connection whose
+    # Origin header isn't one of our own frontends (or absent, e.g. Electron).
+    origin = ws.headers.get("origin")
+    allowed_origins = {
+        "http://localhost:3000", "http://127.0.0.1:3000",
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "app://.",
+    }
+    if origin is not None and origin not in allowed_origins:
+        log.critical(f"SECURITY: Rejected cross-origin WebSocket from origin '{origin}'")
+        await ws.close(code=1008)
+        return
+
     await ws.accept()
     log.info("WebSocket client connected")
     clients.add(ws)
@@ -180,6 +196,7 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
         uploaded_files = form.getlist("files")
 
         extracted_parts = []
+        images_b64 = []
         for uf in uploaded_files:
             if not hasattr(uf, "read"):
                 continue
@@ -205,11 +222,10 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
                     extracted_parts.append(f"[File: {filename}]\n{chr(10).join(slides_text)[:2500]}")
 
                 elif lower.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
-                    # Save image to temp file, let vision skills handle it later
-                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1])
-                    tmp.write(content)
-                    tmp.close()
-                    extracted_parts.append(f"[Image attached: {filename} saved to {tmp.name}]")
+                    import base64
+                    b64 = base64.b64encode(content).decode("utf-8")
+                    images_b64.append(b64)
+                    extracted_parts.append(f"[Image attached: {filename}]")
 
                 elif lower.endswith((".txt", ".md", ".csv", ".json", ".py", ".js", ".ts", ".tsx", ".html", ".css", ".log", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".bat", ".sql", ".rs", ".go", ".java", ".c", ".cpp", ".h", ".rb")):
                     file_text = content.decode("utf-8", errors="replace")
@@ -217,7 +233,7 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
 
                 else:
                     # Unknown file type — save to temp and mention it
-                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1])
+                    tmp = tempfile.NamedTemporaryFile(delete=False, prefix="primnox_upload_", suffix=os.path.splitext(filename)[1])
                     tmp.write(content)
                     tmp.close()
                     extracted_parts.append(f"[File attached: {filename} ({len(content)} bytes, saved to {tmp.name})]")
@@ -236,7 +252,7 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
         display_text = (text + "\n" + file_chips).strip() if text else file_chips
 
         log.info(f"Received message with {len(uploaded_files)} file(s): {text[:50]}...")
-        background_tasks.add_task(core.handle_text_input, full_text, session_id=session_id, display_text=display_text)
+        background_tasks.add_task(core.handle_text_input, full_text, session_id=session_id, display_text=display_text, images_b64=images_b64)
         return {"status": "ok", "files_processed": len(uploaded_files)}
 
     raise HTTPException(status_code=400, detail="Unsupported content type")
@@ -1242,6 +1258,64 @@ async def delete_memory(key: str):
     delete_memory(key)
     return {"success": True}
 
+
+@app.get("/api/vault/status")
+async def vault_status():
+    """Status of the local 12-word-seed encryption of memory.db."""
+    import local_vault
+    from memory import DB_PATH
+    return {
+        "enabled": local_vault.is_enabled(DB_PATH),
+        "locked": local_vault.is_locked(DB_PATH),
+    }
+
+
+@app.post("/api/vault/setup")
+async def vault_setup(body: dict = None):
+    """
+    Enable local encryption for memory.db.
+
+    Body: {} to auto-generate a new 12-word mnemonic (returned ONCE — the
+    user must save it, it cannot be recovered), or {"mnemonic": "..."} to
+    use a user-supplied phrase (e.g. reuse their backup seed).
+    """
+    import local_vault
+    from memory import DB_PATH
+    body = body or {}
+    try:
+        mnemonic = await asyncio.to_thread(local_vault.setup_vault, DB_PATH, body.get("mnemonic"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "mnemonic": mnemonic}
+
+
+@app.post("/api/vault/unlock")
+async def vault_unlock(body: dict):
+    """Unlock the local vault with a 12-word mnemonic."""
+    import local_vault
+    from memory import DB_PATH
+    mnemonic = (body or {}).get("mnemonic", "")
+    try:
+        await asyncio.to_thread(local_vault.unlock_vault, DB_PATH, mnemonic)
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(400, str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    return {"ok": True}
+
+
+@app.post("/api/vault/disable")
+async def vault_disable():
+    """Disable local encryption — decrypts memory.db and removes the vault."""
+    import local_vault
+    from memory import DB_PATH
+    try:
+        await asyncio.to_thread(local_vault.disable_vault, DB_PATH)
+    except PermissionError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
 @app.get("/conversations")
 async def get_conversations():
     from notes_manager import get_conversations
@@ -1465,7 +1539,31 @@ async def startup_event():
     # Start auto-cleanup scheduler (runs once at startup + every 24h)
     from cleanup_manager import start_cleanup_scheduler
     await asyncio.to_thread(start_cleanup_scheduler)
+    # Periodically re-sync the local vault snapshot (if enabled) so a crash
+    # doesn't leave the .vault file far behind the live plaintext db.
+    asyncio.create_task(_vault_sync_loop())
     log.info("Primnox Startup Complete - Event loop, clipboard monitor and cleanup scheduler initialized.")
+
+
+async def _vault_sync_loop():
+    import local_vault
+    from memory import DB_PATH
+    while True:
+        await asyncio.sleep(600)  # every 10 minutes
+        try:
+            await asyncio.to_thread(local_vault.sync_vault, DB_PATH)
+        except Exception as e:
+            log.error(f"Vault periodic sync failed: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    import local_vault
+    from memory import DB_PATH
+    try:
+        await asyncio.to_thread(local_vault.lock_vault, DB_PATH)
+    except Exception as e:
+        log.error(f"Vault lock on shutdown failed: {e}")
 
 
 @app.post("/api/cleanup")

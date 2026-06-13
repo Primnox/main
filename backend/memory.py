@@ -20,6 +20,25 @@ OLD_KEY_PATH = Path(__file__).parent / "memory.key"
 
 CATEGORIES = ["work", "personal", "project", "session"]
 
+def _auto_unlock_vault():
+    """If a local vault exists for memory.db, try to unlock it using the
+    OS-keychain-cached key. If locked and no key is cached, leave the
+    plaintext db absent — init_db() will then create a fresh empty db
+    and the user can restore from their mnemonic via /api/vault/unlock."""
+    try:
+        import local_vault
+        if local_vault.is_locked(DB_PATH):
+            try:
+                local_vault.unlock_vault(DB_PATH)
+                log.info("Local vault auto-unlocked from keychain key.")
+            except PermissionError:
+                log.warning("Local vault is locked and no keychain key found. "
+                             "Memory will be empty until unlocked via /api/vault/unlock.")
+    except Exception as e:
+        log.error(f"Vault auto-unlock check failed: {e}")
+
+_auto_unlock_vault()
+
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -79,40 +98,10 @@ def init_db():
     conn.close()
 
 def _migrate_old_memory():
-    if not OLD_MEMORY_PATH.exists() or not OLD_KEY_PATH.exists():
-        return
-        
-    log.info("Found legacy memory.json, migrating to SQLite...")
-    try:
-        from cryptography.fernet import Fernet
-        key = OLD_KEY_PATH.read_bytes()
-        f = Fernet(key)
-        enc = OLD_MEMORY_PATH.read_bytes()
-        data = f.decrypt(enc)
-        old_memories = json.loads(data)
-        
-        conn = get_db()
-        c = conn.cursor()
-        count = 0
-        for m in old_memories:
-            try:
-                c.execute(
-                    "INSERT INTO memories (key, text, category, timestamp, stale, session_id) VALUES (?, ?, ?, ?, ?, ?)",
-                    (m.get("key"), m.get("text"), m.get("category", "session"), m.get("timestamp", datetime.now().isoformat()), int(m.get("stale", False)), None)
-                )
-                count += 1
-            except sqlite3.IntegrityError:
-                pass # Duplicate key
-        conn.commit()
-        conn.close()
-        
-        # Rename old files to prevent re-migration
-        OLD_MEMORY_PATH.rename(OLD_MEMORY_PATH.with_suffix('.json.bak'))
-        OLD_KEY_PATH.rename(OLD_KEY_PATH.with_suffix('.key.bak'))
-        
-        log.info(f"Successfully migrated {count} memories to SQLite.")
-    except Exception as e:
-        log.error(f"Migration failed: {e}")
+    """Legacy migration path removed. The old Fernet key/JSON scheme is
+    deprecated; memory.key(.bak) and memory.json(.bak) should be deleted
+    from disk and history (the key was previously exposed)."""
+    return
 
 # Initialize DB on import
 init_db()
@@ -207,7 +196,7 @@ def add_memory(text, category="session", session_id=None):
         conn.close()
         return False
         
-    key = hashlib.sha1((text+str(datetime.now())).encode()).hexdigest()
+    key = hashlib.sha256((text+str(datetime.now())).encode()).hexdigest()
     ts = datetime.now().isoformat()
     cat = category if category in CATEGORIES else "session"
     
@@ -339,7 +328,7 @@ def compress_old_memories(compress_after_days: int = 7) -> int:
             continue
 
         # Insert compressed memory
-        new_key = hashlib.sha1(f"compressed:{category}:{week}".encode()).hexdigest()
+        new_key = hashlib.sha256(f"compressed:{category}:{week}".encode()).hexdigest()
         new_ts  = datetime.now().isoformat()
         conn = get_db()
         c    = conn.cursor()

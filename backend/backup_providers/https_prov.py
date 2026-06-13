@@ -13,15 +13,46 @@ cfg keys:
   url          — base URL, e.g. "https://myserver.com/primnox-backup"
   auth_header  — value for Authorization header (e.g. "Bearer xyz"), optional
 """
+import ipaddress
+import socket
+from urllib.parse import urlparse
+
 import requests
 from logger import get_logger
 
 log = get_logger("backup.https")
 
 
+def _validate_url(url: str) -> None:
+    """
+    Basic SSRF guard: only allow https:// URLs that don't resolve to
+    loopback, link-local, or private network ranges (e.g. 127.0.0.1,
+    169.254.169.254 cloud metadata, 10.x/192.168.x internal services).
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError("Backup URL must use https://")
+    host = parsed.hostname
+    if not host:
+        raise ValueError("Backup URL is missing a host")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Could not resolve backup host '{host}': {e}")
+    for info in infos:
+        addr = info[4][0]
+        ip = ipaddress.ip_address(addr)
+        if ip.is_loopback or ip.is_link_local or ip.is_private or ip.is_reserved or ip.is_multicast:
+            raise ValueError(
+                f"Backup URL resolves to a non-public address ({addr}) — refusing for safety"
+            )
+
+
 class HTTPSProvider:
     def __init__(self, cfg: dict):
         self._base = cfg.get("url", "").rstrip("/")
+        if self._base:
+            _validate_url(self._base)
         self._headers: dict = {}
         if auth := cfg.get("auth_header", ""):
             self._headers["Authorization"] = auth

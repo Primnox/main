@@ -51,10 +51,16 @@ def derive_key(mnemonic: str) -> bytes:
     """
     PBKDF2-SHA512(mnemonic, 'primnox-backup', 600_000 iterations) → 32-byte AES-256 key.
     Deterministic: same mnemonic always gives the same key.
+
+    Whitespace is normalized (split + rejoin with single spaces) so that
+    stray double-spaces/tabs/newlines — which validate_mnemonic() tolerates
+    via .split() — don't silently produce a different key and permanently
+    lock the user out.
     """
+    normalized = " ".join(mnemonic.strip().lower().split())
     return hashlib.pbkdf2_hmac(
         "sha512",
-        mnemonic.strip().lower().encode("utf-8"),
+        normalized.encode("utf-8"),
         b"primnox-backup",
         600_000,
         dklen=32,
@@ -152,63 +158,69 @@ def _keychain_clear() -> None:
 
 # ── SQLite hot-copy ────────────────────────────────────────────────────────────
 
-def _safe_copy_db(src_path: Path) -> bytes:
-    """
-    Hot-copy a SQLite DB (WAL-safe) and return its raw bytes.
-    Uses SQLite's built-in backup API — no locks held on the source.
-    """
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    src = dst = None
-    try:
-        src = sqlite3.connect(str(src_path))
-        dst = sqlite3.connect(str(tmp_path))
-        src.backup(dst)
-        src.close(); src = None
-        dst.close(); dst = None   # must close before unlink on Windows
-        return tmp_path.read_bytes()
-    finally:
-        if src is not None: src.close()
-        if dst is not None: dst.close()
-        tmp_path.unlink(missing_ok=True)
-
-
 # ── Backup payload builder ─────────────────────────────────────────────────────
 
 def _build_payload() -> bytes:
     """
     Gather memory.db, chat.db, and settings.json into a gzip-compressed JSON blob.
+    Streams databases in 64KB chunks directly into the compressor to prevent OOM.
     Returns gzip bytes ready for AES encryption.
     """
     from memory import DB_PATH as MEMORY_DB
     from chat_manager import DB_FILE as CHAT_DB
     from settings_manager import get_appdata_dir, load_settings
+    import io
 
-    payload: dict = {
-        "version":    "1",
-        "created_at": datetime.now().isoformat(),
-        "databases":  {},
-        "settings":   {},
-    }
+    out_buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=out_buf, mode="w", compresslevel=6) as gz:
+        created_at = datetime.now().isoformat()
+        gz.write(b'{"version":"1","created_at":"' + created_at.encode("utf-8") + b'","databases":{')
+        
+        first = True
+        for name, path in [("memory.db", Path(MEMORY_DB)), ("chat.db", Path(CHAT_DB))]:
+            if path.exists():
+                if not first:
+                    gz.write(b',')
+                first = False
+                gz.write(b'"' + name.encode("utf-8") + b'":"')
+                
+                # Stream hot copy hex
+                with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+                    tmp_path = Path(tmp.name)
+                
+                src = dst = None
+                try:
+                    src = sqlite3.connect(str(path))
+                    dst = sqlite3.connect(str(tmp_path))
+                    src.backup(dst)
+                    src.close(); src = None
+                    dst.close(); dst = None
+                    
+                    # Read copied db in chunks, hex encode, write directly to gzip
+                    with open(tmp_path, "rb") as f:
+                        while True:
+                            chunk = f.read(64 * 1024)
+                            if not chunk:
+                                break
+                            gz.write(chunk.hex().encode("utf-8"))
+                    log.debug(f"Snapshot stream complete: {name}")
+                finally:
+                    if src is not None: src.close()
+                    if dst is not None: dst.close()
+                    tmp_path.unlink(missing_ok=True)
+                
+                gz.write(b'"')
+            else:
+                log.warning(f"DB not found, skipping: {path}")
 
-    for name, path in [("memory.db", Path(MEMORY_DB)), ("chat.db", Path(CHAT_DB))]:
-        if path.exists():
-            raw = _safe_copy_db(path)
-            payload["databases"][name] = raw.hex()
-            log.debug(f"Snapshot {name}: {len(raw):,} bytes")
-        else:
-            log.warning(f"DB not found, skipping: {path}")
+        gz.write(b'},"settings":')
+        s = load_settings()
+        s.pop("backup_providers", None)   # contains cloud credentials — omit
+        s.pop("backup_wordlist", None)    # large list, omit so setdefault fires on restore
+        gz.write(json.dumps(s, separators=(",", ":")).encode("utf-8"))
+        gz.write(b'}')
 
-    # Include settings but strip sensitive cloud credentials from the backup
-    # (user re-enters those when restoring — only the mnemonic unlocks the data)
-    s = load_settings()
-    s.pop("backup_providers", None)   # contains cloud credentials — omit
-    s.pop("backup_wordlist", None)    # large list, not needed in backup; omit so setdefault fires on restore
-    payload["settings"] = s
-
-    raw_json = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    return gzip.compress(raw_json, compresslevel=6)
+    return out_buf.getvalue()
 
 
 # ── Encrypt / decrypt ──────────────────────────────────────────────────────────

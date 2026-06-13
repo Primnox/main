@@ -65,7 +65,7 @@ def get_active_window_rect():
 def take_screenshot(crop_active=True, scale_to=1280):
     """
     Captures screen, optionally crops to active window, scales down,
-    and returns PIL Image, b64 string and its MD5 hash.
+    and returns PIL Image, b64 string and its SHA256 hash.
     """
     log.debug(f"Capturing screenshot (crop={crop_active}, scale={scale_to})...")
     try:
@@ -107,9 +107,9 @@ def take_screenshot(crop_active=True, scale_to=1280):
     raw_bytes = buf.getvalue()
 
     b64 = base64.b64encode(raw_bytes).decode()
-    md5 = hashlib.md5(raw_bytes).hexdigest()
+    img_hash = hashlib.sha256(raw_bytes).hexdigest()
 
-    return img, b64, md5
+    return img, b64, img_hash
 
 def describe_screen(force=False, crop_active=True, uia_context=None):
     """

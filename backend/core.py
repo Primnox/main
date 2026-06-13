@@ -247,7 +247,7 @@ class PrimnoxCore:
         
         self._process_input(text, speaker, input_mode="voice")
 
-    def handle_text_input(self, text: str, session_id="current", display_text: str = None):
+    def handle_text_input(self, text: str, session_id="current", display_text: str = None, images_b64: list[str] = None):
         """Process a user message. If display_text is provided, it is shown in
         the chat UI while `text` (which may contain extracted file contents) is
         sent to the LLM for processing."""
@@ -264,10 +264,10 @@ class PrimnoxCore:
             })
             
         self._process_input(text, "User", input_mode="text", session_id=session_id,
-                            user_text=display_text or text)
+                            user_text=display_text or text, images_b64=images_b64)
 
 
-    def _process_input(self, raw_text, speaker, input_mode="text", session_id="current", user_text=None):
+    def _process_input(self, raw_text, speaker, input_mode="text", session_id="current", user_text=None, images_b64=None):
         """Unified Processing Logic for Voice and Text (Agentic).
         
         raw_text:  full text sent to LLM (may include extracted file contents).
@@ -423,7 +423,7 @@ class PrimnoxCore:
             
         full_text = ""
         try:
-            for token in think_stream(raw_text, context=context, session_id=session_id):
+            for token in think_stream(raw_text, context=context, session_id=session_id, images_b64=images_b64):
                 if not token:
                     continue
 
