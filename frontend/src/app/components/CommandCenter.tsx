@@ -238,6 +238,12 @@ export const CommandCenter = ({
           </div>
         </footer>
       </div>
+
+      {/* RIGHT WORKSPACE PANE */}
+      <div className="w-80 lg:w-96 border-l border-white/5 bg-zinc-950 flex flex-col h-full relative z-10 shrink-0">
+        <NotesIconSidebar notes={useStore(s => s.notes)} onExport={() => {}} />
+      </div>
     </div>
+
   );
 };

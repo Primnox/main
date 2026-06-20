@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -8,11 +8,19 @@ export interface Toast {
   message: string;
 }
 
+import { vadBus } from './vadBus';
+
+export function useVadLevel() {
+  return useSyncExternalStore(vadBus.subscribe, vadBus.get);
+}
+
 export function usePrimnox() {
   const [messages, setMessages] = useState<any[]>([]);
   const [state, setState] = useState('idle');
   const [micMuted, setMicMuted] = useState(false);
-  const [vadLevel, setVadLevel] = useState(0);
+    // vadLevel now lives in vadBus (see vadBus.ts) — not React state — to avoid
+  // a full-app re-render on every 10Hz VAD tick. Kept out of this hook's
+  // returned object; consumers use useVadLevel() directly.
   const [notes, setNotes] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [memory, setMemory] = useState<any[]>([]);
@@ -246,7 +254,7 @@ export function usePrimnox() {
             (window as any).electron.ipcRenderer.send('friday:mic-state', { muted: payload.muted });
           }
         }
-        else if (type === 'vad_level') setVadLevel(payload.rms);
+        else if (type === 'vad_level') vadBus.set(payload.rms);
         else if (type === 'transcript_added') setTranscripts(prev => [payload, ...prev]);
         else if (type === 'transcript') setCurrentTranscript(payload.text);
         else if (type === 'note_added') {
@@ -627,10 +635,10 @@ export function usePrimnox() {
     fetchNotes();
     fetchTasks();
     fetchLogs();
-    const timer = setInterval(() => {
-      fetchLogs();
-    }, 5000);
-    return () => clearInterval(timer);
+    // Note: previously polled fetchLogs() every 5s here regardless of which
+    // screen was visible. The Logs view now polls itself only while mounted
+    // (see LogView.tsx) — this initial fetch just seeds `activity` so it's
+    // non-empty if the user opens Logs immediately.
   }, [fetchSettings, fetchChats, fetchMemory, fetchNotes, fetchTasks, fetchLogs]);
   
   const manualReconnect = useCallback(() => {
@@ -640,14 +648,14 @@ export function usePrimnox() {
   }, []);
 
   return {
-    messages, state, micMuted, vadLevel, notes, tasks, memory,
+    messages, state, micMuted, notes, tasks, memory,
     activity, meetings, debriefs, transcripts, currentTranscript, lastAttachedFile, incognito, settings,
     toasts, connectionLost, reconnectAttempt, maxAttempts, startupComplete,
     islandError, triggerIslandError, clearIslandError,
     flowState, errorStreak, nowPlaying, productivityScore, parallelTasks, proactiveAlert, dismissProactiveAlert,
     islandSkills,
     triggerSmartPaste, triggerMediaControl,
-    sendMessage, toggleMic, toggleIncognito, manualReconnect, addToast, updateSettings, exportNotes, fetchNotes,
+    sendMessage, toggleMic, toggleIncognito, manualReconnect, addToast, updateSettings, exportNotes, fetchNotes, fetchLogs,
     chatSessions,
     chatFolders,
     activeChatId,

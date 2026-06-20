@@ -463,7 +463,11 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
             content_arr = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}} for b64 in images_b64]
             content_arr.append({"type": "text", "text": user_content})
             user_content = content_arr
-        elif active_model not in ("Ollama_Local", "Gemini_Flash"):
+        else:
+            # Gemini's OpenAI-compat endpoint and vision-capable Ollama models
+            # (llava, llama3.2-vision, etc) both accept the same OpenAI-style
+            # image_url/base64 content blocks — previously these were silently
+            # dropped for Ollama/Gemini, leaving images unused with no warning.
             content_arr = [{"type": "text", "text": user_content}]
             content_arr.extend([{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}} for b64 in images_b64])
             user_content = content_arr
@@ -489,7 +493,16 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
     elif active_model == "Ollama_Local":
         ollama_url = settings.get("ollama_base_url", "http://localhost:11434").rstrip("/")
-        model_name = settings.get("ollama_model", "llama3.2")
+        if images_b64:
+            vision_model = settings.get("ollama_vision_model", "")
+            if not vision_model:
+                yield ("Local vision needs a vision-capable Ollama model "
+                       "(e.g. `ollama pull llava` or `llama3.2-vision`), "
+                       "then set it as 'ollama_vision_model' in Settings.")
+                return
+            model_name = vision_model
+        else:
+            model_name = settings.get("ollama_model", "llama3.2")
         url = f"{ollama_url}/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
         api_key = "ollama"   # sentinel — Ollama needs no real key

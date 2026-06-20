@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle, Terminal, Copy, X, Music, Maximize2, SkipBack, Play, Pause, SkipForward, Calendar } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
+import { useVadLevel } from '../../hooks/usePrimnox';
 
 type AppMode = 'chat' | 'notes' | 'research';
 type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy' | 'error';
@@ -33,7 +34,6 @@ export const DynamicIsland = ({
   status,
   setStatus,
   onProfileClick,
-  vadLevel = 0,
   transcript = "",
   attachedFile = null,
   errorPayload = null,
@@ -57,7 +57,6 @@ export const DynamicIsland = ({
   status: AiStatus;
   setStatus: (s: AiStatus) => void;
   onProfileClick: () => void;
-  vadLevel?: number;
   transcript?: string;
   attachedFile?: any;
   errorPayload?: IslandErrorPayload | null;
@@ -78,6 +77,10 @@ export const DynamicIsland = ({
   /** Called when the user clicks to restore the full window from island-pill mode */
   onRestoreWindow?: () => void;
 }) => {
+
+  // High-frequency (10Hz+) VAD level — read via a pub-sub bus (vadBus), not
+  // App-level React state, so updates only re-render this component.
+  const vadLevel = useVadLevel();
 
   // ── Error fix copy ─────────────────────────────────────────────────────
   const [fixCopied, setFixCopied] = useState(false);

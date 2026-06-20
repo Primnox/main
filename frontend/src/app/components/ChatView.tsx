@@ -4,8 +4,49 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Paperclip, ArrowUp, Sparkles, X, Plus, MessageSquare, Pin, Folder, FolderPlus, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check, Copy, Terminal, FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+// Prism "light" build: only the languages we register below are bundled,
+// instead of the full ~100+ language grammar set the default `Prism` export
+// pulls in (hundreds of KB of unused parsers).
+import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
+import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
+import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'; // html/xml
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
+
+SyntaxHighlighter.registerLanguage('jsx', jsx);
+SyntaxHighlighter.registerLanguage('tsx', tsx);
+SyntaxHighlighter.registerLanguage('typescript', typescript);
+SyntaxHighlighter.registerLanguage('ts', typescript);
+SyntaxHighlighter.registerLanguage('javascript', javascript);
+SyntaxHighlighter.registerLanguage('js', javascript);
+SyntaxHighlighter.registerLanguage('python', python);
+SyntaxHighlighter.registerLanguage('py', python);
+SyntaxHighlighter.registerLanguage('bash', bash);
+SyntaxHighlighter.registerLanguage('sh', bash);
+SyntaxHighlighter.registerLanguage('shell', bash);
+SyntaxHighlighter.registerLanguage('json', json);
+SyntaxHighlighter.registerLanguage('css', css);
+SyntaxHighlighter.registerLanguage('html', markup);
+SyntaxHighlighter.registerLanguage('xml', markup);
+SyntaxHighlighter.registerLanguage('yaml', yaml);
+SyntaxHighlighter.registerLanguage('yml', yaml);
+SyntaxHighlighter.registerLanguage('sql', sql);
+
+// `prism-light` throws if asked to highlight a language that wasn't
+// registered above. Fall back to plain markup highlighting (still gives
+// nice quoting/braces) for anything we didn't explicitly add.
+const REGISTERED_LANGS = new Set([
+  'jsx', 'tsx', 'typescript', 'ts', 'javascript', 'js', 'python', 'py',
+  'bash', 'sh', 'shell', 'json', 'css', 'html', 'xml', 'yaml', 'yml', 'sql',
+]);
 
 type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy';
 
@@ -27,7 +68,7 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
         </button>
       </div>
       <SyntaxHighlighter
-        language={language}
+        language={REGISTERED_LANGS.has((language || '').toLowerCase()) ? language : 'markup'}
         style={oneDark}
         PreTag="div"
         customStyle={{ margin: 0, background: 'transparent', padding: '1rem', fontSize: '0.78rem', lineHeight: 1.65 }}

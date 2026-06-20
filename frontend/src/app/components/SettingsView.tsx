@@ -15,69 +15,22 @@ type ScreenId =
   | 'archive'
   | 'knowledge';
 
-export const IslandSettings = ({ 
-  onNavigate,
-  operatorAlias,
-  setOperatorAlias,
-  aiCodename,
-  setAiCodename,
-  activeModel,
-  setActiveModel,
-  apiKey,
-  setApiKey,
-  openaiApiKey,
-  setOpenaiApiKey,
-  anthropicApiKey,
-  setAnthropicApiKey,
-  vadSensitivity,
-  setVadSensitivity,
-  wakeWord,
-  setWakeWord,
-  wakeWordEnabled,
-  setWakeWordEnabled,
-  dynamicIslandEnabled,
-  setDynamicIslandEnabled,
-  ollamaModel,
-  setOllamaModel,
-  ollamaBaseUrl,
-  setOllamaBaseUrl,
-  calendarProviders,
-  setCalendarProviders,
-  meetingRetentionDays,
-  setMeetingRetentionDays,
-  onSync
-}: {
-  onNavigate: (id: ScreenId) => void,
-  operatorAlias: string,
-  setOperatorAlias: (v: string) => void,
-  aiCodename: string,
-  setAiCodename: (v: string) => void,
-  activeModel: string,
-  setActiveModel: (v: string) => void,
-  apiKey: string,
-  setApiKey: (v: string) => void,
-  openaiApiKey: string,
-  setOpenaiApiKey: (v: string) => void,
-  anthropicApiKey: string,
-  setAnthropicApiKey: (v: string) => void,
-  vadSensitivity: number,
-  setVadSensitivity: (v: number) => void,
-  wakeWord: string,
-  setWakeWord: (v: string) => void,
-  wakeWordEnabled: boolean,
-  setWakeWordEnabled: (v: boolean) => void,
-  dynamicIslandEnabled: boolean,
-  setDynamicIslandEnabled: (v: boolean) => void,
-  ollamaModel: string,
-  setOllamaModel: (v: string) => void,
-  ollamaBaseUrl: string,
-  setOllamaBaseUrl: (v: string) => void,
-  calendarProviders: any[],
-  setCalendarProviders: (v: any[]) => void,
-  meetingRetentionDays: number,
-  setMeetingRetentionDays: (v: number) => void,
-  onSync: () => void
-}) => {
+import { useStore } from '../../store/useStore';
+
+export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
+  const settings = useStore(s => s.settings);
+  const updateSettings = () => {}; // TODO: map this to the real setter if needed
+  
+  const [activeModel, setActiveModel] = useState(settings?.active_model || 'Groq_Llama_3');
+  const [vadSensitivity, setVadSensitivity] = useState(settings?.vad_sensitivity || 0.5);
+  const [operatorAlias, setOperatorAlias] = useState(settings?.operator_alias || 'ANIKETH_P_01');
+  const [aiCodename, setAiCodename] = useState(settings?.ai_codename || 'PRIMNOX');
+  const [apiKey, setApiKey] = useState(settings?.groq_api_key || '');
+  const [openaiApiKey, setOpenaiApiKey] = useState(settings?.openai_api_key || '');
+  const [anthropicApiKey, setAnthropicApiKey] = useState(settings?.anthropic_api_key || '');
+  const [wakeWord, setWakeWord] = useState(settings?.wake_word || 'hey primnox');
+  const [wakeWordEnabled, setWakeWordEnabled] = useState(settings?.wake_word_enabled ?? true);
+
   const [activeTab, setActiveTab] = useState<'System_Core' | 'Identity' | 'Security' | 'Calendar' | 'Backup'>('System_Core');
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
   const [checkingOllama, setCheckingOllama] = useState(false);

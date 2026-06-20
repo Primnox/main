@@ -1,10 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Download, Package, CheckCircle } from 'lucide-react';
 import { APP_VERSION } from './TitleBar';
 
-export const LogsPage = ({ activity = [] }: { activity: any[] }) => {
+export const LogsPage = ({ activity = [], fetchLogs }: { activity: any[]; fetchLogs?: () => void }) => {
   const [copied, setCopied] = useState(false);
+
+  // Poll for new log entries only while this screen is mounted/visible —
+  // previously this ran globally every 5s regardless of which screen the
+  // user was on.
+  useEffect(() => {
+    if (!fetchLogs) return;
+    const timer = setInterval(fetchLogs, 5000);
+    return () => clearInterval(timer);
+  }, [fetchLogs]);
 
   const exportLogs = () => {
     const lines: string[] = [

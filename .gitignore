@@ -20,3 +20,30 @@ backend/build/
 
 artifacts_linux/
 artifacts_mac/
+
+# Secrets / encryption keys — never commit these
+*.key
+*.key.bak
+*.vault
+
+# Local runtime data / databases — may contain real user content
+*.bak
+*.db
+*.db-wal
+*.db-shm
+chat.db
+backend/*.json.bak
+
+# Runtime media artifacts
+*.wav
+*.mp3
+
+# Duplicated/large model weights — fetched at setup, not committed
+yolov8n.pt
+backend/yolov8n.pt
+
+# Misc local-only logs/scratch
+push_error.txt
+*_output*.txt
+*_output*.log
+backend/build_admin.log
