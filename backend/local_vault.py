@@ -46,6 +46,7 @@ VERSION = 0x01
 
 _KEYRING_SERVICE = "primnox-local"
 _KEYRING_USER = "vault-key"
+_KEYRING_USER_PHRASE = "vault-phrase"  # separate from vault-key
 
 _WORDLIST_PATH = Path(__file__).parent.parent / "website" / "wordlist.txt"
 
@@ -122,6 +123,30 @@ def _keychain_clear() -> None:
     try:
         import keyring
         keyring.delete_password(_KEYRING_SERVICE, _KEYRING_USER)
+    except Exception:
+        pass
+
+
+def _keychain_store_phrase(mnemonic: str) -> None:
+    try:
+        import keyring
+        keyring.set_password(_KEYRING_SERVICE, _KEYRING_USER_PHRASE, mnemonic)
+    except Exception as e:
+        log.warning(f"Could not store vault phrase in keychain: {e}")
+
+
+def _keychain_load_phrase() -> Optional[str]:
+    try:
+        import keyring
+        return keyring.get_password(_KEYRING_SERVICE, _KEYRING_USER_PHRASE)
+    except Exception:
+        return None
+
+
+def _keychain_clear_phrase() -> None:
+    try:
+        import keyring
+        keyring.delete_password(_KEYRING_SERVICE, _KEYRING_USER_PHRASE)
     except Exception:
         pass
 
@@ -208,6 +233,7 @@ def setup_vault(db_path: Path, mnemonic: Optional[str] = None) -> str:
         vault_path(db_path).write_bytes(_encrypt_bytes(b"", key))
 
     _keychain_store(key)
+    _keychain_store_phrase(mnemonic)
     log.info(f"Local vault enabled for {db_path.name}")
     return mnemonic
 
@@ -286,4 +312,11 @@ def disable_vault(db_path: Path) -> None:
     if vp.exists():
         vp.unlink()
     _keychain_clear()
+    _keychain_clear_phrase()
     log.info(f"Local vault disabled for {db_path.name}")
+
+
+def get_stored_phrase() -> Optional[str]:
+    """Retrieve the mnemonic stored in the OS keychain (set during setup_vault).
+    Returns None if vault was set up without mnemonic storage (legacy) or disabled."""
+    return _keychain_load_phrase()

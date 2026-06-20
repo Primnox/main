@@ -846,6 +846,13 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
   const [createDraft,    setCreateDraft]    = useState<Partial<CalEvent>>({});
   const [showNL,         setShowNL]         = useState(false);
 
+  // Add-task form state
+  const [showAddTask,    setShowAddTask]    = useState(false);
+  const [newTaskTitle,   setNewTaskTitle]   = useState('');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskPriority,setNewTaskPriority]= useState('medium');
+  const [addingTask,     setAddingTask]     = useState(false);
+
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(t);
@@ -876,6 +883,33 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
       setTasks(Array.isArray(data) ? data : (data.tasks || []));
     } catch { setTasks([]); }
   }, []);
+
+  const doAddTask = async () => {
+    if (!newTaskTitle.trim()) return;
+    setAddingTask(true);
+    try {
+      const res = await fetch(`${API}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newTaskTitle.trim(),
+          due_date: newTaskDueDate || null,
+          priority: newTaskPriority,
+          completed: false,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setNewTaskTitle('');
+      setNewTaskDueDate('');
+      setNewTaskPriority('medium');
+      setShowAddTask(false);
+      fetchTasks();
+    } catch (e) {
+      console.error('Failed to add task:', e);
+    } finally {
+      setAddingTask(false);
+    }
+  };
 
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
@@ -1080,9 +1114,51 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
             })}
           />
 
-          {tasks.filter(t => !t.completed).length > 0 && (
-            <div>
-              <p className="font-mono text-[9px] text-white/20 uppercase tracking-widest mb-2">Pending Tasks</p>
+          <div>
+            {/* Header row */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[9px] font-mono uppercase tracking-widest text-white/30">Pending Tasks</span>
+              <button
+                onClick={() => setShowAddTask(t => !t)}
+                className="text-[9px] font-mono uppercase tracking-widest text-emerald-400/70 hover:text-emerald-400 transition-colors flex items-center gap-1"
+              >
+                <Plus size={9} /> Task
+              </button>
+            </div>
+
+            {/* Inline add task form */}
+            {showAddTask && (
+              <div className="mb-3 p-2 rounded-lg bg-white/5 border border-white/10 space-y-2">
+                <input
+                  autoFocus
+                  value={newTaskTitle}
+                  onChange={e => setNewTaskTitle(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && doAddTask()}
+                  placeholder="Task title..."
+                  className="w-full bg-transparent text-xs text-white placeholder:text-white/30 outline-none border-b border-white/10 pb-1"
+                />
+                <input
+                  type="date"
+                  value={newTaskDueDate}
+                  onChange={e => setNewTaskDueDate(e.target.value)}
+                  className="w-full bg-transparent text-[10px] text-white/50 outline-none"
+                />
+                <div className="flex gap-1">
+                  {['low','medium','high'].map(p => (
+                    <button key={p} onClick={() => setNewTaskPriority(p)}
+                      className={`px-2 py-0.5 text-[9px] font-mono uppercase rounded transition-colors ${
+                        newTaskPriority === p ? 'bg-emerald-500/20 text-emerald-400' : 'text-white/30 hover:text-white/60'
+                      }`}>{p}</button>
+                  ))}
+                  <button onClick={doAddTask} disabled={addingTask || !newTaskTitle.trim()}
+                    className="ml-auto px-2 py-0.5 text-[9px] font-mono uppercase bg-emerald-500/20 text-emerald-400 rounded hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
+                    {addingTask ? '...' : 'Add'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {tasks.filter(t => !t.completed).length > 0 && (
               <div className="space-y-1.5">
                 {tasks.filter(t => !t.completed).slice(0, 7).map(t => (
                   <div key={t.id} className="flex items-start gap-2">
@@ -1091,8 +1167,8 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {showCreateForm && !selectedEvent && !editingEvent && (
             <div className="border-t border-white/[0.06] pt-4">

@@ -1279,6 +1279,16 @@ async def vault_status():
     }
 
 
+@app.get("/api/vault/phrase")
+async def api_vault_phrase():
+    """Return the stored recovery phrase from the OS keychain."""
+    import local_vault
+    phrase = local_vault.get_stored_phrase()
+    if phrase is None:
+        raise HTTPException(status_code=404, detail="No recovery phrase stored. You must re-enable the vault to generate a new one.")
+    return {"phrase": phrase}
+
+
 @app.post("/api/vault/setup")
 async def vault_setup(body: dict = None):
     """

@@ -60,6 +60,8 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
   const [vaultMnemonicGenerated, setVaultMnemonicGenerated] = useState('');
   const [vaultOp, setVaultOp] = useState<'idle'|'running'|'done'|'error'>('idle');
   const [vaultOpMsg, setVaultOpMsg] = useState('');
+  const [vaultPhrase, setVaultPhrase] = useState<string | null>(null);
+  const [showPhrase, setShowPhrase] = useState(false);
 
   useEffect(() => {
     if (activeTab !== 'Security') return;
@@ -233,12 +235,26 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
         setVaultOp('done'); setVaultOpMsg('Vault disabled and fully decrypted.');
         setVaultStatus({ enabled: false, locked: false });
         setVaultMnemonicGenerated('');
+        setVaultPhrase(null); setShowPhrase(false);
       } else {
         const data = await res.json();
         setVaultOp('error'); setVaultOpMsg(data.detail || 'Failed');
       }
     } catch { setVaultOp('error'); setVaultOpMsg('Backend unavailable'); }
     setTimeout(() => { setVaultOp('idle'); setVaultOpMsg(''); }, 4000);
+  };
+
+  const fetchVaultPhrase = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/vault/phrase');
+      if (!res.ok) throw new Error('Not found');
+      const data = await res.json();
+      setVaultPhrase(data.phrase);
+      setShowPhrase(true);
+    } catch {
+      setVaultPhrase(null);
+      setVaultOpMsg('Recovery phrase not available. Re-enable the vault to generate a new one.');
+    }
   };
 
   const tabs = [
@@ -621,18 +637,38 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
                     )}
 
                     {vaultStatus?.enabled && !vaultStatus?.locked && (
-                      <div className="flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-xl">
-                        <div className="flex items-center gap-3">
-                          <CheckCircle size={16} className="text-emerald-400" />
-                          <span className="text-xs text-white/70">Vault is active and decrypted for this session.</span>
+                      <div className="p-4 bg-white/5 border border-white/10 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <CheckCircle size={16} className="text-emerald-400" />
+                            <span className="text-xs text-white/70">Vault is active and decrypted for this session.</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={disableVault}
+                              disabled={vaultOp === 'running'}
+                              className="text-xs text-red-400 hover:text-red-300 font-mono tracking-widest uppercase transition-colors"
+                            >
+                              Disable Vault
+                            </button>
+                            <button
+                              onClick={fetchVaultPhrase}
+                              className="ml-2 px-3 py-1 text-[10px] font-mono uppercase tracking-widest border border-amber-500/30 text-amber-400 rounded hover:bg-amber-500/10 transition-colors"
+                            >
+                              Show Recovery Phrase
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          onClick={disableVault}
-                          disabled={vaultOp === 'running'}
-                          className="text-xs text-red-400 hover:text-red-300 font-mono tracking-widest uppercase transition-colors"
-                        >
-                          Disable Vault
-                        </button>
+                        {showPhrase && vaultPhrase && (
+                          <div className="mt-3 p-3 rounded-lg bg-amber-950/30 border border-amber-500/20">
+                            <p className="text-[9px] uppercase tracking-widest text-amber-400/60 mb-2">Recovery Phrase — keep this safe</p>
+                            <p className="font-mono text-xs text-amber-200 leading-relaxed select-all break-words">{vaultPhrase}</p>
+                            <button
+                              onClick={() => setShowPhrase(false)}
+                              className="mt-2 text-[9px] text-white/30 hover:text-white/60 underline transition-colors"
+                            >Hide</button>
+                          </div>
+                        )}
                       </div>
                     )}
 

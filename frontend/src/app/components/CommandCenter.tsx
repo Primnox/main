@@ -1,8 +1,79 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { motion } from 'motion/react';
-import { Terminal, User, Paperclip, ArrowRight, Sparkles, X, Plus, MessageSquare, Pin, Folder, ChevronDown, ChevronRight, Settings, History } from 'lucide-react';
+import { Terminal, User, Paperclip, ArrowRight, Sparkles, X, Plus, MessageSquare, Pin, Folder, ChevronDown, ChevronRight, Settings, History, Copy, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
+import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
+import json_lang from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+SyntaxHighlighter.registerLanguage('tsx', tsx);
+SyntaxHighlighter.registerLanguage('typescript', typescript);
+SyntaxHighlighter.registerLanguage('ts', typescript);
+SyntaxHighlighter.registerLanguage('javascript', javascript);
+SyntaxHighlighter.registerLanguage('js', javascript);
+SyntaxHighlighter.registerLanguage('python', python);
+SyntaxHighlighter.registerLanguage('py', python);
+SyntaxHighlighter.registerLanguage('bash', bash);
+SyntaxHighlighter.registerLanguage('sh', bash);
+SyntaxHighlighter.registerLanguage('json', json_lang);
 
 type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy';
+
+// ── Markdown code-block renderer ──────────────────────────────────────────────
+
+const REGISTERED = new Set(['tsx','typescript','ts','javascript','js','python','py','bash','sh','json']);
+
+const CCCodeBlock = ({ language, value }: { language: string; value: string }) => {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  return (
+    <div className="my-2 rounded-xl overflow-hidden border border-white/10 bg-black/60">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5 bg-white/[0.03]">
+        <span className="text-[9px] font-mono text-white/30 uppercase tracking-widest">{language}</span>
+        <button onClick={copy} className="flex items-center gap-1 text-[9px] font-mono uppercase tracking-widest text-white/30 hover:text-emerald-400 transition-colors">
+          {copied ? <><Check size={10} /> Copied</> : <><Copy size={10} /> Copy</>}
+        </button>
+      </div>
+      <SyntaxHighlighter
+        language={REGISTERED.has((language || '').toLowerCase()) ? language : 'markup'}
+        style={oneDark}
+        PreTag="div"
+        customStyle={{ margin: 0, background: 'transparent', fontSize: '0.75rem', padding: '0.75rem' }}
+      >
+        {value}
+      </SyntaxHighlighter>
+    </div>
+  );
+};
+
+const CC_MD_COMPONENTS = {
+  code({ children, className, ...props }: any) {
+    const lang = /language-(\w+)/.exec(className || '')?.[1];
+    const text = String(children).replace(/\n$/, '');
+    if (!lang && !text.includes('\n')) {
+      return <code className="bg-white/10 text-emerald-300/90 px-1.5 py-0.5 rounded text-[0.8em] font-mono" {...props}>{children}</code>;
+    }
+    return <CCCodeBlock language={lang || 'text'} value={text} />;
+  },
+  pre({ children }: any) { return <>{children}</>; },
+  p({ children }: any) { return <p className="text-sm leading-relaxed text-white/80 mb-1 last:mb-0">{children}</p>; },
+  strong({ children }: any) { return <strong className="text-white font-semibold">{children}</strong>; },
+  a({ href, children }: any) { return <a href={href} target="_blank" rel="noreferrer" className="text-emerald-400 underline hover:text-emerald-300">{children}</a>; },
+  ul({ children }: any) { return <ul className="list-disc pl-4 space-y-0.5 text-sm text-white/70">{children}</ul>; },
+  ol({ children }: any) { return <ol className="list-decimal pl-4 space-y-0.5 text-sm text-white/70">{children}</ol>; },
+  li({ children }: any) { return <li className="leading-relaxed">{children}</li>; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const CommandCenter = ({ 
   aiName, 
@@ -185,9 +256,7 @@ export const CommandCenter = ({
                       <span className="uppercase font-bold">{msg.sender?.toUpperCase() === 'PRIMNOX' ? `PROTOCOL // ${aiName}_v2` : `OPERATOR // ${userName}`}</span>
                       <span className="opacity-40">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : ''}</span>
                    </div>
-                  <p className={`text-sm leading-relaxed ${msg.sender?.toUpperCase() === 'PRIMNOX' ? 'text-white font-light italic' : 'text-white/90 font-medium'}`}>
-                    {msg.text}
-                  </p>
+                   <ReactMarkdown components={CC_MD_COMPONENTS}>{msg.text}</ReactMarkdown>
                 </div>
               </motion.div>
             ))
