@@ -225,7 +225,7 @@ def describe_screen(force=False, crop_active=True, uia_context=None):
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
-                    "model": "llama-3.2-11b-vision-preview",
+                    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
                     "messages": [
                         {"role": "system", "content": VISION_PROMPT},
                         {

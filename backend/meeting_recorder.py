@@ -492,7 +492,8 @@ class MeetingRecorder:
                 with open(self.current_meeting_dir / "summary.txt", "w", encoding="utf-8") as f:
                     f.write(summary_text)
                 try:
-                    from notes_manager import add_note, get_notes
+                    from notes_manager import add_note, get_notes, init_db
+                    init_db()  # ensure the notes table exists before inserting
                     meeting_title = f"Meeting: {meeting_name}"
                     if not any(n.get("title") == meeting_title for n in get_notes()):
                         add_note(summary_text, title=meeting_title)

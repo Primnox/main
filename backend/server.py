@@ -3,7 +3,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Background
 from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
 from core import PrimnoxCore
-from logger import get_logger, get_log_buffer
+from logger import get_logger, get_log_buffer, APP_VERSION
 import uvicorn
 import asyncio
 import json
@@ -353,7 +353,7 @@ async def auto_assign_chat(session_id: str):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.0.7-alpha"}
+    return {"status": "ok", "version": APP_VERSION}
 
 
 @app.get("/api/status")
@@ -398,7 +398,7 @@ async def get_status():
 
     return {
         "status": "ok",
-        "version": "0.0.7-alpha",
+        "version": APP_VERSION,
         "timestamp": datetime.datetime.now().isoformat(),
         "active_window": active_window,
         "feed_events": feed_len,
@@ -589,7 +589,16 @@ async def explain_error(request: Request):
             content = content.split("```json")[1].split("```")[0].strip()
         elif "```" in content:
             content = content.split("```")[1].split("```")[0].strip()
-        payload = json.loads(content)
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError:
+            # LLM response contained raw backslashes or was not valid JSON;
+            # fall back to returning the plain text in a structured envelope.
+            payload = {
+                "summary": content[:300] if content else "AI returned an unparseable response.",
+                "fix": "Review the raw AI output above.",
+                "hover_text": "click to copy the fix"
+            }
         return payload
     except Exception as e:
         log = get_logger("error_explain")
@@ -1542,7 +1551,7 @@ async def startup_event():
     # Periodically re-sync the local vault snapshot (if enabled) so a crash
     # doesn't leave the .vault file far behind the live plaintext db.
     asyncio.create_task(_vault_sync_loop())
-    log.info("Primnox Startup Complete - Event loop, clipboard monitor and cleanup scheduler initialized.")
+    log.info(f"Primnox v{APP_VERSION} Startup Complete — Event loop, clipboard monitor and cleanup scheduler initialized.")
 
 
 async def _vault_sync_loop():
@@ -1711,10 +1720,10 @@ async def receive_feedback(request: Request, background_tasks: BackgroundTasks):
     try:
         data = []
         if feedback_file.exists():
-            with open(feedback_file, "r") as f:
+            with open(feedback_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
         data.append(feedback_entry)
-        with open(feedback_file, "w") as f:
+        with open(feedback_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
         log.error(f"Failed to save feedback locally: {e}")

@@ -328,7 +328,7 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
             msg_content = build_openai_vision(text_content, image_base64) if image_base64 else text_content
             
             if image_base64:
-                models_to_try = ["llama-3.2-11b-vision-preview"]
+                models_to_try = ["meta-llama/llama-4-scout-17b-16e-instruct"]
             else:
                 models_to_try = GROQ_FALLBACK_CHAIN
                 
@@ -519,7 +519,7 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
     else:
         api_key = get_api_key("groq")
         url = "https://api.groq.com/openai/v1/chat/completions"
-        model_name = "llama-3.2-11b-vision-preview" if images_b64 else "llama-3.3-70b-versatile"
+        model_name = "meta-llama/llama-4-scout-17b-16e-instruct" if images_b64 else "llama-3.3-70b-versatile"
         headers = {"Authorization": f"Bearer {api_key}"}
 
     if not api_key:
