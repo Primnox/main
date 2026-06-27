@@ -4,8 +4,16 @@ frontend/.env
 backend/memory.db
 backend/chat.db
 backend/dist/
+backend/models/
 backend/__pycache__/
 backend/*.pyc
+# Catch nested bytecode caches anywhere in the tree
+**/__pycache__/
+**/*.pyc
+# Editor / merge backups
+*.orig
+# Dev-only UI screenshots
+ui-screenshots/
 frontend/dist/
 frontend/dist-electron/
 *.map
