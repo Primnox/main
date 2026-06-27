@@ -1,7 +1,7 @@
 {
   "name": "primnox-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "public/electron.cjs",
   "scripts": {
@@ -10,7 +10,7 @@
     "prebuild": "node scripts/strip-source.cjs",
     "electron:dev": "concurrently \"vite\" \"wait-on tcp:5173 && cross-env ELECTRON_START_URL=http://localhost:5173 electron .\"",
     "electron:build": "vite build && electron-builder",
-    "electron:build:full": "cd ../backend && pyinstaller primnox_backend.spec --clean -y && cd ../frontend && npm run prebuild && vite build && electron-builder"
+    "electron:build:full": "cd ../backend && python fetch_pii_model.py && pyinstaller primnox_backend.spec --clean -y && cd ../frontend && npm run prebuild && vite build && electron-builder"
   },
   "build": {
     "appId": "com.primnox.app",
@@ -38,10 +38,12 @@
     ],
     "win": {
       "target": "nsis",
+      "icon": "build/icon.ico",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "linux": {
       "target": "AppImage",
+      "icon": "build/icon.png",
       "category": "Utility"
     },
     "mac": {
@@ -61,6 +63,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "deleteAppDataOnUninstall": false
     },
     "asar": true,
