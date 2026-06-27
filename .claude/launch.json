@@ -13,6 +13,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "-p", "5500", "website"],
       "port": 5500
+    },
+    {
+      "name": "live-website",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "5510", "C:/Users/aniketh/Projects/primnox_web"],
+      "port": 5510
     }
   ]
 }
