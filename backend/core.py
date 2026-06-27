@@ -398,16 +398,13 @@ class PrimnoxCore:
             f"{memory_context}"
         )
 
-        # ── PII redaction (privacy_mirror) ────────────────────────────────
-        # Scrub the injected context (memory snippets, visible UI text, etc.)
-        # before it ever leaves this machine. Respect the settings toggle.
-        if self.settings.get("privacy_mirror_enabled", True):
-            try:
-                from privacy_mirror import redact_text
-                context = redact_text(context)
-            except Exception:
-                pass
-        
+        # ── Privacy Mirror ────────────────────────────────────────────────
+        # Scrubbing now happens at the cloud boundary inside brain.think_stream:
+        # local models get the raw payload (nothing leaves the device), cloud
+        # models get a reversibly-pseudonymized payload and the reply is
+        # de-anonymized before it reaches the user. brain emits a one-shot
+        # "[[PRIVACY]]" sentinel (intercepted below) carrying the scrub diff.
+
         # Stream response
         response_chunks = []
         token_buffer = []
@@ -425,6 +422,19 @@ class PrimnoxCore:
         try:
             for token in think_stream(raw_text, context=context, session_id=session_id, images_b64=images_b64):
                 if not token:
+                    continue
+
+                # Privacy Mirror diff — what was pseudonymized before leaving the
+                # device. Surfaced as its own event for the in-chat reveal; never
+                # printed into the chat text.
+                if token.startswith("[[PRIVACY]]"):
+                    import json as _json
+                    try:
+                        payload = _json.loads(token[len("[[PRIVACY]]"):])
+                    except Exception:
+                        payload = {}
+                    if self.broadcast_callback:
+                        self.broadcast_callback("privacy_scrub", payload)
                     continue
 
                 if token.startswith("[API ERROR"):

@@ -2,6 +2,7 @@
 import requests
 import os
 import json
+import threading
 from pathlib import Path
 from dotenv import load_dotenv
 from system_prompts import MASTER_PROMPT
@@ -13,12 +14,11 @@ load_dotenv()
 log = get_logger("brain")
 
 GROQ_FALLBACK_CHAIN = [
-    "llama-3.3-70b-versatile",                    # default — think_stream() starts here
-    "openai/gpt-oss-120b",                         # fallback 1
-    "qwen/qwen3-32b",                              # fallback 2
-    "openai/gpt-oss-20b",                          # fallback 3
-    "meta-llama/llama-4-scout-17b-16e-instruct",   # fallback 4
-    "llama-3.1-8b-instant"                         # fallback 5 — last resort
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "qwen/qwen3-32b",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "mistralai/mistral-saba-24b",
+    "llama-3.3-70b-versatile",
 ]
 
 GEMINI_MODELS = [
@@ -27,9 +27,41 @@ GEMINI_MODELS = [
     "gemini-1.5-flash",
 ]
 
+# Global Load Balancer State for Groq
+_groq_lb_lock = threading.Lock()
+_groq_lb_state = {
+    "current_idx": 0,
+}
+
+def rotate_groq_model():
+    """Advances the global Groq model index to load balance (thread-safe)."""
+    with _groq_lb_lock:
+        _groq_lb_state["current_idx"] = (_groq_lb_state["current_idx"] + 1) % len(GROQ_FALLBACK_CHAIN)
+        model = GROQ_FALLBACK_CHAIN[_groq_lb_state["current_idx"]]
+    log.info(f"[LB] Rotated Groq model to {model}")
+    return model
+
+def _gemini_fallback_target():
+    """url / model / headers to retry on Gemini's OpenAI-compatible endpoint once
+    every Groq model is rate-limited. Returns None when no Gemini key is configured."""
+    gkey = get_api_key("gemini")
+    if not gkey:
+        return None
+    return (
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        "gemini-2.0-flash",
+        {"Authorization": f"Bearer {gkey}", "Content-Type": "application/json"},
+    )
+
 def get_adaptive_system_prompt(settings):
     """Injects user onboarding profile into the base persona."""
     base_prompt = MASTER_PROMPT
+
+    # Always inject the user's name so the AI can address them properly
+    user_name = settings.get("operator_alias") or settings.get("nickname") or ""
+    if user_name:
+        base_prompt += f"\n\n[USER IDENTITY] The user's name is {user_name}. Use it naturally in conversation — not every message, just when it feels right."
+
     if settings.get("onboarding_completed", False):
         profile = settings.get("onboarding_profile", {})
         comm_style = ", ".join(profile.get("communication_style", []))
@@ -90,10 +122,29 @@ def get_api_key(provider):
         except Exception:
             pass
         return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    elif provider.lower() == "llamacpp":
+        return "llamacpp"  # llama.cpp server needs no API key
     return None
 
 def get_groq_api_key():
     return get_api_key("groq")
+
+def _safe_local_url(url: str, default_port: int) -> str:
+    """Validate that a local model URL is a well-formed localhost/127.0.0.1 HTTP URL.
+    Rejects anything that could cause SSRF-style requests to external hosts."""
+    import re
+    url = url.strip().rstrip("/")
+    if re.match(r'^https?://(localhost|127\.0\.0\.1)(:\d+)?$', url):
+        return url
+    log.warning(f"Rejected unsafe local model URL '{url}' — falling back to localhost:{default_port}")
+    return f"http://localhost:{default_port}"
+
+def _safe_int_header(val, default: int) -> int:
+    """Parse an HTTP header value as int without crashing on non-integer strings."""
+    try:
+        return int(float(val))
+    except Exception:
+        return default
 
 def get_ollama_status(base_url: str = "http://localhost:11434") -> dict:
     """Returns {'running': bool, 'models': [str, ...]}"""
@@ -136,11 +187,32 @@ def transcribe(audio_bytes):
         return {"error": str(e)}
 
 def think(prompt, context=None, image_base64=None, messages=None, system_override=None):
+    """Non-streaming thinking entry. Wraps the model call with the Privacy Mirror
+    cloud-boundary gate: cloud routes get a pseudonymized payload and the returned
+    content is de-anonymized before callers (memory extraction, profiler, etc.)
+    ever see it; local routes are untouched."""
+    box: dict = {}
+    res = _think_inner(prompt, context=context, image_base64=image_base64,
+                       messages=messages, system_override=system_override, _scrub_box=box)
+    sess = box.get("sess")
+    if sess is not None:
+        try:
+            msg = res["choices"][0]["message"]
+            if isinstance(msg.get("content"), str):
+                msg["content"] = sess.rehydrate(msg["content"])
+        except Exception:
+            pass
+    return res
+
+
+def _think_inner(prompt, context=None, image_base64=None, messages=None, system_override=None, _scrub_box=None):
     """
     Primnox Thinking Engine (Dynamic Routing)
     Supports Groq, OpenAI, and Anthropic.
     Locks the default MASTER_PROMPT system persona.
     """
+    if _scrub_box is None:
+        _scrub_box = {}
     log.info(f"Thinking about: {prompt[:50]}...")
     
     # Load settings to check active model
@@ -177,6 +249,27 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
 
     text_content = f"Context:\n{context}\n\nUser: {prompt}" if context else prompt
     user_content = text_content
+
+    # ── Privacy Mirror: scrub at the cloud boundary (non-streaming) ──────────
+    # Local models keep the raw payload on-device; cloud routes get a reversibly
+    # pseudonymized payload, and think()'s wrapper rehydrates the reply.
+    sess = None
+    if active_model not in ("Ollama_Local", "LlamaCpp_Local") and settings.get("privacy_mirror_enabled", True):
+        try:
+            from privacy_mirror import ScrubSession, ensure_model_ready
+            ensure_model_ready()  # bounded wait so names/addresses aren't missed mid-load
+            sess = ScrubSession()
+            system_content = sess.scrub(system_content)
+            text_content = sess.scrub(text_content)
+            user_content = text_content
+            if messages:
+                for _m in messages:
+                    if isinstance(_m.get("content"), str):
+                        _m["content"] = sess.scrub(_m["content"])
+            _scrub_box["sess"] = sess
+        except Exception as e:
+            log.warning(f"Privacy Mirror scrub failed in think() (sending unscrubbed): {e}")
+            sess = None
 
     # Vision payload builders
     def build_openai_vision(text, img_b64):
@@ -227,8 +320,11 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
             if messages:
                 anthropic_messages = [m for m in messages if m["role"] != "system"]
                 if not anthropic_messages:
-                    # All entries were system-role; fall back to single user message
+                    # All entries were system-role; synthesise a user turn from the current prompt
                     anthropic_messages = [{"role": "user", "content": msg_content}]
+                elif anthropic_messages[-1]["role"] != "user":
+                    # History ends on an assistant turn — append the current user message
+                    anthropic_messages.append({"role": "user", "content": msg_content})
             else:
                 anthropic_messages = [{"role": "user", "content": msg_content}]
             resp = requests.post(
@@ -259,7 +355,7 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
             return mapped_res
 
         elif active_model == "Ollama_Local":
-            ollama_url = settings.get("ollama_base_url", "http://localhost:11434").rstrip("/")
+            ollama_url = _safe_local_url(settings.get("ollama_base_url", "http://localhost:11434"), 11434)
             ollama_model = settings.get("ollama_model", "llama3.2")
             log.info(f"Routing think() → Ollama ({ollama_model} @ {ollama_url})")
             try:
@@ -284,6 +380,33 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
             except requests.exceptions.ConnectionError:
                 log.error("Ollama not reachable — is it running? (ollama serve)")
                 return {"choices": [{"message": {"content": "ollama isn't running bro. start it with `ollama serve`."}}]}
+
+        elif active_model == "LlamaCpp_Local":
+            llamacpp_url = _safe_local_url(settings.get("llamacpp_base_url", "http://localhost:8080"), 8080)
+            llamacpp_model = settings.get("llamacpp_model", "") or "default"
+            log.info(f"Routing think() → llama.cpp ({llamacpp_model} @ {llamacpp_url})")
+            try:
+                resp = requests.post(
+                    f"{llamacpp_url}/v1/chat/completions",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": llamacpp_model,
+                        "messages": [
+                            {"role": "system", "content": system_content},
+                            {"role": "user", "content": user_content}
+                        ],
+                        "stream": False
+                    },
+                    timeout=120
+                )
+                res = resp.json()
+                return res
+            except requests.exceptions.Timeout:
+                log.error("llama.cpp timed out — model may still be loading.")
+                return {"choices": [{"message": {"content": "llama.cpp timed out — the model might still be loading. try again in a few seconds."}}]}
+            except requests.exceptions.ConnectionError:
+                log.error("llama.cpp not reachable — is the server running?")
+                return {"choices": [{"message": {"content": "llama.cpp server isn't running. start it with `./llama-server -m your_model.gguf`"}}]}
 
         elif active_model == "Gemini_Flash":
             api_key = get_api_key("gemini")
@@ -330,7 +453,9 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
             if image_base64:
                 models_to_try = ["meta-llama/llama-4-scout-17b-16e-instruct"]
             else:
-                models_to_try = GROQ_FALLBACK_CHAIN
+                with _groq_lb_lock:
+                    idx = _groq_lb_state["current_idx"]
+                models_to_try = GROQ_FALLBACK_CHAIN[idx:] + GROQ_FALLBACK_CHAIN[:idx]
                 
             last_res = {
                 "error": "all_models_failed",
@@ -358,8 +483,15 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
                     log.warning(f"Groq model {groq_model} returned non-JSON (HTTP {resp.status_code}) — trying next")
                     continue
                 last_res = res
-                if "error" not in res:
+                
+                if resp.status_code == 200 and "error" not in res:
+                    req_rem = _safe_int_header(resp.headers.get("x-ratelimit-remaining-requests", 100), 100)
+                    tok_rem = _safe_int_header(resp.headers.get("x-ratelimit-remaining-tokens", 50000), 50000)
+                    if req_rem <= 2 or tok_rem <= 1000:
+                        log.warning(f"[LB] Groq limits dangerously low for {groq_model} (reqs: {req_rem}, toks: {tok_rem}). Rotating.")
+                        rotate_groq_model()
                     return res
+                    
                 # if there is an error, we can try the next model
                 log.warning(f"Groq model {groq_model} failed: {res.get('error')}")
 
@@ -405,7 +537,68 @@ def think(prompt, context=None, image_base64=None, messages=None, system_overrid
         return {"error": str(e)}
 
 
+# Control tokens that must pass through the stream verbatim (never rehydrated,
+# and they flush any held partial placeholder first to preserve ordering).
+_STREAM_CONTROL_PREFIXES = ("[SYSTEM:", "[API ERROR", "[Error", "[Anthropic", "[Gemini", "[Ollama", "[[PRIVACY]]")
+
+
+def _is_stream_control(tok) -> bool:
+    return isinstance(tok, str) and tok.lstrip().startswith(_STREAM_CONTROL_PREFIXES)
+
+
 def think_stream(prompt, context="", session_id="", images_b64=None):
+    """Public streaming entry. Wraps the model loop with the Privacy Mirror
+    cloud-boundary gate: emits a one-shot ``[[PRIVACY]]{...}`` sentinel with the
+    scrub diff (for the in-chat reveal), then de-anonymizes streamed tokens so the
+    user sees real names while the cloud only ever saw placeholders."""
+    import itertools, json as _json
+
+    scrub_box: dict = {}
+    inner = _think_stream_inner(prompt, context=context, session_id=session_id,
+                                images_b64=images_b64, _scrub_box=scrub_box)
+
+    # Pull the first token — this also runs the inner generator far enough to
+    # build + scrub the outbound messages, so the map is populated by now.
+    try:
+        first = next(inner)
+    except StopIteration:
+        return
+
+    mapping = scrub_box.get("map")
+    if mapping:
+        yield "[[PRIVACY]]" + _json.dumps({"mapping": mapping, "model": scrub_box.get("model", "")})
+
+    sess = scrub_box.get("sess")
+    rehy = None
+    if sess is not None:
+        from privacy_mirror import StreamRehydrator
+        rehy = StreamRehydrator(sess)
+
+    for tok in itertools.chain([first], inner):
+        if tok is None:
+            continue
+        if rehy is None:
+            yield tok
+            continue
+        if _is_stream_control(tok):
+            held = rehy.flush()
+            if held:
+                yield held
+            yield tok
+        else:
+            out = rehy.feed(tok)
+            if out:
+                yield out
+
+    if rehy is not None:
+        tail = rehy.flush()
+        if tail:
+            yield tail
+
+
+def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scrub_box=None):
+    if _scrub_box is None:
+        _scrub_box = {}
     try:
         from settings_manager import load_settings
         settings = load_settings()
@@ -451,8 +644,8 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
                     continue
                 role = "assistant" if msg["speaker"] == "Primnox" else "user"
                 msg_text = msg["text"]
-                if len(msg_text) > 1000:
-                    msg_text = msg_text[:1000] + "\n...[truncated for length]"
+                if len(msg_text) > 16000:
+                    msg_text = msg_text[:16000] + "\n...[truncated for length]"
                 messages.append({"role": role, "content": msg_text})
         except Exception as e:
             log.error(f"Failed to load chat history: {e}")
@@ -474,6 +667,37 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
 
     messages.append({"role": "user", "content": user_content})
 
+    # ── Privacy Mirror: scrub at the cloud boundary ──────────────────────────
+    # Only the cloud path leaks — local models (Ollama / llama.cpp) keep the raw
+    # payload on-device, so we skip scrubbing entirely for them (full fidelity).
+    # For cloud routes we pseudonymize EVERYTHING that's about to leave (system
+    # prompt, history, user turn) through one ScrubSession, hand the map to the
+    # wrapper (for rehydration + the UI reveal), and scrub tool results too.
+    _scrub_box["model"] = active_model
+    sess = None
+    is_local_route = active_model in ("Ollama_Local", "LlamaCpp_Local")
+    if not is_local_route and settings.get("privacy_mirror_enabled", True):
+        try:
+            from privacy_mirror import ScrubSession, ensure_model_ready
+            ensure_model_ready()  # bounded wait so names/addresses aren't missed mid-load
+            sess = ScrubSession()
+            for _m in messages:
+                _c = _m.get("content")
+                if isinstance(_c, str):
+                    _m["content"] = sess.scrub(_c)
+                elif isinstance(_c, list):
+                    for _part in _c:
+                        if isinstance(_part, dict) and _part.get("type") == "text" and isinstance(_part.get("text"), str):
+                            _part["text"] = sess.scrub(_part["text"])
+            # Anthropic passes the system prompt via its own field (not messages),
+            # so scrub the variable too — stable map keeps placeholders consistent.
+            system_content = sess.scrub(system_content)
+            _scrub_box["sess"] = sess
+            _scrub_box["map"] = sess.mapping
+        except Exception as e:
+            log.warning(f"Privacy Mirror scrub failed (sending unscrubbed): {e}")
+            sess = None
+
     api_key = ""
     url = ""
     model_name = ""
@@ -492,7 +716,7 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
         model_name = "claude-3-5-sonnet-20241022"
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
     elif active_model == "Ollama_Local":
-        ollama_url = settings.get("ollama_base_url", "http://localhost:11434").rstrip("/")
+        ollama_url = _safe_local_url(settings.get("ollama_base_url", "http://localhost:11434"), 11434)
         if images_b64:
             vision_model = settings.get("ollama_vision_model", "")
             if not vision_model:
@@ -508,6 +732,14 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
         api_key = "ollama"   # sentinel — Ollama needs no real key
         is_ollama = True
         log.info(f"Routing think_stream() → Ollama ({model_name} @ {ollama_url})")
+    elif active_model == "LlamaCpp_Local":
+        llamacpp_url = _safe_local_url(settings.get("llamacpp_base_url", "http://localhost:8080"), 8080)
+        model_name = settings.get("llamacpp_model", "") or "default"
+        url = f"{llamacpp_url}/v1/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        api_key = "llamacpp"  # sentinel — llama.cpp needs no real key
+        is_ollama = True       # shares the same OpenAI-compat streaming path as Ollama
+        log.info(f"Routing think_stream() → llama.cpp ({model_name} @ {llamacpp_url})")
     elif active_model == "Gemini_Flash":
         api_key = get_api_key("gemini")
         gemini_model = settings.get("gemini_model", "gemini-2.0-flash")
@@ -519,7 +751,11 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
     else:
         api_key = get_api_key("groq")
         url = "https://api.groq.com/openai/v1/chat/completions"
-        model_name = "meta-llama/llama-4-scout-17b-16e-instruct" if images_b64 else "llama-3.3-70b-versatile"
+        if images_b64:
+            model_name = "meta-llama/llama-4-scout-17b-16e-instruct"  # Vision-capable model
+        else:
+            with _groq_lb_lock:
+                model_name = GROQ_FALLBACK_CHAIN[_groq_lb_state["current_idx"]]
         headers = {"Authorization": f"Bearer {api_key}"}
 
     if not api_key:
@@ -590,7 +826,9 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
         if active_model not in ("Anthropic_Claude_3", "Gemini_Flash"):
             max_steps = 5
             for step in range(max_steps):
-                for _retry in range(3):
+                tried_groq = set()
+                recovered_400 = False
+                for _retry in range(len(GROQ_FALLBACK_CHAIN) + 1):
                     resp = requests.post(
                         url,
                         headers=headers,
@@ -604,25 +842,41 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
                     )
                     if resp.status_code == 429:
                         if "groq.com" in url and model_name in GROQ_FALLBACK_CHAIN:
-                            current_idx = GROQ_FALLBACK_CHAIN.index(model_name)
-                            if current_idx + 1 < len(GROQ_FALLBACK_CHAIN):
-                                next_model = GROQ_FALLBACK_CHAIN[current_idx + 1]
-                                log.warning(f"Rate limit hit. Falling back to {next_model}...")
-                                model_name = next_model
+                            tried_groq.add(model_name)
+                            if len(tried_groq) < len(GROQ_FALLBACK_CHAIN):
+                                model_name = rotate_groq_model()
+                                log.warning(f"Rate limit hit. Rotating to {model_name}...")
                                 continue
-                            else:
-                                # All Groq models exhausted — try Gemini
-                                gemini_key = get_api_key("gemini")
-                                if gemini_key:
-                                    log.warning("All Groq models rate-limited. Falling back to Gemini...")
-                                    url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-                                    model_name = "gemini-2.0-flash"
-                                    headers = {"Authorization": f"Bearer {gemini_key}", "Content-Type": "application/json"}
-                                    continue
+                            gt = _gemini_fallback_target()
+                            if gt:
+                                url, model_name, headers = gt
+                                log.warning("All Groq models rate-limited. Falling back to Gemini...")
+                                continue
                         log.warning("Rate limit hit. Retrying in 2 seconds...")
                         import time
                         time.sleep(2)
                         continue
+                    
+                    if resp.status_code == 400 and ("invalid JSON" in resp.text or "malformed" in resp.text.lower()):
+                        log.error(f"HTTP 400 Bad Request (JSON Error): {resp.text[:200]}")
+                        if not recovered_400:
+                            # Attempt recovery ONCE per step to prevent message corruption
+                            if len(messages) > 1:
+                                messages.pop()
+                                messages.append({"role": "system", "content": "Your previous tool call contained malformed JSON. Output strictly valid JSON only."})
+                            recovered_400 = True
+                            continue
+                        # Already retried once — break out to avoid corruption
+                        break
+                    
+                    if resp.status_code == 200 and "groq.com" in url:
+                        # Pre-emptive load balancing check
+                        req_rem = _safe_int_header(resp.headers.get("x-ratelimit-remaining-requests", 100), 100)
+                        tok_rem = _safe_int_header(resp.headers.get("x-ratelimit-remaining-tokens", 50000), 50000)
+                        if req_rem <= 2 or tok_rem <= 1000:
+                            log.warning(f"[LB] Groq limits dangerously low for {model_name} (reqs: {req_rem}, toks: {tok_rem}). Rotating.")
+                            rotate_groq_model()
+                            
                     break
                 
                 res_data = None
@@ -690,24 +944,53 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
                 tool_calls = response_msg.get("tool_calls")
                 if tool_calls:
                     log.info(f"LLM decided to use {len(tool_calls)} tools (Step {step+1}).")
+                    
+                    # SANITIZE JSON TO PREVENT HTTP 400 ON NEXT REQUEST
+                    for tc in tool_calls:
+                        args_str = tc.get("function", {}).get("arguments", "{}")
+                        try:
+                            # If it parses, ensure it's tightly formatted
+                            clean_args = json.loads(args_str)
+                            tc["function"]["arguments"] = json.dumps(clean_args)
+                        except json.JSONDecodeError:
+                            # Strip common hallucinated chars (e.g. > ) that break Groq's strict validator
+                            clean_str = args_str.replace(">", "").replace("<", "")
+                            try:
+                                json.loads(clean_str)
+                                tc["function"]["arguments"] = clean_str
+                            except Exception:
+                                # Fallback to empty object if completely unparseable
+                                tc["function"]["arguments"] = "{}"
+                    
                     messages.append(response_msg)
                     
+                    _valid_tool_names = {td["function"]["name"] for td in TOOL_DEFINITIONS}
                     for tool_call in tool_calls:
                         func_name = tool_call.get("function", {}).get("name")
+                        if func_name not in _valid_tool_names:
+                            log.warning(f"LLM requested unknown tool '{func_name}' — skipping")
+                            continue
                         try:
                             args = json.loads(tool_call.get("function", {}).get("arguments", "{}"))
                         except Exception:
                             args = {}
-                            
+
                         log.info(f"Executing tool {func_name}...")
                         yield f"\n[SYSTEM: Executing {func_name}]\n"
                         result = execute_tool(func_name, args, session_id=session_id)
-                        
+
+                        # Tool output re-enters the cloud conversation — scrub it
+                        # through the same session so new PII gets stable placeholders.
+                        tool_content = str(result)
+                        if sess is not None:
+                            tool_content = sess.scrub(tool_content)
+                            _scrub_box["map"] = sess.mapping
+
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.get("id"),
                             "name": func_name,
-                            "content": str(result)
+                            "content": tool_content
                         })
                     
                     # If we reached max steps, break to force final response
@@ -722,7 +1005,8 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
                     return
                     
             # Force a final streaming pass if we hit max_steps or broke out needing a final pass
-            for _retry in range(3):
+            tried_groq = set()
+            for _retry in range(len(GROQ_FALLBACK_CHAIN) + 1):
                 resp_stream = requests.post(
                     url,
                     headers=headers,
@@ -736,11 +1020,15 @@ def think_stream(prompt, context="", session_id="", images_b64=None):
                 )
                 if resp_stream.status_code == 429:
                     if "groq.com" in url and model_name in GROQ_FALLBACK_CHAIN:
-                        current_idx = GROQ_FALLBACK_CHAIN.index(model_name)
-                        if current_idx + 1 < len(GROQ_FALLBACK_CHAIN):
-                            next_model = GROQ_FALLBACK_CHAIN[current_idx + 1]
-                            log.warning(f"Rate limit hit on streaming. Falling back to {next_model}...")
-                            model_name = next_model
+                        tried_groq.add(model_name)
+                        if len(tried_groq) < len(GROQ_FALLBACK_CHAIN):
+                            model_name = rotate_groq_model()
+                            log.warning(f"Rate limit hit on streaming. Rotating to {model_name}...")
+                            continue
+                        gt = _gemini_fallback_target()
+                        if gt:
+                            url, model_name, headers = gt
+                            log.warning("All Groq models rate-limited. Falling back to Gemini (streaming)...")
                             continue
                     log.warning("Rate limit hit on streaming. Retrying in 2 seconds...")
                     import time

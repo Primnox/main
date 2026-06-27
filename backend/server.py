@@ -16,6 +16,14 @@ from pathlib import Path
 import shutil
 import sys
 
+
+def _get_pii_model_status() -> str:
+    try:
+        from privacy_mirror import model_status
+        return model_status()
+    except Exception:
+        return "unavailable"
+
 # ── One-time DB migration: move databases from install dir → AppData ──────────
 def _migrate_dbs_to_appdata():
     """
@@ -93,6 +101,18 @@ core = PrimnoxCore()
 clients = set()
 loop = None
 
+_MASKED_KEYS = ["groq_api_key", "openai_api_key", "anthropic_api_key", "gemini_api_key"]
+
+def _sanitize_settings(settings: dict) -> dict:
+    """Return a copy of settings with all API keys replaced by a placeholder."""
+    safe = dict(settings)
+    for key in _MASKED_KEYS:
+        if safe.get(key):
+            safe[key] = "sk-****"
+    # Never send the backup wordlist (2048 strings) over the wire
+    safe.pop("backup_wordlist", None)
+    return safe
+
 def broadcast(event_type, data):
     """
     Sovereign V2: Thread-safe broadcast for frontend compatibility.
@@ -163,7 +183,7 @@ async def websocket_endpoint(ws: WebSocket):
         # Send initial states to client immediately
         await ws.send_text(json.dumps({"type": "mic_state", "data": {"muted": core.mic_muted}}))
         await ws.send_text(json.dumps({"type": "incognito_changed", "data": {"active": core.incognito}}))
-        await ws.send_text(json.dumps({"type": "settings_updated", "data": core.settings}))
+        await ws.send_text(json.dumps({"type": "settings_updated", "data": _sanitize_settings(core.settings)}))
         while True:
             await ws.receive_text()
             await ws.send_text(json.dumps({"type": "pong", "data": {}}))
@@ -232,11 +252,10 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
                     extracted_parts.append(f"[File: {filename}]\n```\n{file_text[:2500]}\n```")
 
                 else:
-                    # Unknown file type — save to temp and mention it
-                    tmp = tempfile.NamedTemporaryFile(delete=False, prefix="primnox_upload_", suffix=os.path.splitext(filename)[1])
-                    tmp.write(content)
-                    tmp.close()
-                    extracted_parts.append(f"[File attached: {filename} ({len(content)} bytes, saved to {tmp.name})]")
+                    # Unknown file type — just acknowledge it. We don't write a temp
+                    # file: the path was never surfaced to the model or cleaned up, so
+                    # writing one only leaked orphaned files into the temp directory.
+                    extracted_parts.append(f"[File attached: {filename} ({len(content)} bytes)]")
 
             except Exception as e:
                 log.warning(f"Failed to extract content from {filename}: {e}")
@@ -412,6 +431,7 @@ async def get_status():
         "skills_count": skills_count,
         "db_sizes_kb": db_sizes,
         "last_backup": last_backup_name,
+        "pii_model_status": _get_pii_model_status(),
     }
 
 @app.get("/api/dashboard")
@@ -425,12 +445,6 @@ async def get_dashboard():
     # Feed data — ambient + window events
     history = list(core.feed.history[-25:])
     ambient_events = [h for h in core.feed.history if "Ambient:" in h]
-    # Rough word count from ambient chunks (strip timestamp + label)
-    words_heard = 0
-    for e in ambient_events:
-        parts = e.split("Ambient:", 1)
-        if len(parts) > 1:
-            words_heard += len(parts[1].split())
 
     # Current focus
     active_window = core.feed.active_window_title or "Unknown"
@@ -509,14 +523,61 @@ async def get_dashboard():
     # Flag whether the primary AI key is configured (don't expose the key itself)
     has_api_key = bool(core.settings.get("groq_api_key") or
                        core.settings.get("openai_api_key") or
-                       core.settings.get("anthropic_api_key"))
+                       core.settings.get("anthropic_api_key") or
+                       core.settings.get("gemini_api_key") or
+                       core.settings.get("active_model", "").endswith("_Local"))
+
+    user_name = core.settings.get("operator_alias") or core.settings.get("nickname") or ""
+
+    # Today's calendar events — merge local DB events with live provider events
+    # (Google / Outlook / iCal / Notion). Both are normalised to the shape the
+    # dashboard renders: {id, title, start_dt, all_day, color, location}.
+    today_events: list = []
+    now = datetime.datetime.now()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end   = now.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    # 1) Local events (event_manager) — already stored in the frontend shape
+    try:
+        from event_manager import list_events
+        today_events.extend(
+            list_events(start_iso=day_start.isoformat(), end_iso=day_end.isoformat()) or []
+        )
+    except Exception as _e:
+        log.warning(f"today_events: local events failed: {_e}")
+
+    # 2) Live provider events — only if the user has configured any provider,
+    #    so the common (no-provider) case makes zero network calls.
+    try:
+        if core.settings.get("calendar_providers"):
+            from skills.calendar_skill import CalendarIslandSkill
+            today = now.date()
+            for i, ev in enumerate(CalendarIslandSkill()._fetch_events() or []):
+                start = getattr(ev, "start", None)
+                if start is None:
+                    continue
+                # astimezone() localises both naive and aware datetimes for a fair date compare
+                if start.astimezone().date() != today:
+                    continue
+                today_events.append({
+                    "id":       f"cal_{i}_{start.isoformat()}",
+                    "title":    ev.title,
+                    "start_dt": start.isoformat(),
+                    "all_day":  False,
+                    "color":    getattr(ev, "color", "#6366f1"),
+                    "location": getattr(ev, "location", ""),
+                })
+    except Exception as _e:
+        log.warning(f"today_events: provider events failed: {_e}")
+
+    # Sort by start time and cap at 8
+    today_events = sorted(today_events, key=lambda e: str(e.get("start_dt") or ""))[:8]
 
     return {
         "active_window": active_window,
         "active_process": active_process,
         "feed_history": history,
         "ambient_count": len(ambient_events),
-        "words_heard_today": max(0, words_heard),
         "meetings": meetings,
         "notes_count": notes_count,
         "memories_count": memories_count,
@@ -525,6 +586,9 @@ async def get_dashboard():
         "reminders": reminders,
         "last_backup": last_backup,
         "skills_count": skills_count,
+        "user_name": user_name,
+        "today_events": today_events,
+        "pii_model_status": _get_pii_model_status(),
     }
 
 @app.get("/api/ollama/status")
@@ -604,7 +668,7 @@ async def explain_error(request: Request):
         log = get_logger("error_explain")
         log.error(f"error_explain failed: {e}")
         return {
-            "summary": f"something broke and i can't even explain it properly: {str(e)[:80]}",
+            "summary": "something broke and i can't even explain it properly — check the logs",
             "fix": "check the logs bro",
             "hover_text": "click to copy the fix"
         }
@@ -868,6 +932,32 @@ async def backup_restore(body: dict):
     return {"ok": True, "message": "Restore complete — restart Primnox for changes to take effect"}
 
 
+@app.post("/api/backup/import")
+async def backup_import(file: UploadFile = File(...), mnemonic: str = Form(...)):
+    """Import + decrypt + restore a .prx backup uploaded from disk. No cloud
+    provider needed — only the file and the seed phrase. Lets a fresh install
+    recover without first reconfiguring the original cloud provider."""
+    mnemonic = (mnemonic or "").strip()
+    if not mnemonic:
+        raise HTTPException(400, "mnemonic is required")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "empty file")
+    if data[:4] != b"PRNX":
+        raise HTTPException(400, "Not a Primnox backup (.prx) file")
+
+    from backup_manager import backup_manager
+    try:
+        await asyncio.to_thread(backup_manager.restore_from_bytes, data, mnemonic)
+    except Exception as e:
+        log.error(f"Import restore failed: {e}")
+        # InvalidTag (wrong seed) is the common case — give a friendlier message
+        msg = "Wrong seed phrase for this backup" if "InvalidTag" in type(e).__name__ else str(e)
+        raise HTTPException(500, msg)
+
+    return {"ok": True, "message": "Import complete — restart Primnox for changes to take effect"}
+
+
 @app.delete("/api/backup/{filename}")
 async def backup_delete(filename: str):
     import re as _re
@@ -972,50 +1062,129 @@ async def get_notes():
 
 @app.get("/api/graph")
 async def get_graph():
-    from notes_manager import get_db
-    conn = get_db()
+    import re as _re
+    import json as _json
+    from collections import Counter
+    from notes_manager import get_db as notes_get_db
+
+    # ── Fetch notes ───────────────────────────────────────────────────────────
+    conn = notes_get_db()
     c = conn.cursor()
-    c.execute("SELECT id, title, project, parent_id FROM notes ORDER BY id ASC")
-    rows = c.fetchall()
-    
-    nodes = []
-    links = []
-    
-    workspaces = set()
-    for r in rows:
-        workspaces.add(r["project"] or "General")
-        
-    for ws in workspaces:
-        nodes.append({
-            "id": f"ws_{ws}",
-            "name": ws,
-            "group": 0,
-            "val": 5, # Larger node for workspace
-            "type": "workspace"
-        })
-        
-    for r in rows:
-        n_id = r["id"]
-        title = r["title"] or "Untitled"
-        project = r["project"] or "General"
-        parent_id = r["parent_id"]
-        
-        nodes.append({
-            "id": n_id,
-            "name": title,
-            "group": 1,
-            "val": 2,
-            "type": "note"
-        })
-        
-        if parent_id is not None:
-            # Link to parent note
-            links.append({"source": n_id, "target": parent_id})
-        else:
-            # Link to workspace
-            links.append({"source": n_id, "target": f"ws_{project}"})
-            
+    c.execute("SELECT id, title, project, parent_id, key_points, text FROM notes ORDER BY id ASC")
+    note_rows = c.fetchall()
     conn.close()
+
+    # ── Fetch memories ────────────────────────────────────────────────────────
+    try:
+        from memory import list_memories
+        mem_rows = list_memories(include_stale=False)
+    except Exception:
+        mem_rows = []
+
+    STOP = {
+        'the','a','an','and','or','but','in','on','at','to','for','of','with','by','from',
+        'is','are','was','were','be','been','have','has','had','do','does','did','will',
+        'would','could','should','may','might','shall','can','this','that','these','those',
+        'it','its','they','them','their','we','our','you','your','i','my','me','he','she',
+        'his','her','not','no','so','up','out','if','then','than','just','also','about',
+        'into','over','after','before','between','through','during','without','like','when',
+        'what','how','why','which','who','where','untitled','note','notes','new','user',
+        'said','says','want','wants','asked','told','uses','used','need','needs','know',
+    }
+
+    def keywords(text: str) -> set:
+        if not text:
+            return set()
+        words = _re.findall(r'\b[a-z]{4,}\b', text.lower())
+        return {w for w in words if w not in STOP}
+
+    nodes: list = []
+    links: list = []
+    seen_links: set = set()
+
+    def add_link(src, tgt, link_type="related"):
+        key = f"{min(str(src), str(tgt))}___{max(str(src), str(tgt))}"
+        if key not in seen_links:
+            seen_links.add(key)
+            links.append({"source": src, "target": tgt, "type": link_type})
+
+    # ── Workspace nodes ───────────────────────────────────────────────────────
+    workspaces = {r["project"] or "General" for r in note_rows}
+    for ws in workspaces:
+        nodes.append({"id": f"ws_{ws}", "name": ws, "group": 0, "val": 5, "type": "workspace"})
+
+    # ── Note nodes + keyword extraction ──────────────────────────────────────
+    item_kw: dict[str, set] = {}   # unified id → keywords for both notes and memories
+
+    for r in note_rows:
+        n_id  = r["id"]
+        title = r["title"] or "Untitled"
+        proj  = r["project"] or "General"
+        pid   = r["parent_id"]
+
+        nodes.append({"id": n_id, "name": title, "group": 1, "val": 2, "type": "note"})
+
+        if pid is not None:
+            add_link(n_id, pid, "hierarchy")
+        else:
+            add_link(n_id, f"ws_{proj}", "hierarchy")
+
+        kw = keywords(title)
+        try:
+            kp_list = _json.loads(r["key_points"] or "[]")
+            for kp in (kp_list if isinstance(kp_list, list) else []):
+                kw |= keywords(str(kp))
+        except Exception:
+            pass
+        kw |= keywords((r["text"] or "")[:400])
+        item_kw[str(n_id)] = kw
+
+    # ── Memory nodes + keyword extraction ────────────────────────────────────
+    for m in mem_rows:
+        m_id  = f"mem_{m['key']}"
+        label = m["text"][:50] + ("…" if len(m["text"]) > 50 else "")
+        cat   = m.get("category", "session")
+        nodes.append({"id": m_id, "name": label, "group": 3, "val": 1.5, "type": "memory", "category": cat})
+        item_kw[m_id] = keywords(m["text"])
+
+    # ── Concept nodes: terms shared across 3+ items (notes + memories) ────────
+    term_count: Counter = Counter()
+    for kw_set in item_kw.values():
+        term_count.update(kw_set)
+
+    concept_terms = {term for term, cnt in term_count.items() if cnt >= 3}
+    for term in concept_terms:
+        nodes.append({"id": f"tag_{term}", "name": f"#{term}", "group": 2, "val": 1, "type": "tag"})
+        for item_id, kw_set in item_kw.items():
+            if term in kw_set:
+                # Use the numeric id for notes, string id for memories/tags
+                src = int(item_id) if item_id.lstrip('-').isdigit() else item_id
+                add_link(src, f"tag_{term}", "concept")
+
+    # ── Direct cross-links for strong pairwise overlap ────────────────────────
+    # Build an inverted index over non-concept terms so we only compare items
+    # that actually share a term, instead of scanning all O(n²) pairs. Concept
+    # terms (3+ items) are excluded here, so each remaining term maps to ≤2 items
+    # and the work is linear in the number of term occurrences.
+    from collections import defaultdict
+    postings: dict = defaultdict(list)
+    for item_id, kw_set in item_kw.items():
+        for term in (kw_set - concept_terms):
+            postings[term].append(item_id)
+
+    pair_shared: dict = defaultdict(int)
+    for ids in postings.values():
+        for a in range(len(ids)):
+            for b in range(a + 1, len(ids)):
+                key = (ids[a], ids[b]) if ids[a] < ids[b] else (ids[b], ids[a])
+                pair_shared[key] += 1
+
+    for (id_a, id_b), shared_count in pair_shared.items():
+        if shared_count >= 2:
+            src_a = int(id_a) if id_a.lstrip('-').isdigit() else id_a
+            src_b = int(id_b) if id_b.lstrip('-').isdigit() else id_b
+            add_link(src_a, src_b, "related")
+
     return {"nodes": nodes, "links": links}
 
 @app.post("/notes/update")
@@ -1222,7 +1391,7 @@ async def export_notes():
         for i, note in enumerate(notes):
             f.write(f"## Node {i}\n{note}\n\n")
             
-    return {"success": True, "path": str(export_path)}
+    return {"success": True, "filename": export_path.name}
 
 @app.get("/tasks")
 async def get_tasks():
@@ -1279,9 +1448,38 @@ async def vault_status():
     }
 
 
+import time as _time_mod
+_vault_phrase_tokens: dict[str, float] = {}  # token → expiry timestamp
+
+@app.post("/api/vault/phrase-token")
+async def vault_phrase_issue_token():
+    """Issue a 60-second single-use token required to fetch the recovery phrase.
+    Vault must be enabled and unlocked to obtain a token."""
+    import local_vault
+    from memory import DB_PATH
+    if not local_vault.is_enabled(DB_PATH):
+        raise HTTPException(status_code=403, detail="Vault not enabled")
+    if local_vault.is_locked(DB_PATH):
+        raise HTTPException(status_code=403, detail="Vault is locked — unlock first")
+    import secrets as _sec
+    token = _sec.token_hex(32)
+    _vault_phrase_tokens[token] = _time_mod.time() + 60
+    return {"token": token}
+
 @app.get("/api/vault/phrase")
-async def api_vault_phrase():
-    """Return the stored recovery phrase from the OS keychain."""
+async def api_vault_phrase(request: Request):
+    """Return the stored recovery phrase — requires a valid one-time token from
+    /api/vault/phrase-token, passed in the X-Vault-Token header (not the URL, so
+    the capability token never lands in access logs)."""
+    token = request.headers.get("x-vault-token", "")
+    now = _time_mod.time()
+    # Prune expired tokens
+    expired = [t for t, exp in _vault_phrase_tokens.items() if now > exp]
+    for t in expired:
+        _vault_phrase_tokens.pop(t, None)
+    if not token or token not in _vault_phrase_tokens or now > _vault_phrase_tokens[token]:
+        raise HTTPException(status_code=403, detail="Valid one-time token required. Request one via POST /api/vault/phrase-token.")
+    _vault_phrase_tokens.pop(token)  # single-use
     import local_vault
     phrase = local_vault.get_stored_phrase()
     if phrase is None:
@@ -1421,7 +1619,11 @@ async def scan_onboarding():
     skills = list(skills)[:10] if skills else ["System Administration"]
     
     # Use LLM to infer the rest of the profile dynamically
-    prompt = f"Given these projects: {', '.join(projects)} and skills: {', '.join(skills)}, infer 3 topics, 2 communication_styles, and 3 knowledge_areas. Output ONLY valid JSON matching this schema: {{\"topics\": [], \"communication_style\": [], \"knowledge_areas\": []}}"
+    import re as _re
+    def _safe_name(n): return _re.sub(r'[^\w\-. ()]', '', n)[:60]
+    safe_projects = [_safe_name(p) for p in projects]
+    safe_skills   = [_safe_name(s) for s in skills]
+    prompt = f"Given these projects: {', '.join(safe_projects)} and skills: {', '.join(safe_skills)}, infer 3 topics, 2 communication_styles, and 3 knowledge_areas. Output ONLY valid JSON matching this schema: {{\"topics\": [], \"communication_style\": [], \"knowledge_areas\": []}}"
     try:
         response = think(prompt)
         # think() returns an OpenAI-compatible dict — extract the text content first
@@ -1454,12 +1656,7 @@ async def scan_onboarding():
 @app.get("/settings")
 async def get_settings():
     from settings_manager import load_settings
-    settings = load_settings()
-    # Mask API keys for security
-    for key in ["groq_api_key", "openai_api_key", "anthropic_api_key"]:
-        if settings.get(key):
-            settings[key] = "sk-****"
-    return settings
+    return _sanitize_settings(load_settings())
 
 @app.post("/generate")
 async def post_generate(request: Request):
@@ -1487,7 +1684,7 @@ async def post_settings(request: Request):
     merged = {**old_settings, **body}
     
     # Do not overwrite with masked keys
-    for key in ["groq_api_key", "openai_api_key", "anthropic_api_key"]:
+    for key in _MASKED_KEYS:
         if merged.get(key) == "sk-****":
             merged[key] = old_settings.get(key, "")
             
@@ -1505,7 +1702,16 @@ async def post_settings(request: Request):
         core.vad.SILENCE_THRESHOLD = max(0.005, 0.05 - (sensitivity * 0.045))
         log.info(f"VAD sensitivity threshold updated dynamically to: {core.vad.SILENCE_THRESHOLD:.4f}")
         
-    broadcast("settings_updated", core.settings)
+    # If privacy shield just got enabled, kick off model loading
+    if body.get("privacy_mirror_enabled") and not old_settings.get("privacy_mirror_enabled"):
+        try:
+            from privacy_mirror import start_model_loading
+            start_model_loading()
+            log.info("Privacy Shield enabled — PII model loading started")
+        except Exception as e:
+            log.warning(f"Could not start PII model loading: {e}")
+
+    broadcast("settings_updated", _sanitize_settings(core.settings))
     return {"success": True}
 
 @app.get("/voices")
@@ -1558,6 +1764,17 @@ async def startup_event():
     # Start auto-cleanup scheduler (runs once at startup + every 24h)
     from cleanup_manager import start_cleanup_scheduler
     await asyncio.to_thread(start_cleanup_scheduler)
+    # If Privacy Shield is already enabled (persisted from a prior session), kick off
+    # PII model loading now — otherwise redact_text() silently stays on the regex
+    # fallback until the user toggles the setting off/on. start_model_loading() spawns
+    # a daemon thread, so this never blocks startup.
+    if core.settings.get("privacy_mirror_enabled", True):
+        try:
+            from privacy_mirror import start_model_loading
+            start_model_loading()
+            log.info("Privacy Shield enabled at startup — PII model loading started")
+        except Exception as e:
+            log.warning(f"Could not start PII model loading at startup: {e}")
     # Periodically re-sync the local vault snapshot (if enabled) so a crash
     # doesn't leave the .vault file far behind the live plaintext db.
     asyncio.create_task(_vault_sync_loop())

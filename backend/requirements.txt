@@ -19,6 +19,11 @@ pywin32; sys_platform == 'win32'
 winsdk; sys_platform == 'win32'
 pycaw; sys_platform == 'win32'
 
+# ————— PRIVACY / PII ─────────────────────
+transformers>=4.40.0
+sentencepiece                     # tokenizer for deberta-v3
+protobuf
+
 # ————— AUDIO + VOICE —————————————————————
 pyaudiowpatch; sys_platform == 'win32'
 sounddevice

@@ -4,19 +4,9 @@ from logger import get_logger
 
 log = get_logger("context")
 
-# Lazy import to avoid circular import at module level
-_redact_text = None
-
-def _get_redact():
-    global _redact_text
-    if _redact_text is None:
-        try:
-            from privacy_mirror import redact_text
-            _redact_text = redact_text
-        except ImportError:
-            log.warning("privacy_mirror not available, PII redaction disabled.")
-            _redact_text = lambda x: x
-    return _redact_text
+# NOTE: PII scrubbing is no longer done here. It happens at the cloud boundary in
+# brain.think_stream (reversible pseudonymization, gated on local vs cloud route),
+# so context is kept raw on-device and only scrubbed if/when it actually leaves.
 
 def build_context(screen_data, vision_data, memory_data, conversation_history, user_message, speaker):
     log.debug("Building context for LLM...")
@@ -63,9 +53,6 @@ Visible Elements (Sample): {", ".join(str(v) for v in visible_elements[:20])}
 [USER INPUT]:
 {user_message}
 """
-    log.debug("Context built. Scrubbing PII...")
-    redact = _get_redact()
-    context = redact(context)
     log.debug(f"Context built successfully ({len(context)} characters)")
     return context
 

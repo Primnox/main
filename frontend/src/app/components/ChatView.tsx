@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Paperclip, ArrowUp, Sparkles, X, Plus, MessageSquare, Pin, Folder, FolderPlus, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check, Copy, Terminal, FileText } from 'lucide-react';
+import { Paperclip, ArrowUp, Sparkles, X, Plus, MessageSquare, Pin, Folder, FolderPlus, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check, Copy, Terminal, FileText, ShieldCheck } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // Prism "light" build: only the languages we register below are bundled,
@@ -148,6 +148,52 @@ function sidebarDate(dateStr: string): string {
   if (diffDays < 7)  return d.toLocaleDateString([], { weekday: 'long' });
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
+
+// ── Privacy Mirror reveal ─────────────────────────────────────────────────────
+// Shows exactly what was pseudonymized before this turn left the device. The map
+// lives only on this machine — it's the user's own data shown back to them. Starts
+// collapsed as a lock chip; expands to the redaction diff.
+interface ScrubItem { original: string; placeholder: string; label: string; }
+const PrivacyMirrorBlock = ({ data }: { data: { mapping?: ScrubItem[]; model?: string } }) => {
+  const [open, setOpen] = useState(false);
+  const items = data?.mapping ?? [];
+  if (!items.length) return null;
+  return (
+    <div className="mb-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-emerald-400/[0.06] transition-colors"
+      >
+        <ShieldCheck size={13} className="text-emerald-400/70 shrink-0" />
+        <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-300/60">
+          Privacy Mirror · {items.length} scrubbed
+        </span>
+        {data?.model && (
+          <span className="text-[9px] font-mono text-white/20 truncate">→ {data.model}</span>
+        )}
+        <ChevronDown
+          size={12}
+          className={`ml-auto text-emerald-300/40 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open && (
+        <div className="px-3 pb-2.5 pt-1 space-y-1 border-t border-emerald-400/10">
+          <p className="text-[10px] text-white/30 leading-5 pt-1">
+            Replaced before leaving your device — restored in the reply below.
+          </p>
+          {items.map((it, i) => (
+            <div key={i} className="flex items-center gap-2 text-[11px] font-mono">
+              <span className="text-rose-300/70 line-through truncate max-w-[45%]">{it.original}</span>
+              <span className="text-white/20">→</span>
+              <span className="text-emerald-300/80 truncate">{it.placeholder}</span>
+              <span className="ml-auto text-[9px] uppercase tracking-wider text-white/20 shrink-0">{it.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ── Typing dots ───────────────────────────────────────────────────────────────
 const TypingDots = () => (
@@ -665,6 +711,7 @@ export const ChatExpandedSidebar = ({
                             {isFirst && (
                               <p className="text-[10px] font-mono text-primary/40 uppercase tracking-widest mb-1 select-none">Primnox</p>
                             )}
+                            {msg.privacyScrub && <PrivacyMirrorBlock data={msg.privacyScrub} />}
                             {msg.isTyping && !msg.text ? (
                               <TypingDots />
                             ) : (

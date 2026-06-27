@@ -329,6 +329,17 @@ export function usePrimnox() {
           // LLM is calling a tool — show briefly in the island status area
           if (payload?.tool) addToast('info', `using: ${payload.tool.replace('_', ' ')}`);
         }
+        else if (type === 'privacy_scrub') {
+          // What was pseudonymized before this turn hit the cloud. Attach to the
+          // current (typing) Primnox message so ChatView can render the reveal.
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            let i = newMsgs.length - 1;
+            while (i >= 0 && newMsgs[i].sender?.toUpperCase() !== 'PRIMNOX') i--;
+            if (i >= 0) newMsgs[i] = { ...newMsgs[i], privacyScrub: payload };
+            return newMsgs;
+          });
+        }
         else if (type === 'file_ready') {
           // A skill produced a file — let the user know
           const name = payload?.skill || 'skill';
