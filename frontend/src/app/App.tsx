@@ -51,7 +51,6 @@ export default function App() {
   const { 
     messages: liveMessages,
     state: liveState,
-    vadLevel,
     notes,
     tasks,
     memory,
@@ -181,10 +180,13 @@ export default function App() {
   const [wakeWord, setWakeWord] = useState('hey primnox');
   const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
   const [dynamicIslandEnabled, setDynamicIslandEnabled] = useState(true);
+  const [privacyMirrorEnabled, setPrivacyMirrorEnabled] = useState(false);
   const [ollamaModel, setOllamaModel] = useState('llama3.2');
   const [ollamaBaseUrl, setOllamaBaseUrl] = useState('http://localhost:11434');
+  const [llamacppBaseUrl, setLlamacppBaseUrl] = useState('http://localhost:8080');
+  const [llamacppModel, setLlamacppModel] = useState('');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
   const [calendarProviders,   setCalendarProviders]   = useState<any[]>([]);
-  const [memoryRetentionDays, setMemoryRetentionDays] = useState(30);
   const [meetingRetentionDays,setMeetingRetentionDays]= useState(10);
 
   // Sync settings to local state
@@ -199,10 +201,13 @@ export default function App() {
     if (settings.wake_word !== undefined) setWakeWord(settings.wake_word);
     if (settings.wake_word_enabled !== undefined) setWakeWordEnabled(settings.wake_word_enabled);
     if (settings.dynamic_island_enabled !== undefined) setDynamicIslandEnabled(settings.dynamic_island_enabled);
+    if (settings.privacy_mirror_enabled !== undefined) setPrivacyMirrorEnabled(settings.privacy_mirror_enabled);
     if (settings.ollama_model !== undefined) setOllamaModel(settings.ollama_model);
     if (settings.ollama_base_url !== undefined) setOllamaBaseUrl(settings.ollama_base_url);
+    if (settings.llamacpp_base_url !== undefined) setLlamacppBaseUrl(settings.llamacpp_base_url);
+    if (settings.llamacpp_model !== undefined) setLlamacppModel(settings.llamacpp_model);
+    if (settings.gemini_api_key !== undefined) setGeminiApiKey(settings.gemini_api_key);
     if (settings.calendar_providers !== undefined) setCalendarProviders(settings.calendar_providers);
-    if (settings.memory_auto_delete_days !== undefined) setMemoryRetentionDays(settings.memory_auto_delete_days);
     if (settings.screenshot_retention !== undefined) setMeetingRetentionDays(settings.screenshot_retention);
   }, [settings]);
 
@@ -219,10 +224,13 @@ export default function App() {
       wake_word: wakeWord,
       wake_word_enabled: wakeWordEnabled,
       dynamic_island_enabled: dynamicIslandEnabled,
+      privacy_mirror_enabled: privacyMirrorEnabled,
       ollama_model: ollamaModel,
       ollama_base_url: ollamaBaseUrl,
+      llamacpp_base_url: llamacppBaseUrl,
+      llamacpp_model: llamacppModel,
+      gemini_api_key: geminiApiKey,
       calendar_providers: calendarProviders,
-      memory_auto_delete_days: memoryRetentionDays,
       screenshot_retention: meetingRetentionDays,
     });
     setCurrentScreen('summaries_expanded');
@@ -285,10 +293,18 @@ export default function App() {
             setWakeWordEnabled={setWakeWordEnabled}
             dynamicIslandEnabled={dynamicIslandEnabled}
             setDynamicIslandEnabled={setDynamicIslandEnabled}
+            privacyMirrorEnabled={privacyMirrorEnabled}
+            setPrivacyMirrorEnabled={setPrivacyMirrorEnabled}
             ollamaModel={ollamaModel}
             setOllamaModel={setOllamaModel}
             ollamaBaseUrl={ollamaBaseUrl}
             setOllamaBaseUrl={setOllamaBaseUrl}
+            llamacppBaseUrl={llamacppBaseUrl}
+            setLlamacppBaseUrl={setLlamacppBaseUrl}
+            llamacppModel={llamacppModel}
+            setLlamacppModel={setLlamacppModel}
+            geminiApiKey={geminiApiKey}
+            setGeminiApiKey={setGeminiApiKey}
             calendarProviders={calendarProviders}
             setCalendarProviders={setCalendarProviders}
             meetingRetentionDays={meetingRetentionDays}
@@ -404,7 +420,6 @@ export default function App() {
         status={status}
         setStatus={setStatus}
         toasts={toasts}
-        vadLevel={vadLevel}
         transcript={currentTranscript}
         attachedFile={lastAttachedFile}
         errorPayload={islandError}

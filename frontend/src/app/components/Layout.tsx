@@ -66,7 +66,6 @@ export const Layout = ({
   onLogoClick,
   isIslandVisible = true,
   toasts = [],
-  vadLevel = 0,
   transcript = "",
   attachedFile = null,
   errorPayload = null,
@@ -101,7 +100,6 @@ export const Layout = ({
   onLogoClick?: () => void,
   isIslandVisible?: boolean,
   toasts?: any[],
-  vadLevel?: number,
   transcript?: string,
   attachedFile?: any,
   errorPayload?: { summary: string; fix: string; hover_text: string } | null,
@@ -150,7 +148,6 @@ export const Layout = ({
           status={status}
           setStatus={setStatus}
           onProfileClick={onRestoreWindow || (() => {})}
-          vadLevel={vadLevel}
           transcript={transcript}
           attachedFile={attachedFile}
           errorPayload={errorPayload}
@@ -185,7 +182,6 @@ export const Layout = ({
             status={status}
             setStatus={setStatus}
             onProfileClick={() => onNavigate('island_settings')}
-            vadLevel={vadLevel}
             transcript={transcript}
             attachedFile={attachedFile}
             errorPayload={errorPayload}

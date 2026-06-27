@@ -172,11 +172,15 @@ def _decrypt_bytes(blob: bytes, key: bytes) -> bytes:
 
 
 def _secure_delete(path: Path) -> None:
-    """Best-effort overwrite-then-delete of a plaintext file."""
+    """Best-effort overwrite-then-delete of a plaintext file (full file, not capped at 1 MB)."""
     try:
         size = path.stat().st_size
+        chunk = 64 * 1024  # 64 KB chunks to avoid one giant allocation
         with open(path, "wb") as f:
-            f.write(secrets.token_bytes(min(size, 1024 * 1024)))
+            remaining = size
+            while remaining > 0:
+                f.write(secrets.token_bytes(min(chunk, remaining)))
+                remaining -= chunk
             f.flush()
             os.fsync(f.fileno())
     except Exception:

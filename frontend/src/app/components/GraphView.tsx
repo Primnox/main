@@ -25,7 +25,8 @@ interface GraphData {
 const TYPE_COLORS: Record<string, string> = {
   workspace: '#10b981',  // emerald — workspace/folder nodes
   note:      '#a855f7',  // purple  — note nodes
-  tag:       '#f59e0b',  // amber   — tag nodes
+  memory:    '#38bdf8',  // sky     — memory nodes
+  tag:       '#f59e0b',  // amber   — concept/tag nodes
   default:   '#6366f1',  // indigo  — fallback
 };
 
@@ -105,17 +106,19 @@ export const GraphView = ({ onNodeClick }: { onNodeClick: (noteId: number) => vo
   }, [fetchGraph]);
 
   useEffect(() => {
-    const measure = () => {
-      if (containerRef.current) {
-        setDimensions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        });
-      }
+    if (!containerRef.current) return;
+    const measure = (el: Element) => {
+      const { width, height } = el.getBoundingClientRect();
+      if (width > 0 && height > 0) setDimensions({ width, height });
     };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    // Immediate measure + ResizeObserver so any layout shift (sidebar open/close,
+    // window resize) updates the canvas dimensions and keeps drag coords correct.
+    measure(containerRef.current);
+    const ro = new ResizeObserver(entries => {
+      for (const e of entries) measure(e.target);
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
   }, []);
 
   const handleNodeClick = useCallback((node: any) => {
@@ -190,6 +193,7 @@ export const GraphView = ({ onNodeClick }: { onNodeClick: (noteId: number) => vo
           ctx.fillText(label.length > 20 ? label.slice(0, 18) + '…' : label, node.x, node.y + 8);
         }}
         cooldownTicks={100}
+        onEngineStop={() => fgRef.current?.zoomToFit(400, 80)}
       />
 
       {/* Overlay controls */}

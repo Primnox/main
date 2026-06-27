@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, memo } from 'react';
-import { Database, MessageSquare, FileText, CheckCircle, Terminal, Brain, FileEdit, Video, Monitor, Zap, RefreshCw, AlertTriangle, Bell, Shield, ListTodo, Plus, Clock, Trash2, Activity, Radio } from 'lucide-react';
+import { Database, MessageSquare, FileText, CheckCircle, Terminal, Brain, FileEdit, Video, Monitor, Zap, RefreshCw, AlertTriangle, Bell, Shield, ListTodo, Plus, Clock, Trash2, Activity, Radio, Cpu, CalendarDays, MapPin } from 'lucide-react';
 
 type ScreenId =
   | 'summaries_expanded'
@@ -170,102 +170,152 @@ export const SummariesExpanded = memo(({
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const clip = (s: string) => (s && s.length > 46 ? s.slice(0, 46) + '…' : s);
-  const _urgent = pendingTasks.find((t: any) => t.priority === 'urgent');
-  const _rem    = dash?.reminders?.[0];
+  const _urgent   = pendingTasks.find((t: any) => t.priority === 'urgent');
+  const _rem      = dash?.reminders?.[0];
+  const _nextEv   = (dash?.today_events ?? []).find((e: any) => {
+    if (!e.start_dt || e.all_day) return false;
+    return new Date(e.start_dt) >= new Date();
+  });
   const focus =
-    _urgent ? `Urgent — ${clip(_urgent.text)}` :
-    _rem    ? `Soon — ${clip(_rem.message)}` :
+    _urgent  ? `Urgent — ${clip(_urgent.text)}` :
+    _rem     ? `Soon — ${clip(_rem.message)}` :
+    _nextEv  ? `Next — ${clip(_nextEv.title)}` :
     pendingTasks[0] ? `Up next — ${clip(pendingTasks[0].text)}` : '';
+
+  const totalTasks = pendingTasks.length + doneTasks.length;
+  const taskPct = totalTasks > 0 ? Math.round((doneTasks.length / totalTasks) * 100) : 0;
 
   return (
     <div className="h-full overflow-y-auto custom-scrollbar">
-      <div className="max-w-5xl mx-auto px-6 py-8 space-y-7 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]">
+      <div className="max-w-5xl mx-auto px-5 py-6 space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]">
 
         {/* ── API Key Banner ── */}
         {dash && !dash.has_api_key && (
-          <div className="flex items-center justify-between gap-4 px-5 py-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-            <div className="flex items-center gap-3">
-              <AlertTriangle size={13} className="text-amber-400 shrink-0" />
-              <p className="text-xs text-amber-300/80 font-light">No API key — Primnox can't think or transcribe.</p>
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5 bg-amber-500/8 border border-amber-500/20 rounded-xl">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle size={12} className="text-amber-400 shrink-0" />
+              <p className="text-xs text-amber-300/70 font-light">No API key configured — Primnox can't think.</p>
             </div>
             <button onClick={() => onNavigate('island_settings')}
-              className="shrink-0 px-3 py-1.5 bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg font-mono text-[10px] uppercase tracking-widest hover:bg-amber-500/30 transition-all">
-              Add Key →
+              className="shrink-0 px-3 py-1 bg-amber-500/15 border border-amber-500/25 text-amber-300 rounded-lg font-mono text-[9px] uppercase tracking-widest hover:bg-amber-500/25 transition-all">
+              Fix →
             </button>
           </div>
         )}
 
         {/* ── Hero ── */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold text-white tracking-tight leading-tight">
-              {greeting}{dash?.user_name ? <span className="text-white/50">, {dash.user_name}</span> : ''}
-            </h2>
-            <p className="text-sm text-white/40 mt-1 font-light truncate">
-              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              {focus && <span className="text-white/25"> · </span>}
-              {focus && <span className="text-primary/80">{focus}</span>}
-            </p>
+        <div className="relative overflow-hidden rounded-2xl border border-white/[0.07] bg-gradient-to-br from-zinc-900/80 via-zinc-900/60 to-primary/[0.04] p-5">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(99,102,241,0.08),transparent_60%)] pointer-events-none" />
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)] animate-pulse" />
+                <span className="font-mono text-[9px] text-white/25 uppercase tracking-[0.4em]">
+                  {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                </span>
+                {/* PII shield badge */}
+                {dash?.pii_model_status === 'ready' && (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/8 border border-emerald-500/15">
+                    <Shield size={7} className="text-emerald-400/60" />
+                    <span className="font-mono text-[7px] text-emerald-400/50 uppercase tracking-widest">shield on</span>
+                  </span>
+                )}
+                {dash?.pii_model_status === 'loading' && (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/8 border border-amber-500/15">
+                    <Shield size={7} className="text-amber-400/50" />
+                    <span className="font-mono text-[7px] text-amber-400/40 uppercase tracking-widest">shield loading</span>
+                  </span>
+                )}
+              </div>
+              <h2 className="text-3xl font-bold text-white tracking-tight leading-tight">
+                {greeting}
+                {dash?.user_name ? (
+                  <span className="text-primary/70">{' '}{dash.user_name.replace(/_/g, ' ').split(' ')[0]}</span>
+                ) : null}
+              </h2>
+              {focus && (
+                <p className="text-sm text-white/35 mt-1.5 font-light truncate">
+                  <span className="text-primary/60">→</span> {focus}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0 pt-0.5">
+              <button onClick={fetchDash}
+                className="p-1.5 rounded-lg text-white/20 hover:text-white/60 hover:bg-white/5 transition-all" title="Refresh">
+                <RefreshCw size={12} />
+              </button>
+              <button onClick={triggerBrief} disabled={briefStatus === 'generating'}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 border border-primary/20 text-primary rounded-xl font-mono text-[9px] uppercase tracking-widest hover:bg-primary hover:text-black transition-all disabled:opacity-40 active:scale-95">
+                <Zap size={10} />
+                {briefStatus === 'generating' ? 'Thinking...' : briefStatus === 'done' ? 'Sent ✓' : 'Brief'}
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button onClick={fetchDash}
-              className="p-2 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/5 transition-all" title="Refresh">
-              <RefreshCw size={13} />
-            </button>
-            <button onClick={triggerBrief} disabled={briefStatus === 'generating'}
-              className="flex items-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 text-primary rounded-xl font-mono text-[10px] uppercase tracking-widest hover:bg-primary hover:text-black transition-all disabled:opacity-40">
-              <Zap size={11} />
-              {briefStatus === 'generating' ? 'Generating...' : briefStatus === 'done' ? 'Requested ✓' : 'Daily Brief'}
-            </button>
-          </div>
+
+          {/* Task progress strip */}
+          {totalTasks > 0 && (
+            <div className="relative mt-4 pt-3 border-t border-white/[0.05]">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="font-mono text-[9px] text-white/20 uppercase tracking-[0.3em]">Task_Progress</span>
+                <span className="font-mono text-[9px] text-white/30">{doneTasks.length}/{totalTasks} · {taskPct}%</span>
+              </div>
+              <div className="h-1 bg-white/[0.05] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-primary/70 to-violet-400/70 rounded-full transition-all duration-700"
+                  style={{ width: `${taskPct}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Stat Row ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'Tasks',    value: pendingTasks.length,         icon: ListTodo, sub: `${doneTasks.length} done`, tint: 'text-violet-300 bg-violet-500/10 border-violet-500/20' },
-            { label: 'Notes',    value: dash?.notes_count ?? '—',    icon: FileEdit, sub: 'in workspace',            tint: 'text-sky-300 bg-sky-500/10 border-sky-500/20' },
-            { label: 'Memories', value: dash?.memories_count ?? '—', icon: Brain,    sub: 'stored',                  tint: 'text-primary bg-primary/10 border-primary/20' },
-            { label: 'Skills',   value: dash?.skills_count ?? '—',   icon: Zap,      sub: 'loaded',                  tint: 'text-amber-300 bg-amber-500/10 border-amber-500/20' },
-          ].map(({ label, value, icon: Icon, sub, tint }) => (
-            <div key={label} className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl p-4 flex flex-col gap-3 hover:border-white/15 hover:-translate-y-0.5 transition-all duration-200">
+            { label: 'Tasks',    value: pendingTasks.length, icon: ListTodo, sub: `${doneTasks.length} done`,       glow: 'shadow-violet-500/10',  border: 'hover:border-violet-500/20', accent: 'text-violet-300',  bg: 'bg-violet-500/10 border-violet-500/20' },
+            { label: 'Notes',    value: dash?.notes_count ?? '—', icon: FileEdit, sub: 'in workspace',             glow: 'shadow-sky-500/10',     border: 'hover:border-sky-500/20',    accent: 'text-sky-300',     bg: 'bg-sky-500/10 border-sky-500/20' },
+            { label: 'Memories', value: dash?.memories_count ?? '—', icon: Brain, sub: 'stored',                  glow: 'shadow-primary/10',     border: 'hover:border-primary/20',    accent: 'text-primary',     bg: 'bg-primary/10 border-primary/20' },
+            { label: 'Skills',   value: dash?.skills_count ?? '—', icon: Zap,   sub: 'loaded',                    glow: 'shadow-amber-500/10',   border: 'hover:border-amber-500/20',  accent: 'text-amber-300',   bg: 'bg-amber-500/10 border-amber-500/20' },
+          ].map(({ label, value, icon: Icon, sub, glow, border, accent, bg }) => (
+            <div key={label} className={`relative bg-zinc-900/50 border border-white/[0.06] rounded-2xl p-4 flex flex-col gap-2.5 hover:-translate-y-0.5 transition-all duration-200 shadow-lg ${glow} ${border} overflow-hidden group`}>
+              <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent pointer-events-none" />
               <div className="flex items-center justify-between">
-                <div className={`w-7 h-7 rounded-lg border flex items-center justify-center ${tint}`}>
-                  <Icon size={13} />
+                <div className={`w-7 h-7 rounded-lg border flex items-center justify-center ${bg}`}>
+                  <Icon size={13} className={accent} />
                 </div>
-                <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.3em]">{label}</span>
+                <span className="font-mono text-[8px] text-white/20 uppercase tracking-[0.35em]">{label}</span>
               </div>
               <div>
-                <p className="text-2xl font-bold text-white tracking-tight leading-none">{value}</p>
-                <p className="text-[10px] text-white/35 font-mono mt-1.5">{sub}</p>
+                <p className={`text-2xl font-black tracking-tight leading-none ${accent}`}>{value}</p>
+                <p className="text-[9px] text-white/25 font-mono mt-1">{sub}</p>
               </div>
             </div>
           ))}
         </div>
 
-        {/* ── Main grid: feed left + panels right ── */}
-        <div className="grid grid-cols-12 gap-5">
+        {/* ── Main grid ── */}
+        <div className="grid grid-cols-12 gap-4">
 
-          {/* ── Activity feed (left 7) ── */}
-          <div className="col-span-12 lg:col-span-7 flex flex-col gap-5">
+          {/* ── Left col (7) ── */}
+          <div className="col-span-12 lg:col-span-7 flex flex-col gap-4">
 
-            {/* Feed */}
-            <div className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl overflow-hidden flex flex-col">
-              <div className="px-5 py-3.5 border-b border-white/[0.05] flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <Activity size={12} className="text-primary/60" />
-                  <span className="font-mono text-[10px] text-white/40 uppercase tracking-[0.3em]">Activity_Feed</span>
-                </div>
+            {/* Activity Feed */}
+            <div className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                  <span className="font-mono text-[9px] text-white/20">{feed.length} events</span>
+                  <Activity size={11} className="text-primary/50" />
+                  <span className="font-mono text-[9px] text-white/35 uppercase tracking-[0.35em]">Activity_Feed</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1 h-1 rounded-full bg-primary/60 animate-pulse" />
+                  <span className="font-mono text-[8px] text-white/15">{feed.length}</span>
                 </div>
               </div>
-              <div className="px-5 py-3 max-h-64 overflow-y-auto custom-scrollbar">
+              <div className="px-4 py-2 max-h-52 overflow-y-auto custom-scrollbar">
                 {feed.length === 0 ? (
-                  <div className="py-10 text-center">
-                    <Radio size={18} className="text-white/10 mx-auto mb-3" />
-                    <p className="font-mono text-[10px] text-white/15 uppercase tracking-widest">primnox is listening</p>
+                  <div className="py-8 text-center">
+                    <Radio size={16} className="text-white/8 mx-auto mb-2" />
+                    <p className="font-mono text-[9px] text-white/12 uppercase tracking-widest">listening...</p>
                   </div>
                 ) : (
                   [...feed].reverse().map((e, i) => <FeedRow key={i} event={e} />)
@@ -273,111 +323,152 @@ export const SummariesExpanded = memo(({
               </div>
             </div>
 
-            {/* Current focus + quick-nav in a row */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <Monitor size={11} className="text-white/25" />
-                  <span className="font-mono text-[9px] text-white/25 uppercase tracking-[0.3em]">Current_Focus</span>
+            {/* Context row: focus + backup */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-zinc-900/40 border border-white/[0.06] rounded-xl p-4 group hover:border-white/10 transition-all">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Cpu size={10} className="text-white/20" />
+                  <span className="font-mono text-[8px] text-white/20 uppercase tracking-[0.35em]">In_Focus</span>
                 </div>
                 {dash ? (
                   <>
-                    <p className="text-sm font-semibold text-white/80 truncate">{dash.active_process || 'Unknown'}</p>
-                    <p className="text-[10px] text-white/30 font-mono truncate mt-1">{dash.active_window || '—'}</p>
+                    <p className="text-sm font-semibold text-white/75 truncate leading-tight">{dash.active_process || '—'}</p>
+                    <p className="text-[9px] text-white/25 font-mono truncate mt-0.5">{dash.active_window || '—'}</p>
                   </>
                 ) : (
-                  <p className="text-[10px] text-white/20 font-mono">connecting...</p>
+                  <p className="text-[9px] text-white/15 font-mono">syncing...</p>
                 )}
               </div>
-              <div className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <Shield size={11} className={dash?.last_backup ? 'text-emerald-400/50' : 'text-white/25'} />
-                  <span className="font-mono text-[9px] text-white/25 uppercase tracking-[0.3em]">Last_Backup</span>
+              <div className="bg-zinc-900/40 border border-white/[0.06] rounded-xl p-4 hover:border-white/10 transition-all">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Shield size={10} className={dash?.last_backup ? 'text-emerald-400/40' : 'text-white/20'} />
+                  <span className="font-mono text-[8px] text-white/20 uppercase tracking-[0.35em]">Backup</span>
                 </div>
                 {dash?.last_backup ? (
                   <>
-                    <p className="text-sm font-semibold text-white/80">{dash.last_backup.size_kb} KB</p>
-                    <p className="text-[10px] text-white/30 font-mono truncate mt-1">
+                    <p className="text-sm font-semibold text-emerald-400/70">{dash.last_backup.size_kb} KB</p>
+                    <p className="text-[9px] text-white/25 font-mono truncate mt-0.5">
                       {dash.last_backup.filename.replace('backup_', '').replace('.zip', '')}
                     </p>
                   </>
                 ) : (
-                  <p className="text-[10px] text-white/20 font-mono">no backup yet</p>
+                  <p className="text-[9px] text-white/15 font-mono">no backup yet</p>
                 )}
               </div>
             </div>
 
             {/* Quick nav */}
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-4 gap-2">
               {([
-                { label: 'Chat',     icon: MessageSquare, screen: 'chat_expanded_sidebar' },
-                { label: 'Notes',    icon: FileText,      screen: 'notes_icon_sidebar'    },
-                { label: 'Archive',  icon: Database,      screen: 'archive'               },
-                { label: 'Meetings', icon: Video,         screen: 'logs'                  },
-              ] as { label: string; icon: any; screen: ScreenId }[]).map(({ label, icon: Icon, screen }) => (
+                { label: 'Chat',     icon: MessageSquare, screen: 'chat_expanded_sidebar', color: 'hover:border-primary/30 hover:bg-primary/5 hover:text-primary' },
+                { label: 'Notes',    icon: FileText,      screen: 'notes_icon_sidebar',    color: 'hover:border-sky-500/30 hover:bg-sky-500/5 hover:text-sky-300' },
+                { label: 'Archive',  icon: Database,      screen: 'archive',               color: 'hover:border-violet-500/30 hover:bg-violet-500/5 hover:text-violet-300' },
+                { label: 'Meetings', icon: Video,         screen: 'logs',                  color: 'hover:border-emerald-500/30 hover:bg-emerald-500/5 hover:text-emerald-300' },
+              ] as { label: string; icon: any; screen: ScreenId; color: string }[]).map(({ label, icon: Icon, screen, color }) => (
                 <button key={screen} onClick={() => onNavigate(screen)}
-                  className="flex flex-col items-center gap-2 py-3 bg-zinc-900/30 border border-white/[0.05] rounded-xl hover:border-primary/25 hover:bg-primary/5 transition-all group">
-                  <Icon size={14} className="text-white/25 group-hover:text-primary transition-colors" />
-                  <span className="font-mono text-[9px] text-white/30 group-hover:text-white/70 uppercase tracking-widest transition-colors">{label}</span>
+                  className={`flex flex-col items-center gap-1.5 py-3 bg-zinc-900/30 border border-white/[0.05] rounded-xl transition-all duration-150 group ${color}`}>
+                  <Icon size={13} className="text-white/20 group-hover:text-inherit transition-colors" />
+                  <span className="font-mono text-[8px] text-white/25 group-hover:text-inherit uppercase tracking-widest transition-colors">{label}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* ── Right column (5) ── */}
+          {/* ── Right col (5) ── */}
           <div className="col-span-12 lg:col-span-5 flex flex-col gap-4">
+
+            {/* Today's Events */}
+            <div className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CalendarDays size={11} className="text-sky-400/50" />
+                  <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.35em]">Today</span>
+                </div>
+                <span className="font-mono text-[8px] text-white/15">
+                  {(dash?.today_events ?? []).length} events
+                </span>
+              </div>
+              {(dash?.today_events ?? []).length === 0 ? (
+                <p className="px-4 py-3 font-mono text-[9px] text-white/15">nothing scheduled ·</p>
+              ) : (
+                <div className="divide-y divide-white/[0.03] max-h-44 overflow-y-auto custom-scrollbar">
+                  {(dash?.today_events ?? []).map((ev: any) => {
+                    const start = ev.start_dt ? new Date(ev.start_dt) : null;
+                    const timeStr = start && !ev.all_day
+                      ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                      : 'All day';
+                    const dot = ev.color || '#6366f1';
+                    return (
+                      <div key={ev.id} className="px-4 py-2 flex items-center gap-2.5 group">
+                        <span className="shrink-0 w-1.5 h-1.5 rounded-full mt-0.5" style={{ backgroundColor: dot, boxShadow: `0 0 6px ${dot}55` }} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-white/65 font-light truncate">{ev.title}</p>
+                          {ev.location && (
+                            <p className="text-[9px] text-white/20 font-mono flex items-center gap-1 mt-0.5 truncate">
+                              <MapPin size={7} /> {ev.location}
+                            </p>
+                          )}
+                        </div>
+                        <span className="shrink-0 font-mono text-[8px] text-white/25 whitespace-nowrap">{timeStr}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Tasks */}
             <div className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-white/[0.05] flex items-center justify-between">
+              <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <ListTodo size={11} className="text-violet-400/60" />
-                  <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.3em]">Tasks</span>
+                  <ListTodo size={11} className="text-violet-400/50" />
+                  <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.35em]">Tasks</span>
                 </div>
-                <span className="font-mono text-[9px] text-white/20">{pendingTasks.length} open</span>
+                <span className="font-mono text-[8px] text-white/15">{pendingTasks.length} open</span>
               </div>
 
-              {/* Add task inline */}
-              <div className="px-5 pt-3 pb-2 flex gap-2">
+              <div className="px-4 pt-3 pb-2 flex gap-2">
                 <input type="text" value={newTaskText}
                   onChange={e => setNewTaskText(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && submitTask()}
                   placeholder="Add task..."
-                  className="flex-1 bg-black/40 border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/15 outline-none focus:border-violet-500/30 transition-colors" />
+                  className="flex-1 bg-black/40 border border-white/[0.05] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/12 outline-none focus:border-violet-500/25 transition-colors" />
                 <select value={newTaskPriority}
                   onChange={e => setNewTaskPriority(e.target.value as 'normal' | 'urgent' | 'low')}
-                  className="bg-black/40 border border-white/[0.06] rounded-lg px-2 text-[9px] text-white/40 outline-none font-mono">
+                  className="bg-black/40 border border-white/[0.05] rounded-lg px-2 text-[9px] text-white/35 outline-none font-mono">
                   <option value="low">low</option>
                   <option value="normal">—</option>
-                  <option value="urgent">urgent</option>
+                  <option value="urgent">!</option>
                 </select>
                 <button onClick={submitTask} disabled={!newTaskText.trim() || addingTask}
-                  className={`p-1.5 border rounded-lg disabled:opacity-30 transition-all ${
-                    taskFeedback === 'ok'  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' :
-                    taskFeedback === 'err' ? 'bg-red-500/15 border-red-500/30 text-red-400' :
-                    'bg-violet-500/10 border-violet-500/20 text-violet-300/70 hover:bg-violet-500/20'
+                  className={`p-1.5 border rounded-lg disabled:opacity-25 transition-all active:scale-95 ${
+                    taskFeedback === 'ok'  ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400' :
+                    taskFeedback === 'err' ? 'bg-red-500/15 border-red-500/25 text-red-400' :
+                    'bg-violet-500/8 border-violet-500/15 text-violet-300/60 hover:bg-violet-500/15'
                   }`}>
-                  {taskFeedback === 'ok' ? '✓' : taskFeedback === 'err' ? '✗' : <Plus size={12} />}
+                  {taskFeedback === 'ok' ? '✓' : taskFeedback === 'err' ? '✗' : <Plus size={11} />}
                 </button>
               </div>
 
               {pendingTasks.length === 0 ? (
-                <p className="px-5 py-3 font-mono text-[10px] text-white/20">all clear</p>
+                <p className="px-4 py-3 font-mono text-[9px] text-white/15">all clear ✓</p>
               ) : (
-                <div className="divide-y divide-white/[0.03] max-h-44 overflow-y-auto custom-scrollbar">
+                <div className="divide-y divide-white/[0.03] max-h-40 overflow-y-auto custom-scrollbar">
                   {pendingTasks.slice(0, 6).map((t: any) => (
-                    <div key={t.id} className="px-5 py-2.5 flex items-center gap-3 group">
+                    <div key={t.id} className="px-4 py-2 flex items-center gap-2.5 group">
                       <button onClick={() => completeTask(t.id)}
-                        className="shrink-0 w-4 h-4 rounded border border-white/10 group-hover:border-violet-400/40 flex items-center justify-center hover:bg-violet-500/10 transition-all">
-                        <CheckCircle size={9} className="text-white/0 group-hover:text-violet-400/60 transition-colors" />
+                        className="shrink-0 w-3.5 h-3.5 rounded border border-white/10 group-hover:border-violet-400/35 flex items-center justify-center hover:bg-violet-500/10 transition-all">
+                        <CheckCircle size={8} className="text-transparent group-hover:text-violet-400/50 transition-colors" />
                       </button>
-                      <p className="text-xs text-white/55 font-light truncate flex-1">{t.text}</p>
+                      <p className={`text-xs font-light truncate flex-1 ${
+                        t.priority === 'urgent' ? 'text-red-300/70' : 'text-white/50'
+                      }`}>{t.text}</p>
                       {t.priority === 'urgent' && (
-                        <span className="shrink-0 font-mono text-[8px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400">!</span>
+                        <span className="shrink-0 font-mono text-[7px] px-1 py-0.5 rounded bg-red-500/10 text-red-400/70">urgent</span>
                       )}
                       <button onClick={async () => { await fetch(`http://localhost:8000/tasks/${t.id}`, { method: 'DELETE' }); onTaskCompleted?.(); }}
-                        className="shrink-0 opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-400 transition-all">
-                        <Trash2 size={10} />
+                        className="shrink-0 opacity-0 group-hover:opacity-100 text-white/15 hover:text-red-400 transition-all">
+                        <Trash2 size={9} />
                       </button>
                     </div>
                   ))}
@@ -387,76 +478,75 @@ export const SummariesExpanded = memo(({
 
             {/* Reminders */}
             <div className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-white/[0.05] flex items-center justify-between">
+              <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Bell size={11} className="text-amber-400/60" />
-                  <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.3em]">Reminders</span>
+                  <Bell size={11} className="text-amber-400/50" />
+                  <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.35em]">Reminders</span>
                 </div>
-                <span className="font-mono text-[9px] text-white/20">{dash?.reminders_count ?? 0} pending</span>
+                <span className="font-mono text-[8px] text-white/15">{dash?.reminders_count ?? 0} set</span>
               </div>
 
-              {/* Add reminder inline */}
-              <div className="px-5 pt-3 pb-2 flex gap-2">
+              <div className="px-4 pt-3 pb-2 flex gap-2">
                 <input type="text" value={reminderMsg}
                   onChange={e => setReminderMsg(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && submitReminder()}
                   placeholder="Remind me to..."
-                  className="flex-1 bg-black/40 border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/15 outline-none focus:border-amber-500/30 transition-colors" />
+                  className="flex-1 bg-black/40 border border-white/[0.05] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/12 outline-none focus:border-amber-500/25 transition-colors" />
                 <input type="number" value={reminderMins} onChange={e => setReminderMins(e.target.value)} min="1"
-                  className="w-14 bg-black/40 border border-white/[0.06] rounded-lg px-2 py-1.5 text-xs text-white/60 outline-none font-mono text-center" />
+                  className="w-12 bg-black/40 border border-white/[0.05] rounded-lg px-2 py-1.5 text-xs text-white/50 outline-none font-mono text-center" />
                 <button onClick={submitReminder} disabled={!reminderMsg.trim() || addingReminder}
-                  className={`p-1.5 border rounded-lg disabled:opacity-30 transition-all ${
-                    reminderFeedback === 'ok'  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' :
-                    reminderFeedback === 'err' ? 'bg-red-500/15 border-red-500/30 text-red-400' :
-                    'bg-amber-500/10 border-amber-500/20 text-amber-300/70 hover:bg-amber-500/20'
+                  className={`p-1.5 border rounded-lg disabled:opacity-25 transition-all active:scale-95 ${
+                    reminderFeedback === 'ok'  ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400' :
+                    reminderFeedback === 'err' ? 'bg-red-500/15 border-red-500/25 text-red-400' :
+                    'bg-amber-500/8 border-amber-500/15 text-amber-300/60 hover:bg-amber-500/15'
                   }`}>
-                  {reminderFeedback === 'ok' ? '✓' : reminderFeedback === 'err' ? '✗' : <Plus size={12} />}
+                  {reminderFeedback === 'ok' ? '✓' : reminderFeedback === 'err' ? '✗' : <Plus size={11} />}
                 </button>
               </div>
 
               {dash?.reminders && dash.reminders.length > 0 ? (
                 <div className="divide-y divide-white/[0.03]">
-                  {dash.reminders.slice(0, 4).map((r: any) => {
+                  {dash.reminders.slice(0, 3).map((r: any) => {
                     const mins = Math.ceil(r.seconds_remaining / 60);
                     return (
-                      <div key={r.id} className="px-5 py-2.5 flex items-center gap-3 group">
-                        <Clock size={10} className="text-amber-400/40 shrink-0" />
-                        <p className="text-xs text-white/55 font-light truncate flex-1">{r.message}</p>
-                        <span className="shrink-0 font-mono text-[9px] text-amber-400/60 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                      <div key={r.id} className="px-4 py-2 flex items-center gap-2.5 group">
+                        <Clock size={9} className="text-amber-400/35 shrink-0" />
+                        <p className="text-xs text-white/50 font-light truncate flex-1">{r.message}</p>
+                        <span className="shrink-0 font-mono text-[8px] text-amber-400/50 bg-amber-500/8 px-1.5 py-0.5 rounded-full whitespace-nowrap">
                           {mins < 1 ? '<1m' : `${mins}m`}
                         </span>
                         <button onClick={async () => { await fetch(`http://localhost:8000/api/reminders/${r.id}`, { method: 'DELETE' }); fetchDash(); }}
-                          className="shrink-0 opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-400 transition-all">×</button>
+                          className="shrink-0 opacity-0 group-hover:opacity-100 text-white/15 hover:text-red-400 transition-all text-xs">×</button>
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <p className="px-5 py-3 font-mono text-[10px] text-white/20">none set</p>
+                <p className="px-4 py-3 font-mono text-[9px] text-white/15">none set</p>
               )}
             </div>
 
             {/* Recent Meetings */}
             <div className="bg-zinc-900/40 border border-white/[0.06] rounded-2xl overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-white/[0.05] flex items-center gap-2">
-                <Video size={11} className="text-white/25" />
-                <span className="font-mono text-[9px] text-white/30 uppercase tracking-[0.3em]">Recent_Meetings</span>
+              <div className="px-4 py-3 border-b border-white/[0.05] flex items-center gap-2">
+                <Video size={11} className="text-white/20" />
+                <span className="font-mono text-[9px] text-white/25 uppercase tracking-[0.35em]">Meetings</span>
               </div>
               <div className="divide-y divide-white/[0.03]">
                 {meetings.length === 0 ? (
-                  <p className="px-5 py-4 font-mono text-[10px] text-white/20">no meetings recorded</p>
+                  <p className="px-4 py-3 font-mono text-[9px] text-white/15">no recordings yet</p>
                 ) : (
                   meetings.slice(0, 3).map((m: any) => (
-                    <div key={m.name} className="px-5 py-3 flex items-start justify-between gap-3">
+                    <div key={m.name} className="px-4 py-2.5 flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-xs text-white/60 font-mono truncate">{m.name}</p>
+                        <p className="text-xs text-white/55 font-mono truncate">{m.name}</p>
                         {m.summary_preview && (
-                          <p className="text-[10px] text-white/25 mt-0.5 line-clamp-1 font-light">{m.summary_preview}</p>
+                          <p className="text-[9px] text-white/20 mt-0.5 line-clamp-1 font-light">{m.summary_preview}</p>
                         )}
                       </div>
-                      <span className={`shrink-0 text-[8px] font-mono px-2 py-0.5 rounded-full ${
-                        m.has_summary ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-white/20'
-                      }`}>{m.has_summary ? 'summary' : 'raw'}</span>
+                      <span className={`shrink-0 text-[7px] font-mono px-1.5 py-0.5 rounded-full ${
+                        m.has_summary ? 'bg-emerald-500/10 text-emerald-400/70' : 'bg-white/5 text-white/15'
+                      }`}>{m.has_summary ? 'ai summary' : 'raw'}</span>
                     </div>
                   ))
                 )}

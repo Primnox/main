@@ -25,7 +25,7 @@ class ProactiveEngine:
         prompt = f"Screen Context:\n{context_summary}\n\nShould you comment? If yes, provide the comment. If no, say 'silent'."
         
         try:
-            response = think(prompt, context=self.system_prompt)
+            response = think(prompt, system_override=self.system_prompt)
         except Exception as e:
             log.error(f"Proactive analysis failed: {e}")
             return None

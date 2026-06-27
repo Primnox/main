@@ -5,7 +5,6 @@ const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const http = require('http');
 
-app.disableHardwareAcceleration();
 
 // ── Load .env (GH_TOKEN for private-release auto-updater) ────────────────────
 try {
@@ -196,6 +195,7 @@ function createWindow() {
     transparent: true,
     backgroundColor: '#00000000',
     hasShadow: false,
+    show: false,
     skipTaskbar: false,  // shows in taskbar while the full window is open
     webPreferences: {
       nodeIntegration: false,
@@ -231,16 +231,44 @@ function createWindow() {
     console.log(`[Browser] ${msg} (${src}:${line})`);
   });
 
+  const revealWindow = () => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  };
+
+  mainWindow.once('ready-to-show', revealWindow);
+
+  // Safety net: if 'ready-to-show' never fires (e.g. the page failed to load),
+  // reveal the window anyway so the app is never left permanently invisible.
+  const revealFallback = setTimeout(revealWindow, 10000);
+  mainWindow.once('ready-to-show', () => clearTimeout(revealFallback));
+
+  mainWindow.webContents.on('did-fail-load', (_ev, code, desc, url, isMainFrame) => {
+    console.error(`Main window failed to load: ${code} ${desc} ${url || ''}`);
+    if (code === -3) return;        // ERR_ABORTED — normal during redirects/reloads
+    if (isMainFrame === false) return; // only act on the top-level frame
+    // Make sure the user sees something actionable instead of a blank/hidden window.
+    revealWindow();
+    mainWindow.webContents.loadURL(
+      'data:text/html,' + encodeURIComponent(
+        '<body style="background:#000;color:#aaa;font-family:monospace;display:flex;'
+        + 'align-items:center;justify-content:center;height:100vh;margin:0;text-align:center">'
+        + '<div><h2 style="color:#fff">Primnox failed to load</h2>'
+        + '<p>' + desc + ' (' + code + ')</p>'
+        + '<p style="color:#666">The backend or dev server may still be starting — '
+        + 'close and reopen the app.</p></div></body>'
+      )
+    );
+  });
+
   const baseUrl = getBaseUrl();
   if (baseUrl) {
     mainWindow.loadURL(baseUrl);
     mainWindow.webContents.openDevTools();
-    mainWindow.show();
-    mainWindow.focus();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-    mainWindow.show();
-    mainWindow.focus();
   }
 
   // Ctrl+= / Ctrl+- zoom
@@ -486,4 +514,6 @@ function startBackend() {
   }
   pythonProcess.stdout.on('data', (d) => console.log(`Backend: ${d}`));
   pythonProcess.stderr.on('data', (d) => console.error(`Backend err: ${d}`));
+  pythonProcess.on('error', (err) => console.error('Backend spawn error:', err));
+  pythonProcess.on('exit', (code) => { if (code) console.error('Backend exited with code:', code); });
 }

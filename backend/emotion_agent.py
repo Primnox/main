@@ -76,8 +76,8 @@ Chat History:
 {chat_dump}
 '''
         
-        result = think(prompt)
-        content = result.get("choices", [{{}}])[0].get("message", {{}}).get("content", "").strip()
+        result = think(prompt, system_override="You are an emotion analysis engine. Analyze the conversation tone and output a single emotion label as JSON. No conversation.")
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
         
         if content.startswith("`json"): content = content[7:]
         if content.startswith("`"): content = content[3:]
@@ -87,14 +87,14 @@ Chat History:
         confidence = data.get("confidence", 0)
         dominant = data.get("dominant_emotion", "Neutral")
         
-        log.info(f"Emotion Analysis Complete. Dominant: {{dominant}} ({{confidence}}%)")
+        log.info(f"Emotion Analysis Complete. Dominant: {dominant} ({confidence}%)")
         
         # Only update if confidence > 70%
         if confidence > 70 and dominant in ["Happiness", "Sadness", "Fear", "Anger", "Disgust", "Surprise", "Neutral"]:
             settings = load_settings()
             settings["current_mood"] = dominant
             save_settings(settings)
-            log.info(f"System mood updated to: {{dominant}}")
+            log.info(f"System mood updated to: {dominant}")
             
     except Exception as e:
         log.error(f"Emotion analysis failed: {e}")

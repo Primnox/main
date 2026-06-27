@@ -238,9 +238,23 @@ class FeedManager:
         log.info("Extracting memories from recent feed activity...")
         recent_log = "\n".join(self.history[-100:]) # Last 100 events
         try:
-            resp = think("Extract key memories from this activity log. focus on projects, tasks, and important context.", context=recent_log)
+            sys_override = "You are a strict background data-extraction process. Output ONLY the extracted memories as a single concise sentence. Do not converse or add filler. If there is no meaningful activity, output 'None'."
+            resp = think(
+                "Extract a single concise memory from this activity log. focus on projects, tasks, and important context.",
+                context=recent_log,
+                system_override=sys_override
+            )
             content = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if content and "none" not in content.lower():
+            # Multi-word phrases are safe as substrings; "none" must be an exact
+            # match (normalised) so we don't drop valid memories like "nonessential".
+            _reject_phrases = ["no meaningful", "no identifiable", "nothing significant",
+                               "no specific", "not enough", "no notable",
+                               "no project", "no task", "not available", "no activity"]
+            _clean = (content or "").strip().lower().rstrip(".!")
+            _rejected = (not _clean
+                         or _clean == "none"
+                         or any(p in _clean for p in _reject_phrases))
+            if content and not _rejected:
                 log.info(f"Memory extracted: {content[:100]}...")
                 add_memory(content)
                 if self.callback:
@@ -253,7 +267,12 @@ class FeedManager:
         log.info("Generating daily debrief summary...")
         log_content = "\n".join(self.history)
         try:
-            resp = think("Generate a professional daily debrief. summarize my productivity and key achievements.", context=log_content)
+            sys_override = "You are a strict data summarizer. Output a clean, professional daily debrief of productivity and key achievements. Do not converse or use a sarcastic persona. Output only the report."
+            resp = think(
+                "Generate a professional daily debrief. summarize my productivity and key achievements.",
+                context=log_content,
+                system_override=sys_override
+            )
             debrief = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
             log.info("Daily debrief generated.")
             if self.callback:
@@ -894,9 +913,10 @@ class FeedManager:
             except Exception as e:
                 log.debug(f"Clipboard read error: {e}")
 
-            # Extract memories every 5 minutes
-            if current_time - last_mem_extraction > 300:
+            # Extract memories every 15 minutes (only if history grew)
+            if current_time - last_mem_extraction > 900 and len(self.history) > getattr(self, '_last_mem_history_len', 0):
                 self._extract_memories()
+                self._last_mem_history_len = len(self.history)
                 last_mem_extraction = current_time
 
             # ── Now Playing (every 5 s) ───────────────────────────────────────

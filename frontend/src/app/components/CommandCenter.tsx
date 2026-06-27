@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
+import { NotesIconSidebar } from './NotesView';
 import { motion } from 'motion/react';
 import { Terminal, User, Paperclip, ArrowRight, Sparkles, X, Plus, MessageSquare, Pin, Folder, ChevronDown, ChevronRight, Settings, History, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -75,26 +76,28 @@ const CC_MD_COMPONENTS = {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const CommandCenter = ({ 
-  aiName, 
-  userName, 
+export const CommandCenter = ({
+  aiName,
+  userName,
   setStatus,
   liveMessages = [],
   sendMessage = () => {},
   chatSessions = [],
   chatFolders = [],
   activeChatId = 'current',
-  loadChat = () => {}
-}: { 
-  aiName: string, 
-  userName: string, 
+  loadChat = () => {},
+  notes = [],
+}: {
+  aiName: string,
+  userName: string,
   setStatus: (s: AiStatus) => void,
   liveMessages?: any[],
   sendMessage?: (text: string, sessionId?: string, file?: File | null) => void,
   chatSessions?: any[],
   chatFolders?: any[],
   activeChatId?: string,
-  loadChat?: (id: string) => void
+  loadChat?: (id: string) => void,
+  notes?: any[],
 }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -310,7 +313,7 @@ export const CommandCenter = ({
 
       {/* RIGHT WORKSPACE PANE */}
       <div className="w-80 lg:w-96 border-l border-white/5 bg-zinc-950 flex flex-col h-full relative z-10 shrink-0">
-        <NotesIconSidebar notes={useStore(s => s.notes)} onExport={() => {}} />
+        <NotesIconSidebar notes={notes} onExport={() => {}} />
       </div>
     </div>
 

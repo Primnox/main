@@ -315,7 +315,10 @@ def execute_tool(name: str, arguments: dict, session_id: str = None) -> str:
 
         elif name == "complete_task":
             from notes_manager import complete_task as _complete_task
-            task_id = int(arguments.get("task_id", 0))
+            try:
+                task_id = int(arguments.get("task_id", 0))
+            except (TypeError, ValueError):
+                return "Invalid task_id — use list_tasks to get numeric IDs first."
             success = _complete_task(task_id)
             if success:
                 if _broadcast_cb:

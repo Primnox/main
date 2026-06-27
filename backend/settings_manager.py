@@ -27,6 +27,9 @@ DEFAULT_SETTINGS = {
     "active_model": "Groq_Llama_3",
     "ollama_model": "llama3.2",
     "ollama_base_url": "http://localhost:11434",
+    "llamacpp_base_url": "http://localhost:8080",
+    "llamacpp_model": "",
+    "gemini_api_key": "",
     "nickname": "primnox",
     "operator_alias": "ANIKETH_P_01",
     "ai_codename": "PRIMNOX",
@@ -35,7 +38,7 @@ DEFAULT_SETTINGS = {
     "dynamic_island_enabled": True,
     "wake_word": "hey primnox",
     "wake_word_enabled": True,
-    "privacy_mirror_enabled": True,
+    "privacy_mirror_enabled": False,
     "blocklist": [],
     "screenshot_retention": 10,
     "memory_auto_delete_days": 30,
@@ -69,7 +72,7 @@ DEFAULT_SETTINGS = {
 }
 
 # Keys stored in Windows Credential Manager / keyring as a backup layer
-_KEYRING_KEYS = ["groq_api_key", "openai_api_key", "anthropic_api_key"]
+_KEYRING_KEYS = ["groq_api_key", "openai_api_key", "anthropic_api_key", "gemini_api_key"]
 _KEYRING_SERVICE = "primnox"
 
 

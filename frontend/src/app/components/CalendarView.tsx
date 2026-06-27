@@ -892,7 +892,7 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: newTaskTitle.trim(),
+          text: newTaskTitle.trim(),
           due_date: newTaskDueDate || null,
           priority: newTaskPriority,
           completed: false,

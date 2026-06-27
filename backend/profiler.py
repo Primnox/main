@@ -30,7 +30,7 @@ def run_background_profiler():
     log.info("Running background Automated Notes Learning Profiler...")
     try:
         memories = list_memories()
-        recent_texts = [m["text"] for m in memories[-30:]]  # Look at the last 30 memories
+        recent_texts = [m["text"][:200] for m in memories[-10:]]  # Look at the last 10 memories (truncated)
         
         if not recent_texts:
             log.info("Not enough data to profile user yet.")
@@ -54,7 +54,7 @@ User Memories:
 Respond with ONLY raw JSON. No markdown fences.
 '''
         
-        result = think(prompt)
+        result = think(prompt, system_override="You are a JSON data extractor. Output only valid JSON matching the requested schema. No conversation.")
         if "error" in result:
             log.error(f"Profiler brain error: {result['error']}")
             return None
