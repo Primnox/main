@@ -409,6 +409,18 @@ class BackupManager:
             _keychain_store(key)
             log.info("Restore complete — restart Primnox for changes to take effect")
 
+    def restore_from_bytes(self, prx: bytes, mnemonic: str) -> None:
+        """Decrypt + restore a .prx backup supplied directly (e.g. a local file
+        upload). No cloud provider required — only the file bytes + the mnemonic.
+        This is the import-from-disk path so a fresh install can recover without
+        first reconfiguring the exact same cloud provider."""
+        with self._lock:
+            key        = derive_key(mnemonic)
+            compressed = decrypt_backup(key, prx)   # raises InvalidTag on wrong key
+            _restore_payload(compressed)
+            _keychain_store(key)
+            log.info("Import restore complete — restart Primnox for changes to take effect")
+
     def list_backups(self) -> list[dict]:
         from settings_manager import load_settings
         try:

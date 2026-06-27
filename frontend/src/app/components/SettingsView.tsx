@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { User, Terminal, Database, Shield, Cpu, Wifi, WifiOff, RefreshCw, DownloadCloud, Brain, Zap, Calendar, Plus, Trash2, Link, Cloud, Key, Copy, Eye, EyeOff, AlertTriangle, CheckCircle, HardDrive } from 'lucide-react';
 
-type ScreenId = 
+type ScreenId =
   | 'summaries_expanded'
   | 'notes_icon_sidebar'
   | 'summaries_sidebar_hidden'
@@ -13,24 +13,91 @@ type ScreenId =
   | 'settings_neural'
   | 'logs'
   | 'archive'
-  | 'knowledge';
+  | 'knowledge'
+  | 'graph_view'
+  | 'calendar'
+  | 'meetings'
+  | 'research_workspace';
 
-import { useStore } from '../../store/useStore';
-
-export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
-  const settings = useStore(s => s.settings);
-  const updateSettings = () => {}; // TODO: map this to the real setter if needed
-  
-  const [activeModel, setActiveModel] = useState(settings?.active_model || 'Groq_Llama_3');
-  const [vadSensitivity, setVadSensitivity] = useState(settings?.vad_sensitivity || 0.5);
-  const [operatorAlias, setOperatorAlias] = useState(settings?.operator_alias || 'ANIKETH_P_01');
-  const [aiCodename, setAiCodename] = useState(settings?.ai_codename || 'PRIMNOX');
-  const [apiKey, setApiKey] = useState(settings?.groq_api_key || '');
-  const [openaiApiKey, setOpenaiApiKey] = useState(settings?.openai_api_key || '');
-  const [anthropicApiKey, setAnthropicApiKey] = useState(settings?.anthropic_api_key || '');
-  const [wakeWord, setWakeWord] = useState(settings?.wake_word || 'hey primnox');
-  const [wakeWordEnabled, setWakeWordEnabled] = useState(settings?.wake_word_enabled ?? true);
-
+export const IslandSettings = ({ 
+  onNavigate,
+  operatorAlias,
+  setOperatorAlias,
+  aiCodename,
+  setAiCodename,
+  activeModel,
+  setActiveModel,
+  apiKey,
+  setApiKey,
+  openaiApiKey,
+  setOpenaiApiKey,
+  anthropicApiKey,
+  setAnthropicApiKey,
+  vadSensitivity,
+  setVadSensitivity,
+  wakeWord,
+  setWakeWord,
+  wakeWordEnabled,
+  setWakeWordEnabled,
+  dynamicIslandEnabled,
+  setDynamicIslandEnabled,
+  privacyMirrorEnabled,
+  setPrivacyMirrorEnabled,
+  ollamaModel,
+  setOllamaModel,
+  ollamaBaseUrl,
+  setOllamaBaseUrl,
+  llamacppBaseUrl,
+  setLlamacppBaseUrl,
+  llamacppModel,
+  setLlamacppModel,
+  geminiApiKey,
+  setGeminiApiKey,
+  calendarProviders,
+  setCalendarProviders,
+  meetingRetentionDays,
+  setMeetingRetentionDays,
+  onSync
+}: {
+  onNavigate: (id: ScreenId) => void,
+  operatorAlias: string,
+  setOperatorAlias: (v: string) => void,
+  aiCodename: string,
+  setAiCodename: (v: string) => void,
+  activeModel: string,
+  setActiveModel: (v: string) => void,
+  apiKey: string,
+  setApiKey: (v: string) => void,
+  openaiApiKey: string,
+  setOpenaiApiKey: (v: string) => void,
+  anthropicApiKey: string,
+  setAnthropicApiKey: (v: string) => void,
+  vadSensitivity: number,
+  setVadSensitivity: (v: number) => void,
+  wakeWord: string,
+  setWakeWord: (v: string) => void,
+  wakeWordEnabled: boolean,
+  setWakeWordEnabled: (v: boolean) => void,
+  dynamicIslandEnabled: boolean,
+  setDynamicIslandEnabled: (v: boolean) => void,
+  privacyMirrorEnabled: boolean,
+  setPrivacyMirrorEnabled: (v: boolean) => void,
+  ollamaModel: string,
+  setOllamaModel: (v: string) => void,
+  ollamaBaseUrl: string,
+  setOllamaBaseUrl: (v: string) => void,
+  llamacppBaseUrl: string,
+  setLlamacppBaseUrl: (v: string) => void,
+  llamacppModel: string,
+  setLlamacppModel: (v: string) => void,
+  geminiApiKey: string,
+  setGeminiApiKey: (v: string) => void,
+  calendarProviders: any[],
+  setCalendarProviders: (v: any[]) => void,
+  meetingRetentionDays: number,
+  setMeetingRetentionDays: (v: number) => void,
+  onSync: () => void
+}) => {
   const [activeTab, setActiveTab] = useState<'System_Core' | 'Identity' | 'Security' | 'Calendar' | 'Backup'>('System_Core');
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
   const [checkingOllama, setCheckingOllama] = useState(false);
@@ -53,6 +120,22 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
   const [restoreFile, setRestoreFile]                 = useState('');
   const [restoreMnemonic, setRestoreMnemonic]         = useState('');
   const [showRestoreMnemonic, setShowRestoreMnemonic] = useState(false);
+  // Import a .prx backup straight from disk (no cloud provider required)
+  const [importFile, setImportFile]                   = useState<File | null>(null);
+  const [importMnemonic, setImportMnemonic]           = useState('');
+  const [showImportMnemonic, setShowImportMnemonic]   = useState(false);
+  const [importOp, setImportOp]                       = useState<'idle'|'running'|'done'|'error'>('idle');
+  const [importMsg, setImportMsg]                     = useState('');
+
+  // ── PII model status ──────────────────────────────────────────────────────────
+  const [piiModelStatus, setPiiModelStatus] = useState<'loading'|'ready'|'failed'|'unavailable'|null>(null);
+  useEffect(() => {
+    if (activeTab !== 'Security') return;
+    fetch('http://localhost:8000/api/status', { signal: AbortSignal.timeout(4000) })
+      .then(r => r.json())
+      .then(d => setPiiModelStatus(d.pii_model_status ?? null))
+      .catch(() => setPiiModelStatus(null));
+  }, [activeTab]);
 
   // ── Local Vault state ─────────────────────────────────────────────────────────
   const [vaultStatus, setVaultStatus] = useState<{enabled: boolean, locked: boolean} | null>(null);
@@ -185,6 +268,21 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
     setTimeout(() => { setCloudBackupOp('idle'); setCloudOpMsg(''); }, 6000);
   };
 
+  const runImport = async () => {
+    if (!importFile || !importMnemonic.trim()) return;
+    setImportOp('running'); setImportMsg('Decrypting & restoring…');
+    try {
+      const fd = new FormData();
+      fd.append('file', importFile);
+      fd.append('mnemonic', importMnemonic.trim());
+      const r = await fetch('http://localhost:8000/api/backup/import', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (r.ok) { setImportOp('done'); setImportMsg(d.message || 'Import complete — restart Primnox'); }
+      else { setImportOp('error'); setImportMsg(d.detail || 'Import failed'); }
+    } catch { setImportOp('error'); setImportMsg('Backend unavailable'); }
+    setTimeout(() => { if (importOp !== 'done') { setImportOp('idle'); setImportMsg(''); } }, 8000);
+  };
+
   const disableCloudBackup = async () => {
     await fetch('http://localhost:8000/api/backup/disable', { method: 'POST' });
     setCloudBackupInfo(null); setShowSetup(false); setMnemonic('');
@@ -246,7 +344,14 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
 
   const fetchVaultPhrase = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/vault/phrase');
+      const tokenRes = await fetch('http://localhost:8000/api/vault/phrase-token', { method: 'POST' });
+      if (!tokenRes.ok) {
+        const err = await tokenRes.json().catch(() => ({}));
+        setVaultOpMsg(err.detail || 'Could not issue phrase token — vault may be locked.');
+        return;
+      }
+      const { token } = await tokenRes.json();
+      const res = await fetch('http://localhost:8000/api/vault/phrase', { headers: { 'X-Vault-Token': token } });
       if (!res.ok) throw new Error('Not found');
       const data = await res.json();
       setVaultPhrase(data.phrase);
@@ -281,16 +386,16 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
   };
 
   return (
-    <div className="min-h-full flex items-center justify-center p-6 md:p-12 lg:p-20 text-left">
-      <motion.div 
+    <div className="h-full flex items-start justify-center p-4 md:p-6 lg:p-8 text-left overflow-y-auto">
+      <motion.div
         initial={{ scale: 0.95, opacity: 0, y: 20 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-4xl w-full glass-panel rounded-lg shadow-2xl overflow-hidden border border-white/10 flex flex-col md:flex-row bg-[#050505]/80 backdrop-blur-3xl"
+        className="max-w-4xl w-full max-h-[calc(100vh-4rem)] glass-panel rounded-lg shadow-2xl border border-white/10 flex flex-col md:flex-row bg-[#050505]/80 backdrop-blur-3xl overflow-hidden"
       >
         {/* Sidebar Tabs */}
-        <div className="w-full md:w-72 border-r border-white/5 bg-zinc-950 p-10 space-y-4 flex flex-col justify-between">
-          <div className="space-y-4">
+        <div className="w-full md:w-60 shrink-0 border-r border-white/5 bg-zinc-950 p-6 space-y-2 flex flex-col justify-between">
+          <div className="space-y-2">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -310,8 +415,8 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
             })}
           </div>
           
-          <div className="pt-20">
-            <div className="p-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 backdrop-blur-sm">
+          <div className="pt-4">
+            <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 backdrop-blur-sm">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]" />
                 <span className="font-mono text-[10px] text-emerald-400 uppercase font-bold tracking-widest">Kernel_Stable</span>
@@ -322,11 +427,11 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
         </div>
 
         {/* Content Panel */}
-        <div className="flex-1 p-10 lg:p-16 space-y-16 flex flex-col justify-between">
-          <div className="space-y-12">
-            <header className="space-y-4 border-b border-white/5 pb-10">
-              <h2 className="font-bold lowercase italic tracking-wide text-4xl text-white">Machine_Cognition_Settings</h2>
-              <p className="text-white/30 font-light text-lg">Calibrate the neural interface and operative parameters.</p>
+        <div className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6 flex flex-col justify-between">
+          <div className="space-y-6">
+            <header className="space-y-1 border-b border-white/5 pb-5">
+              <h2 className="font-bold lowercase italic tracking-wide text-2xl text-white">Machine_Cognition_Settings</h2>
+              <p className="text-white/30 font-light text-sm">Calibrate the neural interface and operative parameters.</p>
             </header>
 
             {/* Render Tab Contents */}
@@ -349,7 +454,9 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
                         <option value="Groq_Llama_3">Groq: Llama 3.3 (HyperSpeed)</option>
                         <option value="OpenAI_GPT_4o">OpenAI: GPT-4o (Max Reasoning)</option>
                         <option value="Anthropic_Claude_3">Anthropic: Claude 3.5 Sonnet</option>
+                        <option value="Gemini_Flash">Gemini: Flash 2.0 (Google)</option>
                         <option value="Ollama_Local">⚡ Ollama: Local / Hybrid (No API Key)</option>
+                        <option value="LlamaCpp_Local">⚡ llama.cpp: Local GGUF (No API Key)</option>
                       </select>
                     </div>
                   </div>
@@ -423,6 +530,62 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
                       <p className="text-[9px] text-white/20 font-mono">
                         Note: Transcription (Whisper) still uses Groq even in local mode — add a Groq key in Security tab for that.
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('Security')}
+                        className="text-[9px] font-mono text-primary/50 hover:text-primary transition-colors uppercase tracking-widest text-left"
+                      >
+                        → Enable local data encryption in Security tab
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* ── llama.cpp Config Panel ── */}
+                  {activeModel === 'LlamaCpp_Local' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Cpu size={12} className="text-primary/60" />
+                        <span className="font-mono text-[10px] uppercase tracking-widest text-white/50">llama.cpp Server</span>
+                      </div>
+
+                      <p className="text-[10px] text-amber-400/70 font-mono">
+                        Start with: <span className="text-amber-300 bg-white/5 px-1 rounded">./llama-server -m model.gguf --port 8080</span>
+                      </p>
+
+                      <div className="space-y-2">
+                        <label className="block font-mono text-[9px] text-white/30 uppercase tracking-[0.4em]">Server_URL</label>
+                        <input
+                          className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-primary outline-none"
+                          value={llamacppBaseUrl}
+                          onChange={e => setLlamacppBaseUrl(e.target.value)}
+                          placeholder="http://localhost:8080"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block font-mono text-[9px] text-white/30 uppercase tracking-[0.4em]">Model_Name (optional)</label>
+                        <input
+                          className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-primary outline-none"
+                          value={llamacppModel}
+                          onChange={e => setLlamacppModel(e.target.value)}
+                          placeholder="e.g. mistral-7b-instruct (leave blank for default)"
+                        />
+                      </div>
+
+                      <p className="text-[9px] text-white/20 font-mono">
+                        Note: Transcription (Whisper) still uses Groq in local mode — add a Groq key in Security tab for that.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('Security')}
+                        className="text-[9px] font-mono text-primary/50 hover:text-primary transition-colors uppercase tracking-widest text-left"
+                      >
+                        → Enable local data encryption in Security tab
+                      </button>
                     </motion.div>
                   )}
 
@@ -572,6 +735,66 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
                         placeholder="Anthropic API key..."
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Gemini_API_Key</label>
+                    <div className="relative group">
+                      <div className="absolute left-5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-white/10 font-bold">HEX</div>
+                      <input
+                        type="password"
+                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5"
+                        value={geminiApiKey}
+                        onChange={(e) => setGeminiApiKey(e.target.value)}
+                        placeholder="Google AI Studio API key..."
+                      />
+                    </div>
+                  </div>
+
+                  {/* Privacy Shield (PII scrubber) */}
+                  <div className="space-y-4 pt-2 border-t border-white/5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Privacy_Shield</label>
+                        <p className="text-xs text-white/40 font-light mt-1">
+                          Scrubs PII from context before it reaches the AI. Uses a local DeBERTa model — no data leaves your machine.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setPrivacyMirrorEnabled(!privacyMirrorEnabled)}
+                        className={`relative shrink-0 w-10 h-5 rounded-full border transition-all duration-200 ${
+                          privacyMirrorEnabled
+                            ? 'bg-emerald-500/20 border-emerald-500/40'
+                            : 'bg-white/5 border-white/10'
+                        }`}
+                      >
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all duration-200 ${
+                          privacyMirrorEnabled
+                            ? 'left-5 bg-emerald-400'
+                            : 'left-0.5 bg-white/20'
+                        }`} />
+                      </button>
+                    </div>
+
+                    {/* Model status row */}
+                    {privacyMirrorEnabled && (
+                      <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-xs font-mono ${
+                        piiModelStatus === 'ready'
+                          ? 'bg-emerald-500/8 border-emerald-500/20 text-emerald-400/70'
+                          : piiModelStatus === 'loading'
+                          ? 'bg-amber-500/8 border-amber-500/20 text-amber-400/70'
+                          : piiModelStatus === 'failed'
+                          ? 'bg-red-500/10 border-red-500/25 text-red-400/80'
+                          : 'bg-white/5 border-white/10 text-white/30'
+                      }`}>
+                        <Shield size={11} className="shrink-0" />
+                        {piiModelStatus === 'ready'    && 'Model loaded — shield active'}
+                        {piiModelStatus === 'loading'  && 'Model loading in background…'}
+                        {piiModelStatus === 'failed'   && 'Model failed to load — disable Privacy Shield or check your internet connection and restart'}
+                        {piiModelStatus === 'unavailable' && 'Status unavailable — is the backend running?'}
+                        {piiModelStatus === null        && 'Checking model status…'}
+                      </div>
+                    )}
                   </div>
 
                   {/* Local Encryption Vault */}
@@ -1228,12 +1451,60 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
                       </div>
                     </div>
                   )}
+
+                  {/* Import a .prx backup from disk — works with no cloud provider configured */}
+                  <div className="space-y-4 p-5 bg-black/30 border border-white/10 rounded-xl">
+                    <p className="font-mono text-[10px] text-white/50 uppercase tracking-widest font-bold">Import_From_File</p>
+                    <p className="text-[10px] text-white/30 font-mono leading-5">
+                      Restore from a <span className="text-white/50">.prx</span> backup on disk — no cloud setup needed, just the file and your seed phrase. Overwrites current data.
+                    </p>
+                    <label className="flex items-center gap-3 px-4 py-3 bg-black/40 border border-white/10 rounded-xl cursor-pointer hover:border-primary/30 transition-colors">
+                      <DownloadCloud size={14} className="text-white/30 shrink-0" />
+                      <span className="font-mono text-[11px] text-white/60 truncate">
+                        {importFile ? importFile.name : 'Choose a .prx backup file…'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".prx"
+                        className="hidden"
+                        onChange={e => { setImportFile(e.target.files?.[0] || null); setImportOp('idle'); setImportMsg(''); }}
+                      />
+                    </label>
+                    <div className="relative">
+                      <Key size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 pointer-events-none" />
+                      <input
+                        type={showImportMnemonic ? 'text' : 'password'}
+                        value={importMnemonic}
+                        onChange={e => setImportMnemonic(e.target.value)}
+                        placeholder="Enter the seed phrase for this backup…"
+                        className="w-full bg-black/60 border border-white/10 rounded-xl py-3 pl-10 pr-10 font-mono text-[11px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
+                      />
+                      <button type="button" onClick={() => setShowImportMnemonic(v => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 hover:text-white/60 transition-colors">
+                        {showImportMnemonic ? <EyeOff size={13} /> : <Eye size={13} />}
+                      </button>
+                    </div>
+                    {importMsg && (
+                      <p className={`text-[10px] font-mono ${importOp === 'error' ? 'text-red-400' : importOp === 'done' ? 'text-green-400' : 'text-white/40'}`}>
+                        {importMsg}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={runImport}
+                      disabled={!importFile || !importMnemonic.trim() || importOp === 'running'}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                    >
+                      {importOp === 'running' ? <RefreshCw size={12} className="animate-spin" /> : null}
+                      {importOp === 'running' ? 'Importing…' : importOp === 'done' ? 'Imported ✓' : 'Import_Backup'}
+                    </button>
+                  </div>
                 </motion.section>
               )}
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-12 border-t border-white/5 pb-8">
+          <div className="flex items-center justify-between pt-5 border-t border-white/5 pb-2">
             <button 
               type="button"
               onClick={() => onNavigate('summaries_expanded')}
