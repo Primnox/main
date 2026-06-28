@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, globalShortcut, clipboard } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const http = require('http');
@@ -490,14 +490,52 @@ app.on('window-all-closed', () => { /* intentional no-op */ });
 
 app.on('quit', () => {
   globalShortcut.unregisterAll();
-  if (pythonProcess) pythonProcess.kill();
+  // On Windows, pythonProcess.kill() only signals the direct child; the
+  // PyInstaller backend can leave grandchildren behind. taskkill /T kills the
+  // whole tree so nothing is left squatting on port 8000 for the next launch.
+  if (pythonProcess && pythonProcess.pid) {
+    try {
+      if (process.platform === 'win32') {
+        execSync(`taskkill /PID ${pythonProcess.pid} /T /F`, { stdio: 'ignore' });
+      } else {
+        pythonProcess.kill();
+      }
+    } catch (_) { try { pythonProcess.kill(); } catch (_) {} }
+  }
   if (tray) tray.destroy();
   if (islandWindow && !islandWindow.isDestroyed()) islandWindow.destroy();
 });
 
 // ── Backend ────────────────────────────────────────────────────────────────────
 
+// Kill any orphaned backend still holding port 8000 from a previous run.
+// The single-instance lock guards the Electron process, but if the app was
+// force-killed (Task Manager, crash, OS shutdown), its backend child survives,
+// keeps port 8000 + the logfile, and the next launch's backend can't bind —
+// which looks to the user like "Primnox won't connect to the backend".
+function freeBackendPort(port = 8000) {
+  try {
+    if (process.platform === 'win32') {
+      const out = execSync('netstat -ano -p tcp', { encoding: 'utf8' });
+      const pids = new Set();
+      for (const line of out.split(/\r?\n/)) {
+        if (line.includes(`:${port}`) && line.includes('LISTENING')) {
+          const pid = line.trim().split(/\s+/).pop();
+          if (/^\d+$/.test(pid) && pid !== '0') pids.add(pid);
+        }
+      }
+      for (const pid of pids) {
+        try { execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' }); } catch (_) {}
+      }
+      if (pids.size) console.log(`Freed port ${port} (killed orphan backend PID ${[...pids].join(', ')})`);
+    } else {
+      execSync(`lsof -ti tcp:${port} | xargs -r kill -9`, { stdio: 'ignore', shell: '/bin/sh' });
+    }
+  } catch (_) { /* nothing listening — fine */ }
+}
+
 function startBackend() {
+  freeBackendPort(8000);
   const isDev = !app.isPackaged;
   if (isDev) {
     const backendPath = path.join(__dirname, '../../backend/server.py');
