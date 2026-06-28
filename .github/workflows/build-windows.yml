@@ -12,6 +12,13 @@ jobs:
   build:
     runs-on: windows-latest
 
+    # contents:write lets the workflow create releases. NOTE: this only covers
+    # same-repo publishing. Releases here are published to Primnox/public (see
+    # frontend/package.json "publish"), a DIFFERENT repo, so the publish step
+    # below must use a PAT secret (RELEASE_TOKEN) with write access to that repo.
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -62,7 +69,11 @@ jobs:
           cd frontend
           npx electron-builder --win --publish always
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Cross-repo release to Primnox/public requires a PAT with write
+          # access to that repo. The default GITHUB_TOKEN cannot do this.
+          # Create a fine-grained PAT (Contents: read & write on Primnox/public)
+          # and add it as the RELEASE_TOKEN secret on the Primnox/main repo.
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
