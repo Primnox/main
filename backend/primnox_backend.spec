@@ -90,7 +90,11 @@ a = Analysis(
   binaries=binaries,
   datas=datas,
   hiddenimports=hiddenimports,
-  excludes=[],
+  # On Windows the sounddevice path is never taken (we use pyaudiowpatch), but
+  # its lazy `import sounddevice` in meeting_recorder is auto-discovered by
+  # PyInstaller and drags in PortAudio DLLs. Exclude it so the Windows build
+  # doesn't carry them; the win capture path doesn't need it.
+  excludes=(['sounddevice'] if sys.platform == 'win32' else []),
   cipher=block_cipher,
 )
 
