@@ -7,7 +7,7 @@ import wave
 import subprocess
 from pathlib import Path
 import psutil
-from brain import think
+from brain import think, transcribe
 from logger import get_logger
 
 log = get_logger("recorder")
@@ -58,7 +58,7 @@ class MeetingRecorder:
         self.thread = None
         self.base_dir = Path.home() / "Documents" / "Primnox" / "Meetings"
         self.current_meeting_dir = None
-        self.audio_frames: list[bytes] = []
+        self.audio_frames: list[bytes] = []   # speaker / loopback (other participants)
         self.audio_stream = None
         self.p = None               # pyaudiowpatch instance (Windows only)
         self._pyaudio_mod = None    # module ref so the hot callback never re-imports
@@ -66,6 +66,13 @@ class MeetingRecorder:
         self._sd_thread: threading.Thread | None = None
         self.capture_channels = 2
         self.capture_rate = 44100
+        # Microphone capture (your own voice) — recorded alongside the loopback
+        # so the saved meeting has BOTH sides of the conversation, not just the
+        # audio coming out of your speakers.
+        self.mic_frames: list[bytes] = []
+        self.mic_stream = None
+        self.mic_channels = 1
+        self.mic_rate = 44100
         # Browser-meeting tracking
         self._active_in_browser = False
         self._browser_absent_checks = 0
@@ -379,9 +386,37 @@ class MeetingRecorder:
         except Exception as e:
             log.error(f"Windows audio setup error: {e}")
 
+        # ── Microphone (your own voice) ──────────────────────────────────────
+        # Open a SECOND stream on the default input device. Wrapped separately
+        # so that if the mic can't be opened we still capture the loopback.
+        try:
+            mic_info = self.p.get_device_info_by_index(
+                wasapi_info["defaultInputDevice"]
+            )
+            self.mic_channels = min(int(mic_info.get("maxInputChannels", 1)) or 1, 2)
+            self.mic_rate = int(mic_info["defaultSampleRate"])
+            log.debug(f"Capturing mic '{mic_info['name']}' — {self.mic_channels}ch @ {self.mic_rate}Hz")
+            self.mic_stream = self.p.open(
+                format=pyaudio.paInt16,
+                channels=self.mic_channels,
+                rate=self.mic_rate,
+                input=True,
+                input_device_index=mic_info["index"],
+                frames_per_buffer=1024,
+                stream_callback=self._mic_callback_win,
+            )
+        except Exception as e:
+            log.warning(f"Mic capture unavailable (recording speakers only): {e}")
+            self.mic_stream = None
+
     def _audio_callback_win(self, in_data, frame_count, time_info, status):
         if self.active_meeting:
             self.audio_frames.append(in_data)
+        return (in_data, self._pyaudio_mod.paContinue)
+
+    def _mic_callback_win(self, in_data, frame_count, time_info, status):
+        if self.active_meeting:
+            self.mic_frames.append(in_data)
         return (in_data, self._pyaudio_mod.paContinue)
 
     def _start_audio_capture_sd(self) -> None:
@@ -433,6 +468,13 @@ class MeetingRecorder:
                 except Exception as e:
                     log.error(f"Error closing WASAPI stream: {e}")
                 self.audio_stream = None
+            if self.mic_stream:
+                try:
+                    self.mic_stream.stop_stream()
+                    self.mic_stream.close()
+                except Exception as e:
+                    log.error(f"Error closing mic stream: {e}")
+                self.mic_stream = None
             if self.p:
                 try:
                     self.p.terminate()
@@ -452,8 +494,105 @@ class MeetingRecorder:
 
     # ── Save + summarise ───────────────────────────────────────────────────────
 
+    def _write_wav(self, path, frames, channels, rate) -> bool:
+        if not frames:
+            return False
+        try:
+            with wave.open(str(path), 'wb') as wf:
+                wf.setnchannels(channels)
+                wf.setsampwidth(2)  # int16
+                wf.setframerate(rate)
+                wf.writeframes(b''.join(frames))
+            return True
+        except Exception as e:
+            log.error(f"Failed to write {getattr(path, 'name', path)}: {e}")
+            return False
+
+    def _save_mixed_wav(self, path) -> bool:
+        """Mix the speaker (loopback) and mic tracks into one mono 16 kHz WAV —
+        the format that works best for downstream speech transcription. Both
+        tracks are downmixed to mono, resampled to a common rate, and summed
+        with clip protection. Returns False if mixing isn't possible (caller
+        then falls back to a raw single-source track)."""
+        if not self.audio_frames and not self.mic_frames:
+            return False
+        try:
+            import numpy as np
+            TARGET_RATE = 16000  # speech-optimal, compact
+
+            def to_mono_target(frames, channels, rate):
+                if not frames:
+                    return np.zeros(0, dtype=np.float32)
+                arr = np.frombuffer(b''.join(frames), dtype=np.int16).astype(np.float32)
+                if channels and channels > 1:
+                    usable = (arr.size // channels) * channels
+                    arr = arr[:usable].reshape(-1, channels).mean(axis=1)
+                if rate and rate != TARGET_RATE and arr.size:
+                    from math import gcd
+                    from scipy.signal import resample_poly
+                    g = gcd(int(rate), TARGET_RATE)
+                    arr = resample_poly(arr, TARGET_RATE // g, int(rate) // g).astype(np.float32)
+                return arr
+
+            spk = to_mono_target(self.audio_frames, self.capture_channels, self.capture_rate)
+            mic = to_mono_target(self.mic_frames, self.mic_channels, self.mic_rate)
+            n = max(spk.size, mic.size)
+            if n == 0:
+                return False
+            if spk.size < n:
+                spk = np.pad(spk, (0, n - spk.size))
+            if mic.size < n:
+                mic = np.pad(mic, (0, n - mic.size))
+            mixed = spk + mic
+            peak = float(np.max(np.abs(mixed))) if mixed.size else 0.0
+            if peak > 32767.0:
+                mixed *= (32767.0 / peak)
+            mixed = mixed.astype(np.int16)
+            with wave.open(str(path), 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(TARGET_RATE)
+                wf.writeframes(mixed.tobytes())
+            return True
+        except Exception as e:
+            log.error(f"Audio mix failed ({e}); will fall back to a raw track.")
+            return False
+
+    def _transcribe_meeting(self, audio_path) -> str:
+        """Transcribe the meeting WAV via Groq Whisper, in ~5-minute chunks so a
+        long call doesn't blow past Whisper's per-file size/timeout limits.
+        Returns the concatenated transcript ('' if transcription is unavailable)."""
+        try:
+            if not audio_path or not audio_path.exists():
+                return ""
+            import io
+            parts: list[str] = []
+            with wave.open(str(audio_path), 'rb') as wf:
+                nch, sw, fr = wf.getnchannels(), wf.getsampwidth(), wf.getframerate()
+                chunk_frames = max(1, fr * 300)  # 5 minutes per request
+                while True:
+                    frames = wf.readframes(chunk_frames)
+                    if not frames:
+                        break
+                    buf = io.BytesIO()
+                    with wave.open(buf, 'wb') as cw:
+                        cw.setnchannels(nch)
+                        cw.setsampwidth(sw)
+                        cw.setframerate(fr)
+                        cw.writeframes(frames)
+                    res = transcribe(buf.getvalue(), timeout=120)
+                    text = (res.get("text", "") if isinstance(res, dict) else "").strip()
+                    if text and not text.startswith("[System:"):
+                        parts.append(text)
+            transcript = "\n".join(parts).strip()
+            log.info(f"Transcription produced {len(transcript)} chars from {audio_path.name}.")
+            return transcript
+        except Exception as e:
+            log.error(f"Meeting transcription failed: {e}")
+            return ""
+
     def _save_meeting(self) -> None:
-        if not self.audio_frames:
+        if not self.audio_frames and not self.mic_frames:
             log.warning("No audio frames captured during meeting.")
             return
 
@@ -468,23 +607,47 @@ class MeetingRecorder:
                     pass
 
         log.info(f"Saving meeting to {self.current_meeting_dir}...")
-        audio_path = self.current_meeting_dir / "meeting_audio.wav"
-        try:
-            with wave.open(str(audio_path), 'wb') as wf:
-                wf.setnchannels(self.capture_channels)
-                wf.setsampwidth(2)  # int16
-                wf.setframerate(self.capture_rate)
-                wf.writeframes(b''.join(self.audio_frames))
-        except Exception as e:
-            log.error(f"Failed to save meeting audio: {e}")
+        d = self.current_meeting_dir
+        # Raw per-source tracks — always written when present, so nothing is lost
+        # even if the mix step fails. Useful later for speaker diarization too.
+        wrote_spk = self._write_wav(d / "audio_speakers.wav", self.audio_frames, self.capture_channels, self.capture_rate)
+        wrote_mic = self._write_wav(d / "audio_mic.wav", self.mic_frames, self.mic_channels, self.mic_rate)
+        log.info(f"Captured tracks — speakers: {wrote_spk}, mic: {wrote_mic}")
+        # Primary combined recording (keeps the meeting_audio.wav name other code
+        # expects). Prefer the mic+speaker mix; fall back to a raw track if the
+        # mix can't be produced.
+        if not self._save_mixed_wav(d / "meeting_audio.wav"):
+            if self.audio_frames:
+                self._write_wav(d / "meeting_audio.wav", self.audio_frames, self.capture_channels, self.capture_rate)
+            elif self.mic_frames:
+                self._write_wav(d / "meeting_audio.wav", self.mic_frames, self.mic_channels, self.mic_rate)
+
+        # Transcribe the audio FIRST so the summary reflects what was actually
+        # said, not a guess. The full transcript is saved alongside the summary.
+        transcript = self._transcribe_meeting(d / "meeting_audio.wav")
+        if transcript:
+            try:
+                (d / "transcript.txt").write_text(transcript, encoding="utf-8")
+            except Exception as e:
+                log.error(f"Failed to save transcript: {e}")
 
         log.info("Generating meeting summary via LLM...")
         try:
-            resp = think(
-                "Summarize this meeting based on the captured audio and visuals. "
-                "Format it clearly with headings and bullet points using markdown.",
-                context="[Meeting Audio Saved]",
-            )
+            if transcript:
+                excerpt = transcript[:15000]
+                if len(transcript) > 15000:
+                    excerpt += "\n\n[...transcript truncated for summary; full text in transcript.txt...]"
+                resp = think(
+                    "Summarize this meeting from the transcript below. Use markdown with a short "
+                    "overview, key discussion points, decisions made, and action items (with owners "
+                    "if named).\n\nTRANSCRIPT:\n" + excerpt,
+                )
+            else:
+                resp = think(
+                    "Write a brief meeting note. No transcript was available (the audio could not be "
+                    "transcribed), so keep it short and say so.",
+                    context="[Meeting recorded — transcript unavailable]",
+                )
             summary_text = (
                 resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
             )
@@ -505,6 +668,7 @@ class MeetingRecorder:
             log.error(f"Failed to generate meeting summary: {e}")
 
         self.audio_frames = []
+        self.mic_frames = []
 
     # ── Main loop ──────────────────────────────────────────────────────────────
 
@@ -551,6 +715,7 @@ class MeetingRecorder:
                     if incognito:
                         log.info("Incognito mode: discarding meeting data.")
                         self.audio_frames = []
+                        self.mic_frames = []
                         if self.current_meeting_dir and self.current_meeting_dir.exists():
                             import shutil
                             try:

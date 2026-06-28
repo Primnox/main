@@ -1,5 +1,5 @@
 import os
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
 block_cipher = None
 
@@ -53,10 +53,34 @@ hiddenimports = [
   'regex',
 ] + collect_submodules('transformers.models.deberta_v2')
 
+# ── Meeting audio capture ──────────────────────────────────────────────────────
+# These are imported lazily INSIDE functions (meeting_recorder.py), so PyInstaller
+# can't discover them statically. Without listing them here they silently don't
+# ship — the packaged backend then fails `import pyaudiowpatch` at runtime and
+# records meetings with NO AUDIO (which also aborts the summary, so recordings
+# look "unnamed"). pyaudiowpatch = WASAPI loopback + mic capture; pycaw/comtypes
+# = in-call detection; scipy.signal = the mic+speaker mixdown.
+hiddenimports += [
+  'pyaudiowpatch',
+  '_portaudiowpatch',   # top-level C extension (PortAudio) pyaudiowpatch imports
+  'pycaw',
+  'pycaw.pycaw',
+  'comtypes',
+  'sounddevice',
+  'scipy',
+  'scipy.signal',
+]
+hiddenimports += collect_submodules('comtypes')
+
+# The _portaudiowpatch .pyd has PortAudio statically linked, so listing it in
+# hiddenimports is enough to bundle it (collect_dynamic_libs finds no separate
+# DLL). collect it defensively in case a future wheel ships a side-by-side DLL.
+binaries = collect_dynamic_libs('pyaudiowpatch')
+
 a = Analysis(
   ['server.py'],
   pathex=['.'],
-  binaries=[],
+  binaries=binaries,
   datas=datas,
   hiddenimports=hiddenimports,
   excludes=[],

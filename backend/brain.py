@@ -158,7 +158,7 @@ def get_ollama_status(base_url: str = "http://localhost:11434") -> dict:
     except Exception:
         return {"running": False, "models": []}
 
-def transcribe(audio_bytes):
+def transcribe(audio_bytes, timeout=60):
     log.info("Requesting transcription from Groq Whisper...")
     api_key = get_groq_api_key()
     if not api_key:
@@ -167,13 +167,13 @@ def transcribe(audio_bytes):
     try:
         # Multilingual Prompt: Optimized for English, Hindi, and Telugu
         prompt = "Listen for English, Hindi, and Telugu. Keep transcriptions faithful to the spoken language."
-        
+
         resp = requests.post(
             "https://api.groq.com/openai/v1/audio/transcriptions",
             headers={"Authorization": f"Bearer {api_key}"},
             files={"file": ("audio.wav", audio_bytes, "audio/wav")},
             data={"prompt": prompt, "model": "whisper-large-v3-turbo"},
-            timeout=15
+            timeout=timeout
         )
         res = resp.json()
         log.debug(f"Transcription result: {res.get('text', 'NO TEXT')[:50]}...")
