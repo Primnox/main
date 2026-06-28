@@ -525,11 +525,23 @@ function freeBackendPort(port = 8000) {
         }
       }
       for (const pid of pids) {
-        try { execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' }); } catch (_) {}
+        // Only kill OUR backend — never an unrelated process that happens to hold
+        // 8000. Verify the image name first (pid is digits-only, so no injection).
+        try {
+          const info = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: 'utf8' });
+          const name = (info.split(',')[0] || '').replace(/"/g, '').toLowerCase();
+          if (name.includes('primnox_backend') || name.startsWith('python')) {
+            execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
+            console.log(`Freed port ${port} (killed ${name} PID ${pid})`);
+          } else {
+            console.warn(`Port ${port} held by ${name} (PID ${pid}) — not Primnox, leaving it.`);
+          }
+        } catch (_) {}
       }
-      if (pids.size) console.log(`Freed port ${port} (killed orphan backend PID ${[...pids].join(', ')})`);
     } else {
-      execSync(`lsof -ti tcp:${port} | xargs -r kill -9`, { stdio: 'ignore', shell: '/bin/sh' });
+      // Portable across GNU and BSD/macOS (avoids GNU-only `xargs -r`); the loop
+      // simply does nothing when lsof prints no PIDs.
+      execSync(`lsof -ti tcp:${port} | while read p; do kill -9 "$p"; done`, { stdio: 'ignore', shell: '/bin/sh' });
     }
   } catch (_) { /* nothing listening — fine */ }
 }

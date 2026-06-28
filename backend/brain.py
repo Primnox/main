@@ -158,7 +158,7 @@ def get_ollama_status(base_url: str = "http://localhost:11434") -> dict:
     except Exception:
         return {"running": False, "models": []}
 
-def transcribe(audio_bytes, timeout=60):
+def transcribe(audio_bytes, timeout=15):
     log.info("Requesting transcription from Groq Whisper...")
     api_key = get_groq_api_key()
     if not api_key:

@@ -51,6 +51,49 @@ BROWSER_MEETING_KEYWORDS = [
 _BROWSER_ABSENT_LIMIT = 150
 
 
+def transcribe_meeting_audio(audio_path) -> str:
+    """Transcribe a meeting WAV via Groq Whisper in SIZE-bounded chunks so a long
+    call — or a large stereo/44.1k fallback track — never exceeds Whisper's
+    per-file size limit. Shared by the recorder and the meeting-summary skill so
+    there's a single transcription implementation. Returns the concatenated
+    transcript ('' if transcription is unavailable)."""
+    try:
+        audio_path = Path(audio_path)
+        if not audio_path.exists():
+            return ""
+        import io
+        parts: list[str] = []
+        with wave.open(str(audio_path), 'rb') as wf:
+            nch, sw, fr = wf.getnchannels(), wf.getsampwidth(), wf.getframerate()
+            bytes_per_frame = max(1, nch * sw)
+            # Bound each chunk by BYTES (≤18 MB, safely under Whisper's ~25 MB
+            # limit regardless of channels/rate) and also by duration for latency.
+            MAX_CHUNK_BYTES = 18 * 1024 * 1024
+            frames_by_size = MAX_CHUNK_BYTES // bytes_per_frame
+            frames_by_time = fr * 300  # 5 minutes
+            chunk_frames = max(1, min(frames_by_size, frames_by_time))
+            while True:
+                frames = wf.readframes(chunk_frames)
+                if not frames:
+                    break
+                buf = io.BytesIO()
+                with wave.open(buf, 'wb') as cw:
+                    cw.setnchannels(nch)
+                    cw.setsampwidth(sw)
+                    cw.setframerate(fr)
+                    cw.writeframes(frames)
+                res = transcribe(buf.getvalue(), timeout=120)
+                text = (res.get("text", "") if isinstance(res, dict) else "").strip()
+                if text and not text.startswith("[System:"):
+                    parts.append(text)
+        transcript = "\n".join(parts).strip()
+        log.info(f"Transcription produced {len(transcript)} chars from {audio_path.name}.")
+        return transcript
+    except Exception as e:
+        log.error(f"Meeting transcription failed: {e}")
+        return ""
+
+
 class MeetingRecorder:
     def __init__(self):
         self.running = False
@@ -559,37 +602,7 @@ class MeetingRecorder:
             return False
 
     def _transcribe_meeting(self, audio_path) -> str:
-        """Transcribe the meeting WAV via Groq Whisper, in ~5-minute chunks so a
-        long call doesn't blow past Whisper's per-file size/timeout limits.
-        Returns the concatenated transcript ('' if transcription is unavailable)."""
-        try:
-            if not audio_path or not audio_path.exists():
-                return ""
-            import io
-            parts: list[str] = []
-            with wave.open(str(audio_path), 'rb') as wf:
-                nch, sw, fr = wf.getnchannels(), wf.getsampwidth(), wf.getframerate()
-                chunk_frames = max(1, fr * 300)  # 5 minutes per request
-                while True:
-                    frames = wf.readframes(chunk_frames)
-                    if not frames:
-                        break
-                    buf = io.BytesIO()
-                    with wave.open(buf, 'wb') as cw:
-                        cw.setnchannels(nch)
-                        cw.setsampwidth(sw)
-                        cw.setframerate(fr)
-                        cw.writeframes(frames)
-                    res = transcribe(buf.getvalue(), timeout=120)
-                    text = (res.get("text", "") if isinstance(res, dict) else "").strip()
-                    if text and not text.startswith("[System:"):
-                        parts.append(text)
-            transcript = "\n".join(parts).strip()
-            log.info(f"Transcription produced {len(transcript)} chars from {audio_path.name}.")
-            return transcript
-        except Exception as e:
-            log.error(f"Meeting transcription failed: {e}")
-            return ""
+        return transcribe_meeting_audio(audio_path)
 
     def _save_meeting(self) -> None:
         if not self.audio_frames and not self.mic_frames:

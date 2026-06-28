@@ -1,4 +1,4 @@
-import os
+import os, sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
 block_cipher = None
@@ -60,22 +60,29 @@ hiddenimports = [
 # records meetings with NO AUDIO (which also aborts the summary, so recordings
 # look "unnamed"). pyaudiowpatch = WASAPI loopback + mic capture; pycaw/comtypes
 # = in-call detection; scipy.signal = the mic+speaker mixdown.
-hiddenimports += [
-  'pyaudiowpatch',
-  '_portaudiowpatch',   # top-level C extension (PortAudio) pyaudiowpatch imports
-  'pycaw',
-  'pycaw.pycaw',
-  'comtypes',
-  'sounddevice',
-  'scipy',
-  'scipy.signal',
-]
-hiddenimports += collect_submodules('comtypes')
+# scipy.signal powers the mic+speaker mixdown on every platform.
+hiddenimports += ['scipy', 'scipy.signal']
 
-# The _portaudiowpatch .pyd has PortAudio statically linked, so listing it in
-# hiddenimports is enough to bundle it (collect_dynamic_libs finds no separate
-# DLL). collect it defensively in case a future wheel ships a side-by-side DLL.
-binaries = collect_dynamic_libs('pyaudiowpatch')
+# Per-platform capture backends — keep them platform-scoped so neither build
+# carries the other's unused PortAudio DLLs, and a mac build doesn't warn about
+# Windows-only modules.
+binaries = []
+if sys.platform == 'win32':
+  # Windows: WASAPI loopback + mic via pyaudiowpatch (C ext `_portaudiowpatch`,
+  # PortAudio statically linked), in-call detection via pycaw/comtypes.
+  hiddenimports += [
+    'pyaudiowpatch',
+    '_portaudiowpatch',
+    'pycaw',
+    'pycaw.pycaw',
+    'comtypes',
+  ]
+  hiddenimports += collect_submodules('comtypes')
+  binaries += collect_dynamic_libs('pyaudiowpatch')  # defensive; usually empty
+else:
+  # macOS / Linux: capture via sounddevice (bundles its own PortAudio binary).
+  hiddenimports += ['sounddevice']
+  binaries += collect_dynamic_libs('sounddevice')
 
 a = Analysis(
   ['server.py'],

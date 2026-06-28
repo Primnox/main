@@ -83,24 +83,52 @@ class MeetingSummarySkill(BaseSkill):
         if screenshots:
             context_parts.append(f"{len(screenshots)} screenshots captured during the meeting.")
 
-        # Check for audio file
+        # Prefer the real transcript: use transcript.txt if the recorder wrote
+        # one, otherwise transcribe meeting_audio.wav now via the shared impl.
+        transcript = ""
+        transcript_file = meeting_dir / "transcript.txt"
+        if transcript_file.exists():
+            try:
+                transcript = transcript_file.read_text(encoding="utf-8").strip()
+            except Exception as e:
+                log.warning(f"Couldn't read transcript: {e}")
         audio_file = meeting_dir / "meeting_audio.wav"
-        if audio_file.exists():
-            context_parts.append("Meeting audio was recorded.")
+        if not transcript and audio_file.exists():
+            try:
+                from meeting_recorder import transcribe_meeting_audio
+                transcript = transcribe_meeting_audio(audio_file)
+                if transcript:
+                    try:
+                        transcript_file.write_text(transcript, encoding="utf-8")
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.warning(f"On-demand transcription failed: {e}")
 
-        if not context_parts:
-            return SkillResult(
-                success=False,
-                error=f"meeting dir {meeting_dir.name} exists but has no usable content yet."
+        if transcript:
+            excerpt = transcript[:15000]
+            if len(transcript) > 15000:
+                excerpt += "\n\n[...transcript truncated for summary...]"
+            resp = think(
+                "Summarize this meeting from the transcript below. Use markdown with a short "
+                "overview, key discussion points, decisions made, and action items (with owners "
+                "if named).\n\nTRANSCRIPT:\n" + excerpt
             )
-
-        context = "\n".join(context_parts)
-        resp = think(
-            f"Generate a professional meeting summary based on the following metadata.\n"
-            f"Meeting: {meeting_dir.name}\n{context}\n\n"
-            f"Format with: Overview, Key Points, Action Items.",
-            context=context
-        )
+        else:
+            if audio_file.exists():
+                context_parts.append("Meeting audio was recorded but could not be transcribed.")
+            if not context_parts:
+                return SkillResult(
+                    success=False,
+                    error=f"meeting dir {meeting_dir.name} exists but has no usable content yet."
+                )
+            context = "\n".join(context_parts)
+            resp = think(
+                f"Generate a brief meeting note from the following metadata (no transcript was "
+                f"available).\nMeeting: {meeting_dir.name}\n{context}\n\n"
+                f"Format with: Overview, Key Points, Action Items.",
+                context=context
+            )
         content = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
 
         if not content:
