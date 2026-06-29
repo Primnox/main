@@ -1,83 +1,171 @@
-name: Build Windows EXE
+name: Build & Release Windows Installer
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Create as draft release'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 45
 
-    # contents:write lets the workflow create releases. NOTE: this only covers
-    # same-repo publishing. Releases here are published to Primnox/public (see
-    # frontend/package.json "publish"), a DIFFERENT repo, so the publish step
-    # below must use a PAT secret (RELEASE_TOKEN) with write access to that repo.
     permissions:
       contents: write
 
+    env:
+      PYTHON_VERSION: '3.11'
+      NODE_VERSION: '20'
+
     steps:
+      # ── Checkout ────────────────────────────────────────────────────────
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+      # ── Extract version from tag ────────────────────────────────────────
+      - name: Extract version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -match '^refs/tags/v(.+)$') {
+            $ver = $matches[1]
+          } else {
+            $ver = (Get-Content frontend/package.json | ConvertFrom-Json).version
+          }
+          echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
+          echo "TAG=v$ver"    >> $env:GITHUB_OUTPUT
+          echo "Building version: $ver"
 
-      - name: Set up Python
+      # ── Python setup + cache ────────────────────────────────────────────
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
 
-      - name: Install Python Dependencies
+      - name: Install Python dependencies
+        shell: pwsh
         run: |
           cd backend
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
-          pip uninstall typing -y
+          pip uninstall typing -y 2>$null
 
-      - name: Build Python Backend
+      # ── Fetch PII model (Privacy Mirror) ────────────────────────────────
+      - name: Fetch Privacy Mirror PII model
+        shell: pwsh
+        run: |
+          cd backend
+          python fetch_pii_model.py
+
+      # ── Build Python backend with PyInstaller ───────────────────────────
+      - name: Build Python backend
+        shell: pwsh
         run: |
           cd backend
           pyinstaller primnox_backend.spec --clean -y
+          echo "Backend build output:"
+          Get-ChildItem dist/primnox_backend -Recurse | Measure-Object -Property Length -Sum | ForEach-Object { "  Total size: $([math]::Round($_.Sum/1MB, 1)) MB, $($_.Count) files" }
 
-      - name: Install Frontend Dependencies
+      # ── Node.js setup + cache ───────────────────────────────────────────
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        shell: pwsh
         run: |
           cd frontend
           npm ci
 
-      - name: Prebuild Source Stripping
+      # ── Pre-build source stripping ──────────────────────────────────────
+      - name: Pre-build source stripping
+        shell: pwsh
         run: |
           cd frontend
           npm run prebuild
 
-      - name: Build Frontend (Vite)
+      # ── Build frontend (Vite) ───────────────────────────────────────────
+      - name: Build frontend (Vite)
+        shell: pwsh
         run: |
           cd frontend
           npx vite build
 
-      - name: Package Windows EXE and Publish
+      # ── Package NSIS installer ──────────────────────────────────────────
+      - name: Package Windows NSIS installer
+        shell: pwsh
         run: |
           cd frontend
-          npx electron-builder --win --publish always
+          npx electron-builder --win --publish never
         env:
-          # Cross-repo release to Primnox/public requires a PAT with write
-          # access to that repo. The default GITHUB_TOKEN cannot do this.
-          # Create a fine-grained PAT (Contents: read & write on Primnox/public)
-          # and add it as the RELEASE_TOKEN secret on the Primnox/main repo.
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Artifact
+      # ── List build artifacts ────────────────────────────────────────────
+      - name: List build artifacts
+        shell: pwsh
+        run: |
+          echo "=== Build output ==="
+          Get-ChildItem frontend/dist-electron -Recurse | ForEach-Object {
+            "$($_.Length / 1MB | ForEach-Object { '{0:N1} MB' -f $_ })  $($_.Name)"
+          }
+
+      # ── Upload installer as workflow artifact ───────────────────────────
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Primnox-Windows-EXE
-          path: frontend/dist-electron/*.exe
-          retention-days: 7
+          name: Primnox-Setup-${{ steps.version.outputs.VERSION }}
+          path: |
+            frontend/dist-electron/*.exe
+            frontend/dist-electron/*.yml
+          retention-days: 14
+
+      # ── Create GitHub Release on Primnox/public ─────────────────────────
+      # Uses RELEASE_TOKEN (PAT with Contents:write on Primnox/public)
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: Primnox/public
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: "Primnox ${{ steps.version.outputs.TAG }}"
+          draft: ${{ github.event.inputs.draft || 'false' }}
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            frontend/dist-electron/*.exe
+            frontend/dist-electron/latest.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      # ── Also publish to Cyanexani/primnox_extension (legacy) ────────────
+      - name: Publish to legacy release repo
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: Cyanexani/primnox_extension
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: "Primnox ${{ steps.version.outputs.TAG }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            frontend/dist-electron/*.exe
+            frontend/dist-electron/latest.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}

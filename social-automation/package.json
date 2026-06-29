@@ -1,0 +1,38 @@
+{
+  "name": "social-automation",
+  "version": "1.0.0",
+  "description": "Primnox social video factory — script in, branded faceless vertical video + caption pack out",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/captions": "^4.0.484",
+    "@remotion/cli": "4.0.484",
+    "@remotion/google-fonts": "^4.0.484",
+    "@remotion/media": "^4.0.484",
+    "@remotion/tailwind-v4": "4.0.484",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.484",
+    "tailwindcss": "4.0.0"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.484",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "generate": "python tools/generate.py",
+    "make": "node tools/make.mjs",
+    "build": "remotion bundle",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}
