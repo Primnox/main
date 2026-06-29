@@ -38,7 +38,7 @@ DEFAULT_SETTINGS = {
     "dynamic_island_enabled": True,
     "wake_word": "hey primnox",
     "wake_word_enabled": True,
-    "privacy_mirror_enabled": False,
+    "privacy_mirror_enabled": True,   # privacy-first: scrub PII on cloud calls by default
     "blocklist": [],
     "screenshot_retention": 10,
     "memory_auto_delete_days": 30,
