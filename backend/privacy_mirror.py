@@ -76,8 +76,19 @@ _REDACT_LABELS = {
     "MIDDLENAME", "NEARBYGPSCOORDINATE",
     "PASSWORD", "PHONEIMEI", "PHONENUMBER", "PIN", "PREFIX",
     "SECONDARYADDRESS", "SEX", "SSN", "STATE", "STREET",
-    "TIME", "URL", "USERAGENT", "USERNAME",
+    "URL", "USERAGENT", "USERNAME",
     "VEHICLEVIN", "VEHICLEVRM", "ZIPCODE",
+    # NOTE: TIME deliberately excluded — time-of-day isn't PII, the model often
+    # echoes it, and an echoed §TIME_n§ that isn't in the map leaks to the user.
+}
+
+# Never scrub the app's / assistant's / providers' own identity. These aren't the
+# user's PII; scrubbing them strips the model's own context (it stops knowing who
+# it is) and floods the reveal with noise (e.g. "Primnox"→FIRSTNAME, "nox"→STATE).
+_NEVER_SCRUB = {
+    "primnox", "nox", "claude", "anthropic", "groq", "openai", "gpt", "chatgpt",
+    "gemini", "google", "ollama", "llama", "mixtral", "qwen", "gemma", "deepseek",
+    "ai", "assistant", "user", "system", "bot",
 }
 
 
@@ -108,22 +119,31 @@ def _load_model() -> None:
     try:
         model_src = _resolve_model_source()
         log.info(f"Loading PII model ({model_src})…")
-        from transformers import pipeline as hf_pipeline
+        from transformers import (
+            AutoModelForTokenClassification, AutoTokenizer, pipeline as hf_pipeline,
+        )
         import torch
 
         device = 0 if torch.cuda.is_available() else -1
+        # Weights ship fp16 on disk (~370 MB). CPU fp16 matmul is unsupported and
+        # raises "mat1 and mat2 must have the same dtype (Half vs Float)", which
+        # silently knocks PII detection down to the regex-only fallback (misses
+        # names, phones, etc.). The in-place .float() upcast didn't hold reliably,
+        # so load the weights AS fp32 up front on CPU (fp16 on GPU for speed) — the
+        # dtype is then applied to every weight before the pipeline ever runs.
+        load_dtype = torch.float16 if device == 0 else torch.float32
+        tok = AutoTokenizer.from_pretrained(model_src)
+        try:
+            mdl = AutoModelForTokenClassification.from_pretrained(model_src, dtype=load_dtype)
+        except TypeError:  # older transformers still uses torch_dtype
+            mdl = AutoModelForTokenClassification.from_pretrained(model_src, torch_dtype=load_dtype)
         _pipeline = hf_pipeline(
             "token-classification",
-            model=model_src,
+            model=mdl,
+            tokenizer=tok,
             aggregation_strategy="simple",  # merges B/I tokens → one span
             device=device,
         )
-        # Weights ship as fp16 on disk (~370 MB). On CPU, upcast to fp32 in RAM —
-        # CPU fp16 compute is poorly supported / slow. Disk stays small, inference
-        # stays fast. On GPU we leave fp16 (faster, lower VRAM). Done via an in-place
-        # cast rather than the (version-dependent) dtype kwarg.
-        if device == -1:
-            _pipeline.model.float()
         log.info(f"PII model ready (device={'cuda' if device == 0 else 'cpu'})")
     except Exception as exc:
         _model_failed = True
@@ -277,6 +297,12 @@ def model_status() -> str:
 # before its closing §). Held back until the rest of the placeholder arrives.
 _PARTIAL_PLACEHOLDER_RE = re.compile(r"§[A-Z]*_?\d*$")
 
+# Safety nets so a raw placeholder NEVER reaches the user: a complete §LABEL_n§
+# we have no mapping for (model echoed/invented it), and a dangling partial left
+# at end-of-stream. Both require ≥1 letter so legit "§5" (section 5) is untouched.
+_LEFTOVER_PLACEHOLDER_RE = re.compile(r"§[A-Z]+_\d+§")
+_DANGLING_PLACEHOLDER_RE = re.compile(r"§[A-Z]+_?\d*$")
+
 
 def _detect_spans(text: str) -> list[dict]:
     """Return non-overlapping PII spans [{start, end, label, text}] for `text`,
@@ -333,7 +359,7 @@ def _detect_spans(text: str) -> list[dict]:
             s += 1
         while en > s and text[en - 1].isspace():
             en -= 1
-        if s < en:
+        if s < en and text[s:en].strip().lower() not in _NEVER_SCRUB:
             out.append({"start": s, "end": en, "label": sp["label"], "text": text[s:en]})
     return out
 
@@ -375,12 +401,15 @@ class ScrubSession:
         return "".join(chars)
 
     def rehydrate(self, text: str) -> str:
-        if not text or not self.to_original:
+        if not text:
             return text
         # Replace longer placeholders first so §X_10§ isn't clobbered by §X_1§.
         for ph in sorted(self.to_original, key=len, reverse=True):
             if ph in text:
                 text = text.replace(ph, self.to_original[ph])
+        # Safety net: strip any complete placeholder we couldn't map (the model
+        # echoed or invented it) so a raw §...§ token never reaches the user.
+        text = _LEFTOVER_PLACEHOLDER_RE.sub("[redacted]", text)
         return text
 
     @property
@@ -413,6 +442,9 @@ class StreamRehydrator:
     def flush(self) -> str:
         out = self._s.rehydrate(self._buf)
         self._buf = ""
+        # Drop a dangling partial placeholder left at end-of-stream (rehydrate's
+        # full-token sweep won't catch an unterminated one).
+        out = _DANGLING_PLACEHOLDER_RE.sub("", out)
         return out
 
 
