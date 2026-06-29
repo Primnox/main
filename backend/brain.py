@@ -257,7 +257,9 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
     if active_model not in ("Ollama_Local", "LlamaCpp_Local") and settings.get("privacy_mirror_enabled", True):
         try:
             from privacy_mirror import ScrubSession, ensure_model_ready
-            ensure_model_ready()  # bounded wait so names/addresses aren't missed mid-load
+            ensure_model_ready(timeout=45)  # wait for the scrubber on a cold start so the
+            # first cloud message is never sent unscrubbed (normally instant: the model is
+            # preloaded at server startup, so this returns immediately)
             sess = ScrubSession()
             system_content = sess.scrub(system_content)
             text_content = sess.scrub(text_content)
@@ -679,7 +681,9 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
     if not is_local_route and settings.get("privacy_mirror_enabled", True):
         try:
             from privacy_mirror import ScrubSession, ensure_model_ready
-            ensure_model_ready()  # bounded wait so names/addresses aren't missed mid-load
+            ensure_model_ready(timeout=45)  # wait for the scrubber on a cold start so the
+            # first cloud message is never sent unscrubbed (normally instant: the model is
+            # preloaded at server startup, so this returns immediately)
             sess = ScrubSession()
             for _m in messages:
                 _c = _m.get("content")
