@@ -235,6 +235,11 @@ function createWindow() {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
       mainWindow.show();
       mainWindow.focus();
+      // Open DevTools only after the window is visible — opening it during load
+      // can race with the transparent frameless window and suppress ready-to-show.
+      if (!app.isPackaged) {
+        mainWindow.webContents.openDevTools({ mode: 'detach' });
+      }
     }
   };
 
@@ -266,7 +271,7 @@ function createWindow() {
   const baseUrl = getBaseUrl();
   if (baseUrl) {
     mainWindow.loadURL(baseUrl);
-    mainWindow.webContents.openDevTools();
+    // DevTools are opened after ready-to-show fires (see revealWindow above)
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
@@ -547,21 +552,20 @@ function freeBackendPort(port = 8000) {
 }
 
 function startBackend() {
-  freeBackendPort(8000);
   const isDev = !app.isPackaged;
   if (isDev) {
-    const backendPath = path.join(__dirname, '../../backend/server.py');
-    pythonProcess = spawn('python', [backendPath], {
-      cwd: path.join(__dirname, '../../backend')
-    });
-  } else {
-    const exeName = process.platform === 'win32' ? 'primnox_backend.exe' : 'primnox_backend';
-    const backendPath = path.join(process.resourcesPath, 'primnox_backend', exeName);
-    pythonProcess = spawn(backendPath, [], {
-      cwd: path.join(process.resourcesPath, 'primnox_backend'),
-      windowsHide: process.platform === 'win32'
-    });
+    // In dev mode the backend is already running via `npm run electron:dev`
+    // (concurrently) or start.bat. Don't kill port 8000 or spawn a second one.
+    console.log('Dev mode: using already-running backend on http://127.0.0.1:8000');
+    return;
   }
+  freeBackendPort(8000);
+  const exeName = process.platform === 'win32' ? 'primnox_backend.exe' : 'primnox_backend';
+  const backendPath = path.join(process.resourcesPath, 'primnox_backend', exeName);
+  pythonProcess = spawn(backendPath, [], {
+    cwd: path.join(process.resourcesPath, 'primnox_backend'),
+    windowsHide: process.platform === 'win32'
+  });
   pythonProcess.stdout.on('data', (d) => console.log(`Backend: ${d}`));
   pythonProcess.stderr.on('data', (d) => console.error(`Backend err: ${d}`));
   pythonProcess.on('error', (err) => console.error('Backend spawn error:', err));
