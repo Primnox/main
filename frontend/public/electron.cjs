@@ -56,7 +56,7 @@ function fetchSmartPaste(content) {
     const req = http.request(
       {
         hostname: '127.0.0.1',
-        port: 8000,
+        port: 4009,
         path: '/api/smart_paste',
         method: 'POST',
         headers: {
@@ -497,7 +497,7 @@ app.on('quit', () => {
   globalShortcut.unregisterAll();
   // On Windows, pythonProcess.kill() only signals the direct child; the
   // PyInstaller backend can leave grandchildren behind. taskkill /T kills the
-  // whole tree so nothing is left squatting on port 8000 for the next launch.
+  // whole tree so nothing is left squatting on port 4009 for the next launch.
   if (pythonProcess && pythonProcess.pid) {
     try {
       if (process.platform === 'win32') {
@@ -513,12 +513,12 @@ app.on('quit', () => {
 
 // ── Backend ────────────────────────────────────────────────────────────────────
 
-// Kill any orphaned backend still holding port 8000 from a previous run.
+// Kill any orphaned backend still holding port 4009 from a previous run.
 // The single-instance lock guards the Electron process, but if the app was
 // force-killed (Task Manager, crash, OS shutdown), its backend child survives,
-// keeps port 8000 + the logfile, and the next launch's backend can't bind —
+// keeps port 4009 + the logfile, and the next launch's backend can't bind —
 // which looks to the user like "Primnox won't connect to the backend".
-function freeBackendPort(port = 8000) {
+function freeBackendPort(port = 4009) {
   try {
     if (process.platform === 'win32') {
       const out = execSync('netstat -ano -p tcp', { encoding: 'utf8' });
@@ -531,7 +531,7 @@ function freeBackendPort(port = 8000) {
       }
       for (const pid of pids) {
         // Only kill OUR backend — never an unrelated process that happens to hold
-        // 8000. Verify the image name first (pid is digits-only, so no injection).
+        // 4009. Verify the image name first (pid is digits-only, so no injection).
         try {
           const info = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: 'utf8' });
           const name = (info.split(',')[0] || '').replace(/"/g, '').toLowerCase();
@@ -555,11 +555,11 @@ function startBackend() {
   const isDev = !app.isPackaged;
   if (isDev) {
     // In dev mode the backend is already running via `npm run electron:dev`
-    // (concurrently) or start.bat. Don't kill port 8000 or spawn a second one.
-    console.log('Dev mode: using already-running backend on http://127.0.0.1:8000');
+    // (concurrently) or start.bat. Don't kill port 4009 or spawn a second one.
+    console.log('Dev mode: using already-running backend on http://127.0.0.1:4009');
     return;
   }
-  freeBackendPort(8000);
+  freeBackendPort(4009);
   const exeName = process.platform === 'win32' ? 'primnox_backend.exe' : 'primnox_backend';
   const backendPath = path.join(process.resourcesPath, 'primnox_backend', exeName);
   pythonProcess = spawn(backendPath, [], {

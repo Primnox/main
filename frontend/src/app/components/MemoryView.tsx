@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Database, CheckCircle, Search, Trash2, Tag, Clock, Plus } from 'lucide-react';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:4009';
 
 const CATEGORY_COLORS: Record<string, string> = {
   work:    'text-blue-400 bg-blue-500/10 border-blue-500/20',

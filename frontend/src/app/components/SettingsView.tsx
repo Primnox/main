@@ -131,7 +131,7 @@ export const IslandSettings = ({
   const [piiModelStatus, setPiiModelStatus] = useState<'loading'|'ready'|'failed'|'unavailable'|null>(null);
   useEffect(() => {
     if (activeTab !== 'Security') return;
-    fetch('http://localhost:8000/api/status', { signal: AbortSignal.timeout(4000) })
+    fetch('http://localhost:4009/api/status', { signal: AbortSignal.timeout(4000) })
       .then(r => r.json())
       .then(d => setPiiModelStatus(d.pii_model_status ?? null))
       .catch(() => setPiiModelStatus(null));
@@ -148,14 +148,14 @@ export const IslandSettings = ({
 
   useEffect(() => {
     if (activeTab !== 'Security') return;
-    fetch('http://localhost:8000/api/vault/status')
+    fetch('http://localhost:4009/api/vault/status')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setVaultStatus(d); })
       .catch(() => {});
   }, [activeTab]);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/profile')
+    fetch('http://localhost:4009/api/profile')
       .then(r => r.ok ? r.json() : null)
       .then(d => d && setProfile(d))
       .catch(() => {});
@@ -164,11 +164,11 @@ export const IslandSettings = ({
   // Load cloud backup status + list whenever the Backup tab is opened
   useEffect(() => {
     if (activeTab !== 'Backup') return;
-    fetch('http://localhost:8000/api/backup/status')
+    fetch('http://localhost:4009/api/backup/status')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setCloudBackupInfo(d); })
       .catch(() => {});
-    fetch('http://localhost:8000/api/backup/list')
+    fetch('http://localhost:4009/api/backup/list')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.backups) setCloudBackupList(d.backups); })
       .catch(() => {});
@@ -177,7 +177,7 @@ export const IslandSettings = ({
   const triggerBackup = async () => {
     setBackupStatus('running');
     try {
-      const res = await fetch('http://localhost:8000/api/backup', { method: 'POST' });
+      const res = await fetch('http://localhost:4009/api/backup', { method: 'POST' });
       if (res.ok) setBackupStatus('done');
       else setBackupStatus('error');
     } catch {
@@ -189,7 +189,7 @@ export const IslandSettings = ({
   const checkOllama = async () => {
     setCheckingOllama(true);
     try {
-      const res = await fetch('http://localhost:8000/api/ollama/status');
+      const res = await fetch('http://localhost:4009/api/ollama/status');
       if (res.ok) {
         setOllamaStatus(await res.json());
       } else {
@@ -208,7 +208,7 @@ export const IslandSettings = ({
   const generateMnemonic = async () => {
     setMnemonicGenLoading(true);
     try {
-      const r = await fetch('http://localhost:8000/api/backup/generate-mnemonic', { method: 'POST' });
+      const r = await fetch('http://localhost:4009/api/backup/generate-mnemonic', { method: 'POST' });
       const d = await r.json();
       if (r.ok) { setMnemonic(d.mnemonic); setShowMnemonic(true); }
       else setCloudOpMsg(d.detail || 'Failed to generate phrase');
@@ -221,7 +221,7 @@ export const IslandSettings = ({
     const cfg = providerType === 's3' ? s3Cfg : providerType === 'https' ? httpsCfg : {};
     setCloudBackupOp('running'); setCloudOpMsg('');
     try {
-      const r = await fetch('http://localhost:8000/api/backup/setup', {
+      const r = await fetch('http://localhost:4009/api/backup/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mnemonic: mnemonic.trim(), provider: providerType, provider_config: cfg, interval_hours: backupInterval }),
@@ -231,7 +231,7 @@ export const IslandSettings = ({
         setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Backup configured');
         setShowSetup(false);
         try {
-          const st = await fetch('http://localhost:8000/api/backup/status').then(x => x.json());
+          const st = await fetch('http://localhost:4009/api/backup/status').then(x => x.json());
           setCloudBackupInfo(st);
         } catch { /* status refresh is best-effort */ }
       } else {
@@ -244,7 +244,7 @@ export const IslandSettings = ({
   const runCloudBackupNow = async () => {
     setCloudBackupOp('running'); setCloudOpMsg('');
     try {
-      const r = await fetch('http://localhost:8000/api/backup/now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const r = await fetch('http://localhost:4009/api/backup/now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const d = await r.json();
       if (r.ok) { setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Backup started'); }
       else { setCloudBackupOp('error'); setCloudOpMsg(d.detail || 'Backup failed'); }
@@ -256,7 +256,7 @@ export const IslandSettings = ({
     if (!restoreFile || !restoreMnemonic.trim()) return;
     setCloudBackupOp('running'); setCloudOpMsg('Restoring…');
     try {
-      const r = await fetch('http://localhost:8000/api/backup/restore', {
+      const r = await fetch('http://localhost:4009/api/backup/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: restoreFile, mnemonic: restoreMnemonic.trim() }),
@@ -275,7 +275,7 @@ export const IslandSettings = ({
       const fd = new FormData();
       fd.append('file', importFile);
       fd.append('mnemonic', importMnemonic.trim());
-      const r = await fetch('http://localhost:8000/api/backup/import', { method: 'POST', body: fd });
+      const r = await fetch('http://localhost:4009/api/backup/import', { method: 'POST', body: fd });
       const d = await r.json();
       if (r.ok) { setImportOp('done'); setImportMsg(d.message || 'Import complete — restart Primnox'); }
       else { setImportOp('error'); setImportMsg(d.detail || 'Import failed'); }
@@ -284,14 +284,14 @@ export const IslandSettings = ({
   };
 
   const disableCloudBackup = async () => {
-    await fetch('http://localhost:8000/api/backup/disable', { method: 'POST' });
+    await fetch('http://localhost:4009/api/backup/disable', { method: 'POST' });
     setCloudBackupInfo(null); setShowSetup(false); setMnemonic('');
   };
 
   const enableVault = async () => {
     setVaultOp('running'); setVaultOpMsg(''); setVaultMnemonicGenerated('');
     try {
-      const res = await fetch('http://localhost:8000/api/vault/setup', { method: 'POST' });
+      const res = await fetch('http://localhost:4009/api/vault/setup', { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         setVaultOp('done');
@@ -308,7 +308,7 @@ export const IslandSettings = ({
     if (!vaultMnemonic.trim()) return;
     setVaultOp('running'); setVaultOpMsg('');
     try {
-      const res = await fetch('http://localhost:8000/api/vault/unlock', {
+      const res = await fetch('http://localhost:4009/api/vault/unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mnemonic: vaultMnemonic.trim() })
@@ -328,7 +328,7 @@ export const IslandSettings = ({
   const disableVault = async () => {
     setVaultOp('running'); setVaultOpMsg('');
     try {
-      const res = await fetch('http://localhost:8000/api/vault/disable', { method: 'POST' });
+      const res = await fetch('http://localhost:4009/api/vault/disable', { method: 'POST' });
       if (res.ok) {
         setVaultOp('done'); setVaultOpMsg('Vault disabled and fully decrypted.');
         setVaultStatus({ enabled: false, locked: false });
@@ -344,14 +344,14 @@ export const IslandSettings = ({
 
   const fetchVaultPhrase = async () => {
     try {
-      const tokenRes = await fetch('http://localhost:8000/api/vault/phrase-token', { method: 'POST' });
+      const tokenRes = await fetch('http://localhost:4009/api/vault/phrase-token', { method: 'POST' });
       if (!tokenRes.ok) {
         const err = await tokenRes.json().catch(() => ({}));
         setVaultOpMsg(err.detail || 'Could not issue phrase token — vault may be locked.');
         return;
       }
       const { token } = await tokenRes.json();
-      const res = await fetch('http://localhost:8000/api/vault/phrase', { headers: { 'X-Vault-Token': token } });
+      const res = await fetch('http://localhost:4009/api/vault/phrase', { headers: { 'X-Vault-Token': token } });
       if (!res.ok) throw new Error('Not found');
       const data = await res.json();
       setVaultPhrase(data.phrase);
@@ -965,7 +965,7 @@ export const IslandSettings = ({
                         <button
                           onClick={async () => {
                             try {
-                              const r = await fetch('http://localhost:8000/api/cleanup', { method: 'POST' });
+                              const r = await fetch('http://localhost:4009/api/cleanup', { method: 'POST' });
                               const d = await r.json();
                               const parts = [
                                 d.memories_compressed > 0 ? `compressed: ${d.memories_compressed}` : null,

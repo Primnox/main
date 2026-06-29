@@ -115,7 +115,7 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
   const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/ollama/status')
+    fetch('http://localhost:4009/api/ollama/status')
       .then(r => r.json())
       .then(d => setOllamaRunning(d.running))
       .catch(() => setOllamaRunning(false));

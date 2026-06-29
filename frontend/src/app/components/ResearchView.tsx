@@ -7,7 +7,7 @@ import {
   RefreshCw, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:4009';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

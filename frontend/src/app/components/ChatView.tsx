@@ -318,21 +318,21 @@ export const ChatExpandedSidebar = ({
     setContextMenu(null);
     try {
       if (action === 'pin') {
-        await fetch(`http://localhost:8000/api/chats/${chat.id}`, {
+        await fetch(`http://localhost:4009/api/chats/${chat.id}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ isPinned: !chat.isPinned })
         });
       } else if (action === 'rename') {
         setRenameState({ chatId: chat.id, value: chat.title }); return;
       } else if (action === 'move') {
-        await fetch(`http://localhost:8000/api/chats/${chat.id}`, {
+        await fetch(`http://localhost:4009/api/chats/${chat.id}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folderId })
         });
       } else if (action === 'auto_assign') {
-        await fetch(`http://localhost:8000/api/chats/${chat.id}/auto_assign`, { method: 'POST' });
+        await fetch(`http://localhost:4009/api/chats/${chat.id}/auto_assign`, { method: 'POST' });
       } else if (action === 'delete') {
-        await fetch(`http://localhost:8000/api/chats/${chat.id}`, { method: 'DELETE' });
+        await fetch(`http://localhost:4009/api/chats/${chat.id}`, { method: 'DELETE' });
       }
       refreshChats();
     } catch (e) { console.error(e); }
@@ -341,7 +341,7 @@ export const ChatExpandedSidebar = ({
   const submitRename = async () => {
     if (!renameState || !renameState.value.trim()) { setRenameState(null); return; }
     try {
-      const res = await fetch(`http://localhost:8000/api/chats/${renameState.chatId}`, {
+      const res = await fetch(`http://localhost:4009/api/chats/${renameState.chatId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: renameState.value.trim() })
       });
@@ -354,7 +354,7 @@ export const ChatExpandedSidebar = ({
   const createFolder = async () => {
     const name = newFolderName.trim(); if (!name) return;
     try {
-      await fetch('http://localhost:8000/api/folders', {
+      await fetch('http://localhost:4009/api/folders', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: name }),
       });
@@ -364,7 +364,7 @@ export const ChatExpandedSidebar = ({
 
   const deleteFolder = async (folderId: string) => {
     try {
-      await fetch(`http://localhost:8000/api/folders/${folderId}`, { method: 'DELETE' });
+      await fetch(`http://localhost:4009/api/folders/${folderId}`, { method: 'DELETE' });
       if (activeFolderId === folderId) setActiveFolderId(null);
       refreshChats();
     } catch (e) { console.error(e); }

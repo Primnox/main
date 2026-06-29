@@ -92,7 +92,7 @@ export const GraphView = ({ onNodeClick }: { onNodeClick: (noteId: number) => vo
   useEffect(() => { setHovered(null); }, [data]);
 
   const fetchGraph = useCallback(() => {
-    fetch('http://localhost:8000/api/graph')
+    fetch('http://localhost:4009/api/graph')
       .then(r => r.json())
       .then(d => setData(d))
       .catch(e => console.error("Failed to load graph", e));

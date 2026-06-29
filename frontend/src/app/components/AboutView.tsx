@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Shield, Cpu, Terminal, Eye, Zap, Database, FileText, Bell, Layers, HardDrive, RefreshCw, Puzzle } from 'lucide-react';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:4009';
 
 export const KnowledgePage = ({ activeModel = "llama-3.3-70b-versatile" }: { activeModel?: string }) => {
   const [status, setStatus] = useState<any>(null);

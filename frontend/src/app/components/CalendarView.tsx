@@ -42,7 +42,7 @@ const MONTH_NAMES = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December'];
 const EVENT_COLORS = ['#6366f1','#22c55e','#f59e0b','#ef4444','#06b6d4','#ec4899','#8b5cf6','#f97316'];
 const CAL_NAMES   = ['Personal', 'Work', 'College', 'Health'];
-const API         = 'http://localhost:8000';
+const API         = 'http://localhost:4009';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

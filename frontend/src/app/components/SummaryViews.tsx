@@ -67,7 +67,7 @@ export const SummariesExpanded = memo(({
 
   const fetchDash = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/dashboard', {
+      const res = await fetch('http://localhost:4009/api/dashboard', {
         signal: AbortSignal.timeout(5000),
       });
       if (res.ok) {
@@ -92,7 +92,7 @@ export const SummariesExpanded = memo(({
   const triggerBrief = async () => {
     setBriefStatus('generating');
     try {
-      await fetch('http://localhost:8000/api/daily_brief', { method: 'POST' });
+      await fetch('http://localhost:4009/api/daily_brief', { method: 'POST' });
       // Brief is dispatched as a background task — generation is async.
       // Show "Requested" (not "Sent to chat ✓") so the user knows it's in progress.
       setBriefStatus('done');
@@ -104,7 +104,7 @@ export const SummariesExpanded = memo(({
 
   const completeTask = async (id: number) => {
     try {
-      await fetch(`http://localhost:8000/tasks/${id}/complete`, { method: 'POST' });
+      await fetch(`http://localhost:4009/tasks/${id}/complete`, { method: 'POST' });
       onTaskCompleted?.();
     } catch (_) {}
   };
@@ -120,7 +120,7 @@ export const SummariesExpanded = memo(({
     if (!msg || isNaN(mins) || mins < 1) return;
     setAddingReminder(true);
     try {
-      const res = await fetch('http://localhost:8000/api/reminders', {
+      const res = await fetch('http://localhost:4009/api/reminders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, delay_secs: mins * 60 }),
@@ -143,7 +143,7 @@ export const SummariesExpanded = memo(({
     if (!text) return;
     setAddingTask(true);
     try {
-      const res = await fetch('http://localhost:8000/tasks', {
+      const res = await fetch('http://localhost:4009/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, priority: newTaskPriority }),
@@ -466,7 +466,7 @@ export const SummariesExpanded = memo(({
                       {t.priority === 'urgent' && (
                         <span className="shrink-0 font-mono text-[7px] px-1 py-0.5 rounded bg-red-500/10 text-red-400/70">urgent</span>
                       )}
-                      <button onClick={async () => { await fetch(`http://localhost:8000/tasks/${t.id}`, { method: 'DELETE' }); onTaskCompleted?.(); }}
+                      <button onClick={async () => { await fetch(`http://localhost:4009/tasks/${t.id}`, { method: 'DELETE' }); onTaskCompleted?.(); }}
                         className="shrink-0 opacity-0 group-hover:opacity-100 text-white/15 hover:text-red-400 transition-all">
                         <Trash2 size={9} />
                       </button>
@@ -515,7 +515,7 @@ export const SummariesExpanded = memo(({
                         <span className="shrink-0 font-mono text-[8px] text-amber-400/50 bg-amber-500/8 px-1.5 py-0.5 rounded-full whitespace-nowrap">
                           {mins < 1 ? '<1m' : `${mins}m`}
                         </span>
-                        <button onClick={async () => { await fetch(`http://localhost:8000/api/reminders/${r.id}`, { method: 'DELETE' }); fetchDash(); }}
+                        <button onClick={async () => { await fetch(`http://localhost:4009/api/reminders/${r.id}`, { method: 'DELETE' }); fetchDash(); }}
                           className="shrink-0 opacity-0 group-hover:opacity-100 text-white/15 hover:text-red-400 transition-all text-xs">×</button>
                       </div>
                     );

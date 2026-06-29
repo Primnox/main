@@ -216,7 +216,7 @@ export function MeetingsView({ onNavigate: _onNavigate }: Props) {
     else setRefreshing(true);
     setError('');
     try {
-      const res = await fetch('http://localhost:8000/api/meetings');
+      const res = await fetch('http://localhost:4009/api/meetings');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: { meetings: Meeting[] } = await res.json();
       setMeetings(data.meetings);
@@ -233,7 +233,7 @@ export function MeetingsView({ onNavigate: _onNavigate }: Props) {
   const handleDelete = async (name: string) => {
     setDeletingName(name);
     try {
-      const res = await fetch(`http://localhost:8000/api/meetings/${encodeURIComponent(name)}`, {
+      const res = await fetch(`http://localhost:4009/api/meetings/${encodeURIComponent(name)}`, {
         method: 'DELETE',
       });
       if (!res.ok) {

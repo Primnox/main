@@ -50,7 +50,7 @@ export const NoteGeneratorPanel = ({ onDone, activeWorkspace = 'General' }: { on
     formData.append("mode", mode);
 
     try {
-      const res = await fetch("http://localhost:8000/api/notes/generate-batch", {
+      const res = await fetch("http://localhost:4009/api/notes/generate-batch", {
         method: "POST",
         body: formData,
       });

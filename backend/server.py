@@ -176,7 +176,7 @@ except Exception as _e:
 async def websocket_endpoint(ws: WebSocket):
     # Cross-Site WebSocket Hijacking guard: FastAPI's @app.middleware("http")
     # does NOT run for websocket connections, so any website could otherwise
-    # open ws://127.0.0.1:8000/ws and receive core.settings (incl. API keys)
+    # open ws://127.0.0.1:4009/ws and receive core.settings (incl. API keys)
     # plus a live feed of mic/screen/chat events. Reject any connection whose
     # Origin header isn't one of our own frontends (or absent, e.g. Electron).
     origin = ws.headers.get("origin")
@@ -2283,7 +2283,7 @@ if __name__ == "__main__":
     except ImportError:
         log.info("uvloop not supported on this platform. Falling back to default asyncio loop policy.")
 
-    config = uvicorn.Config(app=app, host="127.0.0.1", port=8000, loop=loop_type)
+    config = uvicorn.Config(app=app, host="127.0.0.1", port=4009, loop=loop_type)
     server = uvicorn.Server(config)
     
     # Run uvicorn natively, it manages the loop

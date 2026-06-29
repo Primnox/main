@@ -27,7 +27,7 @@ const AiBlock = createReactBlockSpec(
         if (!prompt) return;
         setIsGenerating(true);
         try {
-          const res = await fetch("http://localhost:8000/api/generate", {
+          const res = await fetch("http://localhost:4009/api/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ prompt: `Generate content strictly based on this prompt. Output ONLY markdown content for the editor, no conversational filler. Prompt: ${prompt}` }),
@@ -207,7 +207,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
     if (id === 0) return; // Don't save if there's no valid note ID
     setSaveStatus('saving');
     try {
-      const res = await fetch('http://localhost:8000/notes/update', {
+      const res = await fetch('http://localhost:4009/notes/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ index: id, id: id, title, text, project })
@@ -234,7 +234,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
   const deleteNote = async () => {
     if (notes.length === 0 || !activeNote?.id) return;
     try {
-      await fetch(`http://localhost:8000/notes/${activeNote.id}`, {
+      await fetch(`http://localhost:4009/notes/${activeNote.id}`, {
         method: 'DELETE'
       });
       setActiveNoteId(null);
@@ -247,7 +247,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
   // ─── New Note ───────────────────────────────────────────────
   const handleNewNote = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:8000/notes/update', {
+      const res = await fetch('http://localhost:4009/notes/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace })
@@ -305,7 +305,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
       const selectionContext = selectedText ? `The user has highlighted this specific text: "${selectedText}"\n\n` : "";
       const contextPrompt = `The user has a note titled "${activeNote.title}" with this content:\n\n${activeNote.text}\n\n${selectionContext}Their question about this note is: "${aiQuery}"\n\nAnswer concisely and helpfully.`;
       
-      const res = await fetch('http://localhost:8000/api/generate', {
+      const res = await fetch('http://localhost:4009/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: contextPrompt })
@@ -332,7 +332,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
 
   const handleNewSubNote = async (parentId: number) => {
     try {
-      const res = await fetch('http://localhost:8000/notes/update', {
+      const res = await fetch('http://localhost:4009/notes/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace, parent_id: parentId })
@@ -349,7 +349,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
 
   const togglePin = async (id: number, currentStatus: boolean) => {
     try {
-      await fetch('http://localhost:8000/notes/pin', {
+      await fetch('http://localhost:4009/notes/pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, pinned: !currentStatus })
