@@ -2,6 +2,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, BackgroundTasks, HTTPException, File, UploadFile, Form
 from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from core import PrimnoxCore
 from logger import get_logger, get_log_buffer, APP_VERSION
 import uvicorn
@@ -94,6 +95,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _restrict_to_loopback_host(request: Request, call_next):
+    """Defense against DNS rebinding. This API is local-only (bound to 127.0.0.1)
+    and unauthenticated; CORS doesn't stop a malicious page from *sending* simple
+    cross-origin requests. Rejecting any request whose Host header isn't loopback
+    means a rebound attacker domain (Host: evil.com) can't drive the API even if
+    it resolves to 127.0.0.1. The real app always uses localhost/127.0.0.1."""
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]").lower()
+    if host and host not in ("127.0.0.1", "localhost", "::1"):
+        return JSONResponse(status_code=421, content={"detail": "Misdirected request"})
+    return await call_next(request)
 
 log = get_logger("server")
 _migrate_dbs_to_appdata()   # must run before any DB module initialises
@@ -1902,11 +1916,18 @@ async def delete_meeting(folder_name: str):
     import re, shutil
     from cleanup_manager import _meetings_dir
 
-    # Sanitise — only allow folder names that look like meeting names (no path traversal)
-    if not re.match(r'^[\w\-\. ]+$', folder_name):
+    # Sanitise — block path traversal. The regex blocks separators, but '.'/'..'
+    # pass it (dot is allowed), and `_meetings_dir() / '..'` would resolve to the
+    # PARENT dir (Documents/Primnox, holding the DBs) and rmtree it. Reject dotted
+    # specials and require the resolved target to be a DIRECT CHILD of the meetings dir.
+    if (not re.match(r'^[\w\-\. ]+$', folder_name)
+            or folder_name in (".", "..") or ".." in folder_name):
         raise HTTPException(status_code=400, detail="Invalid folder name")
 
-    target = _meetings_dir() / folder_name
+    base = _meetings_dir().resolve()
+    target = (base / folder_name).resolve()
+    if target.parent != base:
+        raise HTTPException(status_code=400, detail="Invalid folder name")
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=404, detail="Meeting not found")
 
