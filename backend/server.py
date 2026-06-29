@@ -1552,120 +1552,226 @@ async def get_conversations():
     from notes_manager import get_conversations
     return get_conversations()
 
-@app.get("/api/onboarding/scan")
-async def scan_onboarding():
-    import os
-    from pathlib import Path
-    import getpass
-    import json
-    from brain import think
-    
-    projects = []
-    skills = set()
-    
-    home_dir = Path.home()
-    
-    # Aggressive ignore list to prevent freezing and junk data
-    ignore_dirs = {
-        'AppData', 'Application Data', 'Local Settings', 'Cookies', 
-        'Recent', 'SendTo', 'Start Menu', 'NetHood', 'PrintHood', 
-        'Templates', 'node_modules', 'venv', '.venv', '.git', 
-        'dist', 'build', '__pycache__', '.cache', '.cargo', 
-        '.rustup', '.npm', '.vscode', 'Downloads', 'Music', 
-        'Pictures', 'Videos', 'Documents', 'Desktop', 'Public',
-        'Saved Games', 'Favorites', 'Contacts', 'Searches', 'Links',
-        'OneDrive'
-    }
+# ── Onboarding environment scan ───────────────────────────────────────────────
+# Reads a few human-meaningful "signal" files per project and summarizes them
+# with the LOCAL model (Ollama / llama.cpp). File CONTENTS never leave the
+# device: if no local model is reachable we fall back to a deterministic,
+# cloud-free heuristic. Folder names are never shipped to a cloud provider.
+
+_SCAN_IGNORE_DIRS = {
+    'AppData', 'Application Data', 'Local Settings', 'Cookies',
+    'Recent', 'SendTo', 'Start Menu', 'NetHood', 'PrintHood',
+    'Templates', 'node_modules', 'venv', '.venv', '.git',
+    'dist', 'build', '__pycache__', '.cache', '.cargo',
+    '.rustup', '.npm', '.vscode', 'Downloads', 'Music',
+    'Pictures', 'Videos', 'Documents', 'Desktop', 'Public',
+    'Saved Games', 'Favorites', 'Contacts', 'Searches', 'Links',
+    'OneDrive'
+}
+
+_SCAN_EXT_SKILL = {
+    '.py': 'Python', '.ts': 'TypeScript', '.tsx': 'TypeScript',
+    '.js': 'JavaScript', '.jsx': 'JavaScript', '.rs': 'Rust',
+    '.go': 'Go', '.cpp': 'C++', '.h': 'C++', '.java': 'Java', '.cs': 'C#',
+}
+
+# Files that mark a folder as a real project ROOT (so we list "Primnox", not
+# its "src"/"backend" subfolders). A ".git" directory counts too.
+_SCAN_MARKER_FILES = {
+    'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'setup.py',
+    'pom.xml', 'build.gradle', 'requirements.txt', 'README.md', 'README.MD',
+}
+
+# Deterministic, fully-offline mapping used when no local model is available.
+_SKILL_PROFILE = {
+    "Python":     (["Backend Development", "Automation", "Data & ML"], ["Python ecosystem", "Scripting"]),
+    "TypeScript": (["Web Development", "Frontend Engineering"],        ["Type-safe JavaScript", "UI frameworks"]),
+    "JavaScript": (["Web Development", "Frontend Engineering"],        ["Browser APIs", "Node.js"]),
+    "Rust":       (["Systems Programming", "Performance"],             ["Memory safety", "Native tooling"]),
+    "Go":         (["Backend Services", "Cloud & Infra"],             ["Concurrency", "Microservices"]),
+    "C++":        (["Systems Programming", "Performance"],             ["Low-level memory", "Native code"]),
+    "Java":       (["Backend Development", "Enterprise"],             ["JVM ecosystem", "OOP design"]),
+    "C#":         (["App Development", ".NET"],                        [".NET ecosystem", "Desktop / Game dev"]),
+}
+
+
+def _read_signal_files(proj_path, per_file=1500, max_total=4000):
+    """Read a small, bounded sample of human-meaningful files from a project.
+
+    Stays well under a few KB total so the local model can summarize fast.
+    """
+    import json as _json
+    from pathlib import Path as _P
+    snippets = []
+    total = [0]
+    p = _P(proj_path)
+
+    def _add(label, text):
+        if not text:
+            return
+        text = (" ".join(text.split()) if label == "package.json" else text.strip())
+        if not text:
+            return
+        room = max_total - total[0]
+        if room <= 0:
+            return
+        chunk = text[:min(per_file, room)]
+        snippets.append(f"[{label}] {chunk}")
+        total[0] += len(chunk)
 
     try:
+        for fn in ("README.md", "readme.md", "README", "README.txt"):
+            f = p / fn
+            if f.is_file():
+                _add("README", f.read_text(encoding="utf-8", errors="ignore"))
+                break
+        pj = p / "package.json"
+        if pj.is_file():
+            try:
+                d = _json.loads(pj.read_text(encoding="utf-8", errors="ignore"))
+                meta = " ".join(str(d.get(k, "")) for k in ("name", "description") if d.get(k))
+                deps = ", ".join(list((d.get("dependencies") or {}).keys())[:15])
+                _add("package.json", f"{meta} | deps: {deps}")
+            except Exception:
+                pass
+        for fn in ("pyproject.toml", "Cargo.toml", "setup.cfg", "go.mod", "composer.json"):
+            f = p / fn
+            if f.is_file():
+                _add(fn, f.read_text(encoding="utf-8", errors="ignore")[:600])
+    except Exception:
+        pass
+    return "  ".join(snippets)
+
+
+def _onboarding_scan_sync():
+    import os
+    import json
+    import getpass
+    import re as _re
+    from pathlib import Path
+    from brain import think_local
+
+    projects = []
+    project_paths = {}
+    skills = set()
+    home_dir = Path.home()
+
+    code_folders = {}  # fallback: folders with code but no project-root marker
+    try:
         for root, dirs, files in os.walk(str(home_dir)):
-            # Mutate dirs in-place to skip heavy or hidden folders
-            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
-            
-            # Don't go deeper than 4 levels from home directory
+            has_git = '.git' in dirs
+            # Skip heavy / hidden folders in-place
+            dirs[:] = [d for d in dirs if d not in _SCAN_IGNORE_DIRS and not d.startswith('.')]
             depth = root.count(os.sep) - str(home_dir).count(os.sep)
             if depth > 4:
                 dirs.clear()
                 continue
-                
-            # If we find code files in this directory, consider it a project
-            is_project = False
+            has_code = False
             for f in files:
-                if f.endswith(".py"): 
-                    skills.add("Python")
-                    is_project = True
-                elif f.endswith(".ts") or f.endswith(".tsx"): 
-                    skills.add("TypeScript")
-                    is_project = True
-                elif f.endswith(".js") or f.endswith(".jsx"): 
-                    skills.add("JavaScript")
-                    is_project = True
-                elif f.endswith(".rs"): 
-                    skills.add("Rust")
-                    is_project = True
-                elif f.endswith(".go"): 
-                    skills.add("Go")
-                    is_project = True
-                elif f.endswith(".cpp") or f.endswith(".h"): 
-                    skills.add("C++")
-                    is_project = True
-                elif f.endswith(".java"): 
-                    skills.add("Java")
-                    is_project = True
-                elif f.endswith(".cs"): 
-                    skills.add("C#")
-                    is_project = True
-            
-            # If it's a project (and not the root home folder itself), add its name
-            if is_project and depth > 0:
-                folder_name = os.path.basename(root)
-                if folder_name not in projects:
-                    projects.append(folder_name)
-                    
-            # Cap the number of projects we extract to save time
+                ext = os.path.splitext(f)[1].lower()
+                if ext in _SCAN_EXT_SKILL:
+                    skills.add(_SCAN_EXT_SKILL[ext])
+                    has_code = True
+            if depth > 0:
+                # os.walk is top-down, so a repo root is seen before its children;
+                # `under_known` then keeps src/backend/etc. from being listed twice.
+                under_known = any(root == rp or root.startswith(rp + os.sep)
+                                  for rp in project_paths.values())
+                is_root = has_git or any(m in files for m in _SCAN_MARKER_FILES)
+                if is_root and not under_known:
+                    name = os.path.basename(root)
+                    if name not in project_paths:
+                        projects.append(name)
+                        project_paths[name] = root
+                elif has_code and not under_known:
+                    code_folders.setdefault(os.path.basename(root), root)
             if len(projects) > 30:
                 break
     except Exception as e:
-        print(f"Scanner error: {e}")
-        pass
+        log.warning(f"Onboarding scanner walk error: {e}")
 
+    # Prefer real project roots; only fall back to loose code folders if none found.
+    if not projects and code_folders:
+        for nm, pth in list(code_folders.items())[:10]:
+            projects.append(nm)
+            project_paths[nm] = pth
     projects = projects[:10] if projects else ["Workspace Sandbox"]
     skills = list(skills)[:10] if skills else ["System Administration"]
-    
-    # Use LLM to infer the rest of the profile dynamically
-    import re as _re
-    def _safe_name(n): return _re.sub(r'[^\w\-. ()]', '', n)[:60]
-    safe_projects = [_safe_name(p) for p in projects]
-    safe_skills   = [_safe_name(s) for s in skills]
-    prompt = f"Given these projects: {', '.join(safe_projects)} and skills: {', '.join(safe_skills)}, infer 3 topics, 2 communication_styles, and 3 knowledge_areas. Output ONLY valid JSON matching this schema: {{\"topics\": [], \"communication_style\": [], \"knowledge_areas\": []}}"
-    try:
-        response = think(prompt)
-        # think() returns an OpenAI-compatible dict — extract the text content first
-        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-        if not content:
-            raise ValueError("Empty LLM response")
-        # Strip markdown code fences if the model wrapped the JSON
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0].strip()
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
-        llm_data = json.loads(content)
-    except Exception:
+
+    # ── Read real file contents and summarize ON-DEVICE ──────────────────────
+    context_blocks = []
+    for name in projects[:6]:
+        path = project_paths.get(name)
+        if not path:
+            continue
+        sig = _read_signal_files(path)
+        if sig:
+            context_blocks.append(f"### {name}\n{sig}")
+    context = "\n\n".join(context_blocks)[:8000]
+
+    llm_data = None
+    used_local = False
+    if context:
+        prompt = (
+            "You are profiling a developer from their own project files, read locally on "
+            "their machine and never uploaded. Using ONLY the content below, describe them.\n\n"
+            f"{context}\n\n"
+            "Respond with ONLY valid JSON, no prose or code fences, exactly this shape:\n"
+            '{"role": "job title in 1-3 words", '
+            '"topics": ["3 things they work on"], '
+            '"communication_style": ["2 style words"], '
+            '"knowledge_areas": ["3 areas of expertise"]}'
+        )
+        raw = think_local(prompt, timeout=90)
+        if raw:
+            try:
+                txt = raw.strip()
+                m = _re.search(r'\{.*\}', txt, _re.DOTALL)  # grab first {...} block
+                if m:
+                    txt = m.group(0)
+                llm_data = json.loads(txt)
+                used_local = True
+            except Exception as e:
+                log.warning(f"Onboarding local-LLM parse failed: {e}")
+
+    # ── Deterministic, cloud-free fallback ───────────────────────────────────
+    if not llm_data:
+        def _dedupe(xs):
+            seen, out = set(), []
+            for x in xs:
+                if x not in seen:
+                    seen.add(x)
+                    out.append(x)
+            return out
+        topics, knowledge = [], []
+        for s in skills:
+            t, k = _SKILL_PROFILE.get(s, ([], []))
+            topics += t
+            knowledge += k
         llm_data = {
-            "topics": ["Software Development", "System Architecture", "Open Source"],
+            "role": "Developer",
+            "topics": _dedupe(topics) or ["Software Development", "Tooling"],
             "communication_style": ["Direct", "Technical"],
-            "knowledge_areas": ["Local Filesystem", "Version Control", "Application Development"]
+            "knowledge_areas": _dedupe(knowledge) or ["Local Filesystem", "Version Control"],
         }
 
     return {
         "name": getpass.getuser(),
-        "role": "Developer",
+        "role": llm_data.get("role") or "Developer",
         "projects": projects[:5],
         "skills": skills[:5],
-        "topics": llm_data.get("topics", [])[:4],
-        "communication_style": llm_data.get("communication_style", [])[:3],
-        "knowledge_areas": llm_data.get("knowledge_areas", [])[:4]
+        "topics": (llm_data.get("topics") or [])[:4],
+        "communication_style": (llm_data.get("communication_style") or [])[:3],
+        "knowledge_areas": (llm_data.get("knowledge_areas") or [])[:4],
+        "scan_engine": "local-llm" if used_local else "heuristic",
     }
+
+
+@app.get("/api/onboarding/scan")
+async def scan_onboarding():
+    # Heavy I/O + a possibly-slow local model call — offload off the event loop
+    # so the WebSocket and other routes stay responsive during onboarding.
+    return await asyncio.to_thread(_onboarding_scan_sync)
 
 @app.get("/settings")
 async def get_settings():

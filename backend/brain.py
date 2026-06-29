@@ -158,6 +158,83 @@ def get_ollama_status(base_url: str = "http://localhost:11434") -> dict:
     except Exception:
         return {"running": False, "models": []}
 
+def think_local(prompt, system_override=None, timeout=90):
+    """On-device inference ONLY — tries Ollama first, then llama.cpp.
+
+    Returns the model's text content, or None if no local model is reachable.
+    Use this for privacy-critical work (e.g. reading file contents during
+    onboarding) that must NEVER touch a cloud provider, regardless of the
+    user's configured active_model.
+    """
+    try:
+        from settings_manager import load_settings
+        settings = load_settings()
+    except Exception:
+        settings = {}
+
+    system_content = system_override or (
+        "You are a precise assistant. Follow the user's formatting instructions exactly."
+    )
+
+    # ── Ollama ───────────────────────────────────────────────────────────────
+    ollama_url = _safe_local_url(settings.get("ollama_base_url", "http://localhost:11434"), 11434)
+    status = get_ollama_status(ollama_url)
+    if status.get("running"):
+        models = status.get("models", [])
+        model = settings.get("ollama_model", "llama3.2")
+        if models and model not in models:
+            model = models[0]  # configured model gone — use whatever's installed
+        try:
+            resp = requests.post(
+                f"{ollama_url}/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "stream": False,
+                },
+                timeout=timeout,
+            )
+            content = resp.json()["choices"][0]["message"]["content"]
+            if content:
+                log.info(f"think_local → Ollama ({model})")
+                return content
+        except Exception as e:
+            log.warning(f"think_local Ollama call failed: {e}")
+
+    # ── llama.cpp ──────────────────────────────────────────────────────────────
+    llamacpp_url = _safe_local_url(settings.get("llamacpp_base_url", "http://localhost:8080"), 8080)
+    try:
+        health = requests.get(f"{llamacpp_url}/health", timeout=2)
+        if health.status_code == 200:
+            model = settings.get("llamacpp_model", "") or "default"
+            resp = requests.post(
+                f"{llamacpp_url}/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "stream": False,
+                },
+                timeout=timeout,
+            )
+            content = resp.json()["choices"][0]["message"]["content"]
+            if content:
+                log.info("think_local → llama.cpp")
+                return content
+    except Exception as e:
+        log.debug(f"think_local llama.cpp unavailable: {e}")
+
+    log.info("think_local → no local model reachable")
+    return None
+
+
 def transcribe(audio_bytes, timeout=15):
     log.info("Requesting transcription from Groq Whisper...")
     api_key = get_groq_api_key()
