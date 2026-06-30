@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { User, Terminal, Database, Shield, Cpu, Wifi, WifiOff, RefreshCw, DownloadCloud, Brain, Zap, Calendar, Plus, Trash2, Link, Cloud, Key, Copy, Eye, EyeOff, AlertTriangle, CheckCircle, HardDrive } from 'lucide-react';
+import { User, Terminal, Shield, Cpu, Wifi, WifiOff, RefreshCw, DownloadCloud, Brain, Zap, Calendar, Plus, Trash2, Link, Cloud, Key, Copy, Eye, EyeOff, AlertTriangle, CheckCircle, HardDrive } from 'lucide-react';
 
 type ScreenId =
   | 'summaries_expanded'
@@ -18,6 +18,63 @@ type ScreenId =
   | 'calendar'
   | 'meetings'
   | 'research_workspace';
+
+// ── Settings mini data-flow components ───────────────────────────────────────
+const SFN = ({ label, sub, c }: { label: string; sub?: string; c: string }) => (
+  <div className={`flex flex-col items-center px-2 py-1 rounded-md border text-center shrink-0 ${c}`}>
+    <span className="font-bold text-[9px] leading-tight whitespace-nowrap">{label}</span>
+    {sub && <span className="text-[7px] opacity-50 leading-tight mt-0.5 whitespace-nowrap">{sub}</span>}
+  </div>
+);
+const SFA = ({ c }: { c: string }) => <span className={`text-sm leading-none ${c}`}>→</span>;
+
+const SFlowLocal = () => (
+  <div className="flex flex-col items-center gap-1.5 py-1.5">
+    <div className="flex items-center gap-1 flex-wrap justify-center">
+      <SFN label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
+      <SFA c="text-emerald-800" />
+      <SFN label="Primnox" sub="brain.py" c="border-emerald-800 bg-emerald-950 text-emerald-300" />
+      <SFA c="text-emerald-800" />
+      <SFN label="Local Model" sub="on-device" c="border-emerald-600 bg-emerald-950 text-emerald-300" />
+      <SFA c="text-emerald-800" />
+      <SFN label="Response" sub="raw" c="border-emerald-800 bg-emerald-950 text-emerald-300" />
+    </div>
+    <span className="text-[8px] text-emerald-700 font-mono tracking-widest uppercase">nothing leaves your machine</span>
+  </div>
+);
+
+const SFlowCloud = () => (
+  <div className="flex flex-col items-center gap-1.5 py-1.5">
+    <div className="flex items-center gap-1 flex-wrap justify-center">
+      <SFN label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
+      <SFA c="text-slate-700" />
+      <SFN label="Privacy Mirror" sub="DeBERTa NER" c="border-pink-800 bg-pink-950 text-pink-300" />
+      <SFA c="text-blue-800" />
+      <SFN label="Cloud API" sub="Groq / OpenAI" c="border-blue-800 bg-blue-950 text-blue-300" />
+      <SFA c="text-pink-800" />
+      <SFN label="Rehydrate" sub="names back" c="border-pink-800 bg-pink-950 text-pink-300" />
+      <SFA c="text-slate-700" />
+      <SFN label="You" sub="real names" c="border-slate-700 bg-slate-900 text-slate-300" />
+    </div>
+    <span className="text-[8px] text-pink-800 font-mono tracking-widest uppercase">cloud only sees §NAME_1§ — not your real name</span>
+  </div>
+);
+
+const SFlowRaw = () => (
+  <div className="flex flex-col items-center gap-1.5 py-1.5">
+    <div className="flex items-center gap-1 flex-wrap justify-center">
+      <SFN label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
+      <SFA c="text-slate-700" />
+      <SFN label="Primnox" sub="brain.py" c="border-slate-700 bg-slate-900 text-slate-400" />
+      <SFA c="text-slate-600" />
+      <SFN label="Cloud API" sub="Groq / OpenAI" c="border-slate-600 bg-slate-900 text-slate-300" />
+      <SFA c="text-slate-700" />
+      <SFN label="You" sub="response" c="border-slate-700 bg-slate-900 text-slate-300" />
+    </div>
+    <span className="text-[8px] text-amber-700 font-mono tracking-widest uppercase">your data reaches the cloud as-is</span>
+  </div>
+);
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const IslandSettings = ({ 
   onNavigate,
@@ -129,6 +186,20 @@ export const IslandSettings = ({
 
   // ── PII model status ──────────────────────────────────────────────────────────
   const [piiModelStatus, setPiiModelStatus] = useState<'loading'|'ready'|'failed'|'unavailable'|null>(null);
+
+  // ── Architecture mode (derived from props on mount) ───────────────────────
+  const [archMode, setArchMode] = useState<'local' | 'hybrid' | 'cloud_shield' | 'cloud_raw'>(() => {
+    if (activeModel === 'Ollama_Local' || activeModel === 'LlamaCpp_Local')
+      return apiKey ? 'hybrid' : 'local';
+    return privacyMirrorEnabled ? 'cloud_shield' : 'cloud_raw';
+  });
+  const [localEngine, setLocalEngine] = useState<'ollama' | 'llamacpp'>(
+    activeModel === 'LlamaCpp_Local' ? 'llamacpp' : 'ollama'
+  );
+  const [cloudModel, setCloudModel] = useState(() => {
+    const cloud = ['Groq_Llama_3', 'OpenAI_GPT_4o', 'Anthropic_Claude_3', 'Gemini_Flash'];
+    return cloud.includes(activeModel) ? activeModel : 'Groq_Llama_3';
+  });
   useEffect(() => {
     if (activeTab !== 'Security') return;
     fetch('http://localhost:4009/api/status', { signal: AbortSignal.timeout(4000) })
@@ -442,152 +513,171 @@ export const IslandSettings = ({
                   animate={{ opacity: 1, x: 0 }}
                   className="space-y-6"
                 >
+                  {/* ── Privacy Architecture Selector ── */}
                   <div className="space-y-4">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Co_Processor_Engine</label>
-                    <div className="relative group">
-                      <Database size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-primary transition-colors pointer-events-none" />
-                      <select 
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none appearance-none cursor-pointer hover:bg-zinc-900 transition-all"
-                        value={activeModel}
-                        onChange={(e) => setActiveModel(e.target.value)}
-                      >
-                        <option value="Groq_Llama_3">Groq: Llama 3.3 (HyperSpeed)</option>
-                        <option value="OpenAI_GPT_4o">OpenAI: GPT-4o (Max Reasoning)</option>
-                        <option value="Anthropic_Claude_3">Anthropic: Claude 3.5 Sonnet</option>
-                        <option value="Gemini_Flash">Gemini: Flash 2.0 (Google)</option>
-                        <option value="Ollama_Local">⚡ Ollama: Local / Hybrid (No API Key)</option>
-                        <option value="LlamaCpp_Local">⚡ llama.cpp: Local GGUF (No API Key)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* ── Ollama Config Panel ── */}
-                  {activeModel === 'Ollama_Local' && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4"
-                    >
-                      {/* Status row */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {ollamaStatus === null || checkingOllama ? (
-                            <RefreshCw size={12} className="text-white/30 animate-spin" />
-                          ) : ollamaStatus.running ? (
-                            <Wifi size={12} className="text-emerald-400" />
-                          ) : (
-                            <WifiOff size={12} className="text-red-400" />
-                          )}
-                          <span className="font-mono text-[10px] uppercase tracking-widest text-white/50">
-                            {checkingOllama ? 'Checking...' : ollamaStatus?.running ? `Ollama Running — ${ollamaStatus.models.length} model(s)` : 'Ollama Not Detected'}
-                          </span>
+                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Privacy_Architecture</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Local */}
+                      <button onClick={() => { setArchMode('local'); setActiveModel(localEngine === 'llamacpp' ? 'LlamaCpp_Local' : 'Ollama_Local'); }}
+                        className={`p-3 rounded-xl border text-left transition-all ${archMode === 'local' ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-white/5 bg-black/30 hover:border-white/10'}`}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <HardDrive size={12} className={archMode === 'local' ? 'text-emerald-400' : 'text-white/25'} />
+                          <span className={`font-mono text-[10px] font-bold uppercase tracking-widest ${archMode === 'local' ? 'text-emerald-400' : 'text-white/35'}`}>Local</span>
                         </div>
-                        <button onClick={checkOllama} className="text-[10px] font-mono text-white/30 hover:text-primary transition-colors uppercase tracking-widest">
-                          Refresh
-                        </button>
-                      </div>
+                        <p className="text-[9px] text-white/25 leading-relaxed">Nothing leaves your machine. Ollama or llama.cpp only.</p>
+                      </button>
 
-                      {!ollamaStatus?.running && (
-                        <p className="text-[10px] text-amber-400/70 font-mono">
-                          Run <span className="text-amber-300 bg-white/5 px-1 rounded">ollama serve</span> in a terminal, then refresh. Install a model with <span className="text-amber-300 bg-white/5 px-1 rounded">ollama pull llama3.2</span>
-                        </p>
-                      )}
+                      {/* Hybrid */}
+                      <button onClick={() => { setArchMode('hybrid'); setActiveModel(localEngine === 'llamacpp' ? 'LlamaCpp_Local' : 'Ollama_Local'); }}
+                        className={`p-3 rounded-xl border text-left transition-all ${archMode === 'hybrid' ? 'border-orange-500/50 bg-orange-500/10' : 'border-white/5 bg-black/30 hover:border-white/10'}`}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Zap size={12} className={archMode === 'hybrid' ? 'text-orange-400' : 'text-white/25'} />
+                          <span className={`font-mono text-[10px] font-bold uppercase tracking-widest ${archMode === 'hybrid' ? 'text-orange-400' : 'text-white/35'}`}>Hybrid</span>
+                        </div>
+                        <p className="text-[9px] text-white/25 leading-relaxed">Local model for chat. Cloud transcription for voice.</p>
+                      </button>
 
-                      {/* Model picker */}
-                      <div className="space-y-2">
-                        <label className="block font-mono text-[9px] text-white/30 uppercase tracking-[0.4em]">Local_Model</label>
-                        {ollamaStatus?.running && ollamaStatus.models.length > 0 ? (
-                          <select
-                            className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-primary outline-none appearance-none"
-                            value={ollamaModel}
-                            onChange={e => setOllamaModel(e.target.value)}
-                          >
-                            {ollamaStatus.models.map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-primary outline-none"
-                            value={ollamaModel}
-                            onChange={e => setOllamaModel(e.target.value)}
-                            placeholder="e.g. llama3.2, mistral, codellama"
-                          />
+                      {/* Cloud + Mirror */}
+                      <button onClick={() => { setArchMode('cloud_shield'); setActiveModel(cloudModel); setPrivacyMirrorEnabled(true); }}
+                        className={`p-3 rounded-xl border text-left transition-all ${archMode === 'cloud_shield' ? 'border-blue-500/50 bg-blue-500/10' : 'border-white/5 bg-black/30 hover:border-white/10'}`}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Shield size={12} className={archMode === 'cloud_shield' ? 'text-blue-400' : 'text-white/25'} />
+                          <span className={`font-mono text-[10px] font-bold uppercase tracking-widest ${archMode === 'cloud_shield' ? 'text-blue-400' : 'text-white/35'}`}>Cloud + Mirror</span>
+                        </div>
+                        <p className="text-[9px] text-white/25 leading-relaxed">Cloud model with PII scrubbed before it leaves this machine.</p>
+                      </button>
+
+                      {/* Cloud Raw */}
+                      <button onClick={() => { setArchMode('cloud_raw'); setActiveModel(cloudModel); setPrivacyMirrorEnabled(false); }}
+                        className={`p-3 rounded-xl border text-left transition-all ${archMode === 'cloud_raw' ? 'border-slate-500/50 bg-slate-500/10' : 'border-white/5 bg-black/30 hover:border-white/10'}`}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Cloud size={12} className={archMode === 'cloud_raw' ? 'text-slate-300' : 'text-white/25'} />
+                          <span className={`font-mono text-[10px] font-bold uppercase tracking-widest ${archMode === 'cloud_raw' ? 'text-slate-300' : 'text-white/35'}`}>Cloud Raw</span>
+                        </div>
+                        <p className="text-[9px] text-white/25 leading-relaxed">Cloud model, no scrubbing. Data reaches provider as-is.</p>
+                      </button>
+                    </div>
+
+                    {/* ── Local / Hybrid expanded panel ── */}
+                    {(archMode === 'local' || archMode === 'hybrid') && (
+                      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+                        className={`rounded-xl border p-5 space-y-4 ${archMode === 'hybrid' ? 'border-orange-500/20 bg-orange-500/5' : 'border-emerald-500/20 bg-emerald-500/5'}`}>
+                        <SFlowLocal />
+
+                        {/* Engine toggle */}
+                        <div className="flex gap-2">
+                          <button onClick={() => { setLocalEngine('ollama'); setActiveModel('Ollama_Local'); }}
+                            className={`flex-1 py-2 rounded-lg font-mono text-[9px] uppercase tracking-widest font-bold border transition-all
+                              ${localEngine === 'ollama' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-white/5 text-white/30 hover:text-white/50'}`}>
+                            Ollama
+                          </button>
+                          <button onClick={() => { setLocalEngine('llamacpp'); setActiveModel('LlamaCpp_Local'); }}
+                            className={`flex-1 py-2 rounded-lg font-mono text-[9px] uppercase tracking-widest font-bold border transition-all
+                              ${localEngine === 'llamacpp' ? 'border-violet-500/40 bg-violet-500/10 text-violet-400' : 'border-white/5 text-white/30 hover:text-white/50'}`}>
+                            llama.cpp
+                          </button>
+                        </div>
+
+                        {/* Ollama config */}
+                        {localEngine === 'ollama' && (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {checkingOllama ? <RefreshCw size={12} className="text-white/30 animate-spin" /> :
+                                 ollamaStatus?.running ? <Wifi size={12} className="text-emerald-400" /> : <WifiOff size={12} className="text-red-400" />}
+                                <span className="font-mono text-[9px] uppercase tracking-widest text-white/40">
+                                  {checkingOllama ? 'Checking…' : ollamaStatus?.running ? `Running — ${ollamaStatus.models.length} model(s)` : 'Not detected'}
+                                </span>
+                              </div>
+                              <button onClick={checkOllama} className="text-[9px] font-mono text-white/25 hover:text-emerald-400 transition-colors uppercase tracking-widest">Refresh</button>
+                            </div>
+                            {!ollamaStatus?.running && (
+                              <p className="text-[9px] text-amber-400/70 font-mono">Run <span className="text-amber-300 bg-white/5 px-1 rounded">ollama serve</span> then refresh. Pull a model: <span className="text-amber-300 bg-white/5 px-1 rounded">ollama pull llama3.2</span></p>
+                            )}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">URL</label>
+                                <input value={ollamaBaseUrl} onChange={e => setOllamaBaseUrl(e.target.value)}
+                                  className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80"
+                                  placeholder="http://localhost:11434" />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">Model</label>
+                                {ollamaStatus?.running && ollamaStatus.models.length > 0 ? (
+                                  <select value={ollamaModel} onChange={e => setOllamaModel(e.target.value)}
+                                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80 appearance-none">
+                                    {ollamaStatus.models.map(m => <option key={m}>{m}</option>)}
+                                  </select>
+                                ) : (
+                                  <input value={ollamaModel} onChange={e => setOllamaModel(e.target.value)}
+                                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80"
+                                    placeholder="llama3.2" />
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         )}
-                      </div>
 
-                      {/* Base URL */}
-                      <div className="space-y-2">
-                        <label className="block font-mono text-[9px] text-white/30 uppercase tracking-[0.4em]">Ollama_URL</label>
-                        <input
-                          className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-primary outline-none"
-                          value={ollamaBaseUrl}
-                          onChange={e => setOllamaBaseUrl(e.target.value)}
-                          placeholder="http://localhost:11434"
-                        />
-                      </div>
+                        {/* llama.cpp config */}
+                        {localEngine === 'llamacpp' && (
+                          <div className="space-y-3">
+                            <p className="text-[9px] text-amber-400/70 font-mono">Start: <span className="text-amber-300 bg-white/5 px-1 rounded">./llama-server -m model.gguf --port 8080</span></p>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">URL</label>
+                                <input value={llamacppBaseUrl} onChange={e => setLlamacppBaseUrl(e.target.value)}
+                                  className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-violet-500/40 text-white/80"
+                                  placeholder="http://localhost:8080" />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">Model <span className="opacity-40">(optional)</span></label>
+                                <input value={llamacppModel} onChange={e => setLlamacppModel(e.target.value)}
+                                  className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-violet-500/40 text-white/80"
+                                  placeholder="leave blank for default" />
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
-                      <p className="text-[9px] text-white/20 font-mono">
-                        Note: Transcription (Whisper) still uses Groq even in local mode — add a Groq key in Security tab for that.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('Security')}
-                        className="text-[9px] font-mono text-primary/50 hover:text-primary transition-colors uppercase tracking-widest text-left"
-                      >
-                        → Enable local data encryption in Security tab
-                      </button>
-                    </motion.div>
-                  )}
+                        {archMode === 'hybrid' && (
+                          <p className="text-[9px] text-orange-400/60 font-mono border-t border-orange-500/10 pt-3">
+                            Voice transcription uses Groq Whisper when available — add your Groq key in the{' '}
+                            <button type="button" className="text-orange-400 underline" onClick={() => setActiveTab('Security')}>Security tab</button>.
+                          </p>
+                        )}
+                      </motion.div>
+                    )}
 
-                  {/* ── llama.cpp Config Panel ── */}
-                  {activeModel === 'LlamaCpp_Local' && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Cpu size={12} className="text-primary/60" />
-                        <span className="font-mono text-[10px] uppercase tracking-widest text-white/50">llama.cpp Server</span>
-                      </div>
+                    {/* ── Cloud + Mirror / Cloud Raw expanded panel ── */}
+                    {(archMode === 'cloud_shield' || archMode === 'cloud_raw') && (
+                      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+                        className={`rounded-xl border p-5 space-y-4 ${archMode === 'cloud_shield' ? 'border-blue-500/20 bg-blue-500/5' : 'border-slate-500/20 bg-slate-500/5'}`}>
+                        {archMode === 'cloud_shield' ? <SFlowCloud /> : <SFlowRaw />}
 
-                      <p className="text-[10px] text-amber-400/70 font-mono">
-                        Start with: <span className="text-amber-300 bg-white/5 px-1 rounded">./llama-server -m model.gguf --port 8080</span>
-                      </p>
+                        <div className="space-y-1.5">
+                          <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">Cloud_Model</label>
+                          <select value={cloudModel} onChange={e => { setCloudModel(e.target.value); setActiveModel(e.target.value); }}
+                            className="w-full bg-black/60 border border-white/10 rounded-lg py-2.5 px-3 font-mono text-[11px] outline-none focus:border-blue-500/40 text-white/80 appearance-none">
+                            <option value="Groq_Llama_3">Groq — Llama 3.3 70B (HyperSpeed)</option>
+                            <option value="OpenAI_GPT_4o">OpenAI — GPT-4o (Max Reasoning)</option>
+                            <option value="Anthropic_Claude_3">Anthropic — Claude 3.5 Sonnet</option>
+                            <option value="Gemini_Flash">Google — Gemini Flash 2.0</option>
+                          </select>
+                        </div>
 
-                      <div className="space-y-2">
-                        <label className="block font-mono text-[9px] text-white/30 uppercase tracking-[0.4em]">Server_URL</label>
-                        <input
-                          className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-primary outline-none"
-                          value={llamacppBaseUrl}
-                          onChange={e => setLlamacppBaseUrl(e.target.value)}
-                          placeholder="http://localhost:8080"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="block font-mono text-[9px] text-white/30 uppercase tracking-[0.4em]">Model_Name (optional)</label>
-                        <input
-                          className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-primary outline-none"
-                          value={llamacppModel}
-                          onChange={e => setLlamacppModel(e.target.value)}
-                          placeholder="e.g. mistral-7b-instruct (leave blank for default)"
-                        />
-                      </div>
-
-                      <p className="text-[9px] text-white/20 font-mono">
-                        Note: Transcription (Whisper) still uses Groq in local mode — add a Groq key in Security tab for that.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('Security')}
-                        className="text-[9px] font-mono text-primary/50 hover:text-primary transition-colors uppercase tracking-widest text-left"
-                      >
-                        → Enable local data encryption in Security tab
-                      </button>
-                    </motion.div>
-                  )}
+                        {archMode === 'cloud_shield' ? (
+                          <p className="text-[9px] text-blue-400/50 font-mono">
+                            Privacy Mirror is <span className="text-emerald-400">active</span> — DeBERTa NER scrubs PII from every request before it leaves this machine.
+                          </p>
+                        ) : (
+                          <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
+                            <AlertTriangle size={11} className="text-amber-400 shrink-0 mt-0.5" />
+                            <p className="text-[9px] text-amber-400/70 font-mono">Privacy Mirror is off. Your messages reach the cloud provider exactly as typed — names, emails, and other PII included.</p>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </div>
 
                   {/* VAD Sensitivity Slider */}
                   <div className="space-y-4">
