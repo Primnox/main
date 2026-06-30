@@ -77,7 +77,7 @@ export const OnboardingView = ({ onComplete, activity, updateSettings, settings,
           {step === 8 && <Step8ProfileReview key="step8" next={nextStep} profile={profile} setProfile={setProfile} />}
           {step === 9 && <Step9Memory key="step9" next={nextStep} updateSettings={updateSettings} settings={settings} />}
           {step === 10 && <Step10Personalization key="step10" next={nextStep} updateSettings={updateSettings} settings={settings} />}
-          {step === 11 && <Step11Workspace key="step11" next={nextStep} updateSettings={updateSettings} settings={settings} />}
+          {step === 11 && <Step11Workspace key="step11" next={nextStep} updateSettings={updateSettings} settings={settings} profile={profile} />}
           {step === 12 && <Step12AssistantGen key="step12" next={nextStep} />}
           {step === 13 && <Step13Completion key="step13" onComplete={skipSetup} profile={profile} />}
         </AnimatePresence>
@@ -283,8 +283,8 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
 const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
   const [key, setKey] = useState('');
   const [status, setStatus] = useState<'idle'|'testing'|'success'|'error'>('idle');
-  // If user already picked Ollama_Local in step 2, skip the cloud key prompt
-  const isOllamaMode = settings?.active_model === 'Ollama_Local';
+  const isLocalMode = settings?.active_model === 'Ollama_Local' || settings?.active_model === 'LlamaCpp_Local';
+  const localModelName = settings?.active_model === 'LlamaCpp_Local' ? 'llama.cpp' : 'Ollama';
 
   const testKey = async () => {
     setStatus('testing');
@@ -308,9 +308,9 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">AI Provider Connect</h2>
-        {isOllamaMode ? (
+        {isLocalMode ? (
           <p className="text-white/50 text-sm">
-            You chose Ollama — no cloud key needed for chat. Optionally add a Groq key for voice transcription (Whisper).
+            You chose {localModelName} — no cloud key needed for chat. Optionally add a Groq key for voice transcription (Whisper).
           </p>
         ) : (
           <p className="text-white/50 text-sm">
@@ -320,7 +320,7 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
       </div>
       <div className="p-6 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-4">
         <label className="text-xs font-mono text-white/70 uppercase tracking-wider">
-          Groq API Key {isOllamaMode && <span className="text-white/30">(optional — for transcription)</span>}
+          Groq API Key {isLocalMode && <span className="text-white/30">(optional — for transcription only)</span>}
         </label>
         <div className="flex gap-2">
           <input
@@ -338,7 +338,7 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
         {status === 'error' && <p className="text-red-400 text-xs">Invalid key or connection failed.</p>}
       </div>
       <button onClick={next} className="text-sm text-white/30 hover:text-white/60 transition-colors text-center">
-        {isOllamaMode ? 'Skip — using Ollama only →' : 'Skip for now — add in Settings later →'}
+        {isLocalMode ? `Skip — using ${localModelName} only →` : 'Skip for now — add in Settings later →'}
       </button>
     </motion.div>
   );
@@ -560,44 +560,108 @@ const Step7UserModel = ({ next, updateSettings, settings, profile }: any) => {
   );
 };
 
-const Step8ProfileReview = ({ next, profile }: any) => (
-  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col gap-8">
-    <div>
-      <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Profile Review</h2>
-      <p className="text-white/50 text-sm">Transparency is mandatory. Is this accurate?</p>
-    </div>
+const Step8ProfileReview = ({ next, profile, setProfile }: any) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<any>(null);
 
-    <div className="border border-white/10 rounded-xl bg-white/5 p-6 space-y-6">
-      <p className="font-mono text-primary text-sm uppercase tracking-wider">I think:</p>
-      
-      <div className="grid grid-cols-2 gap-6">
+  const startEdit = () => setDraft({
+    topics: [...profile.topics],
+    projects: [...profile.projects],
+    communication_style: [...profile.communication_style],
+  });
+
+  const updateList = (key: string, idx: number, val: string) =>
+    setDraft((d: any) => ({ ...d, [key]: d[key].map((x: string, i: number) => i === idx ? val : x) }));
+
+  const saveEdit = () => {
+    setProfile({ ...profile, ...draft });
+    setEditing(false);
+    setDraft(null);
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col gap-8">
+      <div className="flex items-start justify-between">
         <div>
-          <h4 className="text-xs text-white/50 mb-2 uppercase">You enjoy:</h4>
-          <ul className="list-disc list-inside text-sm text-white/80 space-y-1">
-            {profile.topics.map((t: string) => <li key={t}>{t}</li>)}
-          </ul>
+          <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Profile Review</h2>
+          <p className="text-white/50 text-sm">Transparency is mandatory. Is this accurate?</p>
         </div>
-        <div>
-          <h4 className="text-xs text-white/50 mb-2 uppercase">You frequently work on:</h4>
-          <ul className="list-disc list-inside text-sm text-white/80 space-y-1">
-            {profile.projects.map((t: string) => <li key={t}>{t}</li>)}
-          </ul>
-        </div>
-        <div className="col-span-2 border-t border-white/5 pt-4">
-          <h4 className="text-xs text-white/50 mb-2 uppercase">You appear to prefer:</h4>
-          <ul className="list-disc list-inside text-sm text-white/80 space-y-1">
-            {profile.communication_style.map((t: string) => <li key={t}>{t}</li>)}
-          </ul>
-        </div>
+        {!editing && (
+          <button onClick={() => { startEdit(); setEditing(true); }}
+            className="px-4 py-1.5 bg-white/5 text-white/50 font-bold text-xs rounded-lg hover:bg-white/10 border border-white/10 transition-all active:scale-95">
+            Edit
+          </button>
+        )}
       </div>
-    </div>
 
-    <div className="flex gap-4 justify-end">
-      <button className="px-6 py-2 bg-white/5 text-white/70 font-bold text-sm rounded-lg hover:bg-white/10 border border-white/10 transition-all duration-300 ease-out active:scale-95">Edit Profile</button>
-      <button onClick={next} className="px-8 py-2 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">Looks Good</button>
-    </div>
-  </motion.div>
-);
+      <div className="border border-white/10 rounded-xl bg-white/5 p-6 space-y-6">
+        {!editing ? (
+          <>
+            <p className="font-mono text-primary text-sm uppercase tracking-wider">I think:</p>
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <h4 className="text-xs text-white/50 mb-2 uppercase">You enjoy:</h4>
+                <ul className="list-disc list-inside text-sm text-white/80 space-y-1">
+                  {profile.topics.map((t: string) => <li key={t}>{t}</li>)}
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-xs text-white/50 mb-2 uppercase">You frequently work on:</h4>
+                <ul className="list-disc list-inside text-sm text-white/80 space-y-1">
+                  {profile.projects.map((t: string) => <li key={t}>{t}</li>)}
+                </ul>
+              </div>
+              <div className="col-span-2 border-t border-white/5 pt-4">
+                <h4 className="text-xs text-white/50 mb-2 uppercase">You appear to prefer:</h4>
+                <ul className="list-disc list-inside text-sm text-white/80 space-y-1">
+                  {profile.communication_style.map((t: string) => <li key={t}>{t}</li>)}
+                </ul>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-5">
+            {([
+              { key: 'topics', label: 'Topics you enjoy' },
+              { key: 'projects', label: 'Projects' },
+              { key: 'communication_style', label: 'Communication style' },
+            ] as const).map(({ key, label }) => (
+              <div key={key}>
+                <h4 className="text-xs text-white/50 mb-2 uppercase">{label}</h4>
+                <div className="space-y-1.5">
+                  {(draft[key] as string[]).map((val, i) => (
+                    <input key={i} value={val} onChange={e => updateList(key, i, e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/80 outline-none focus:border-primary/40" />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-4 justify-end">
+        {editing ? (
+          <>
+            <button onClick={() => { setEditing(false); setDraft(null); }}
+              className="px-6 py-2 bg-white/5 text-white/50 font-bold text-sm rounded-lg hover:bg-white/10 border border-white/10 transition-all active:scale-95">
+              Cancel
+            </button>
+            <button onClick={saveEdit}
+              className="px-8 py-2 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 transition-all active:scale-95">
+              Save
+            </button>
+          </>
+        ) : (
+          <button onClick={next}
+            className="px-8 py-2 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">
+            Looks Good
+          </button>
+        )}
+      </div>
+    </motion.div>
+  );
+};
 
 const Step9Memory = ({ next, updateSettings, settings }: any) => {
   const handleSelect = (id: string) => {
@@ -666,37 +730,65 @@ const Step10Personalization = ({ next, updateSettings, settings }: any) => {
   );
 };
 
-const Step11Workspace = ({ next, updateSettings, settings }: any) => {
-  const [workspaces, setWorkspaces] = useState(['Personal Workspace', 'Development Workspace', 'Research Workspace']);
-  
+const Step11Workspace = ({ next, updateSettings, settings, profile }: any) => {
+  // Seed from scanned projects; fall back to generic defaults if scan didn't run
+  const seedWorkspaces = (): string[] => {
+    const projects: string[] = profile?.projects?.filter((p: string) => !p.startsWith('<')) ?? [];
+    if (projects.length >= 2) return projects.slice(0, 3);
+    return ['Personal Workspace', 'Development Workspace', 'Research Workspace'];
+  };
+
+  const [workspaces, setWorkspaces] = useState<string[]>(seedWorkspaces);
+
   const handleChange = (index: number, val: string) => {
     const newWs = [...workspaces];
     newWs[index] = val;
     setWorkspaces(newWs);
   };
-  
+
+  const addWorkspace = () => setWorkspaces(w => [...w, '']);
+  const removeWorkspace = (i: number) => setWorkspaces(w => w.filter((_, idx) => idx !== i));
+
   const handleNext = () => {
-    updateSettings({ ...settings, workspaces });
+    updateSettings({ ...settings, workspaces: workspaces.filter(w => w.trim()) });
     next();
   };
+
+  const seededFromProfile = (profile?.projects?.filter((p: string) => !p.startsWith('<')) ?? []).length >= 2;
 
   return (
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Workspace Creation</h2>
-        <p className="text-white/50 text-sm">Suggested workspaces based on your profile.</p>
-      </div>
-      
-      <div className="space-y-4">
-        {workspaces.map((ws, i) => (
-          <div key={i} className="flex items-center gap-4 p-4 rounded-xl border border-white/10 bg-white/5">
-            <LayoutDashboard size={20} className="text-white/40" />
-            <input type="text" value={ws} onChange={e => handleChange(i, e.target.value)} className="bg-transparent border-none outline-none text-sm text-white/90 flex-1" />
-          </div>
-        ))}
+        <p className="text-white/50 text-sm">
+          {seededFromProfile ? 'Seeded from your scanned projects — rename or add more.' : 'Name your workspaces. You can change these any time.'}
+        </p>
       </div>
 
-      <button onClick={handleNext} className="px-8 py-3 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 self-end mt-4 shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">
+      <div className="space-y-3">
+        {workspaces.map((ws, i) => (
+          <div key={i} className="flex items-center gap-3 p-4 rounded-xl border border-white/10 bg-white/5 group">
+            <LayoutDashboard size={18} className="text-white/30 shrink-0" />
+            <input type="text" value={ws} onChange={e => handleChange(i, e.target.value)}
+              className="bg-transparent border-none outline-none text-sm text-white/90 flex-1 placeholder-white/20"
+              placeholder="Workspace name…" />
+            {workspaces.length > 1 && (
+              <button onClick={() => removeWorkspace(i)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-white/20 hover:text-red-400 text-xs font-mono px-1">
+                ✕
+              </button>
+            )}
+          </div>
+        ))}
+        {workspaces.length < 6 && (
+          <button onClick={addWorkspace}
+            className="w-full py-3 rounded-xl border border-dashed border-white/10 text-white/20 hover:text-white/50 hover:border-white/20 text-xs font-mono uppercase tracking-widest transition-all">
+            + Add Workspace
+          </button>
+        )}
+      </div>
+
+      <button onClick={handleNext} className="px-8 py-3 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 self-end shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">
         Create Workspaces
       </button>
     </motion.div>
@@ -722,14 +814,20 @@ const Step12AssistantGen = ({ next }: any) => {
   );
 };
 
-const Step13Completion = ({ onComplete, profile: _profile }: any) => (
+const Step13Completion = ({ onComplete, profile }: any) => {
+  const name = profile?.name && !profile.name.startsWith('<') ? profile.name : null;
+  const role = profile?.role && profile.role !== 'Developer' ? profile.role : null;
+  return (
   <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-8 text-center max-w-xl mx-auto py-10">
     <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-4 border border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.2)]">
       <Check size={32} />
     </div>
-    
+
     <div>
-      <h2 className="font-bold lowercase italic tracking-wide text-4xl mb-4">Welcome.</h2>
+      <h2 className="font-bold lowercase italic tracking-wide text-4xl mb-2">
+        {name ? `welcome, ${name}.` : 'Welcome.'}
+      </h2>
+      {role && <p className="text-primary/70 font-mono text-xs uppercase tracking-widest mb-3">{role}</p>}
       <p className="text-white/60">Primnox has initialized your personalized environment.</p>
     </div>
     
@@ -751,5 +849,5 @@ const Step13Completion = ({ onComplete, profile: _profile }: any) => (
       </button>
     </div>
   </motion.div>
-);
-
+  );
+};
