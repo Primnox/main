@@ -41,6 +41,8 @@ artifacts_mac/
 *.db-shm
 chat.db
 backend/*.json.bak
+# Dev-leftover settings (real runtime settings live in %APPDATA%/primnox_extension/)
+backend/settings.json
 
 # Runtime media artifacts
 *.wav
@@ -54,4 +56,4 @@ backend/yolov8n.pt
 push_error.txt
 *_output*.txt
 *_output*.log
-backend/build_admin.log
+build_admin.log
