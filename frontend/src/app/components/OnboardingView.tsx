@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
+import {
   Sparkles, Check, Brain, Shield, Eye, ShieldAlert,
-  Loader2, Terminal, Compass, LayoutDashboard, MessageSquare
+  Loader2, Terminal, Compass, LayoutDashboard, MessageSquare, Cpu
 } from 'lucide-react';
 // Props are injected from App so we share the single WebSocket connection.
 interface OnboardingViewProps {
@@ -112,68 +112,170 @@ const Step1Welcome = ({ next, skip }: any) => (
 );
 
 const Step2Privacy = ({ next, updateSettings, settings }: any) => {
-  const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
+  const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
+  const [selected, setSelected] = useState<'cloud' | 'ollama' | 'llamacpp' | null>(null);
+  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
+  const [ollamaModel, setOllamaModel] = useState('llama3.2');
+  const [llamaUrl, setLlamaUrl] = useState('http://localhost:8080');
+  const [llamaModel, setLlamaModel] = useState('');
 
   useEffect(() => {
     fetch('http://localhost:4009/api/ollama/status')
       .then(r => r.json())
-      .then(d => setOllamaRunning(d.running))
-      .catch(() => setOllamaRunning(false));
+      .then(d => {
+        setOllamaStatus(d);
+        if (d.models?.length) setOllamaModel(d.models[0]);
+      })
+      .catch(() => setOllamaStatus({ running: false, models: [] }));
   }, []);
 
-  const selectCloud = () => next();
-  const selectHybrid = () => {
-    updateSettings({ ...settings, active_model: 'Ollama_Local' });
+  const confirmOllama = () => {
+    updateSettings({ ...settings, active_model: 'Ollama_Local', ollama_base_url: ollamaUrl, ollama_model: ollamaModel });
     next();
   };
+  const confirmLlamaCpp = () => {
+    updateSettings({ ...settings, active_model: 'LlamaCpp_Local', llamacpp_base_url: llamaUrl, llamacpp_model: llamaModel });
+    next();
+  };
+  const confirmCloud = () => next();
+
+  const cardBase = 'flex flex-col items-start text-left p-5 rounded-xl border transition-all relative cursor-pointer';
 
   return (
-    <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
+    <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-6">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Privacy Architecture</h2>
         <p className="text-white/50 text-sm">Choose how Primnox thinks. You can change this any time in Settings.</p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Local Only — future */}
-        <div className="flex flex-col items-start text-left p-6 rounded-xl border border-white/5 bg-white/5 opacity-40 cursor-not-allowed">
-          <Shield size={24} className="text-white/30 mb-4" />
-          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Local Only</h3>
-          <p className="text-[10px] text-white/50 leading-relaxed">100% on-device. Coming soon.</p>
-        </div>
 
-        {/* Hybrid — Ollama */}
-        <button
-          onClick={ollamaRunning ? selectHybrid : undefined}
-          className={`flex flex-col items-start text-left p-6 rounded-xl border transition-all group relative ${
-            ollamaRunning
-              ? 'border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10 hover:scale-105 cursor-pointer'
-              : 'border-white/5 bg-white/5 opacity-50 cursor-not-allowed'
-          }`}
-        >
-          <ShieldAlert size={24} className={`${ollamaRunning ? 'text-emerald-400' : 'text-white/30'} mb-4 group-hover:scale-110 transition-transform`} />
-          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Hybrid — Ollama</h3>
-          <p className="text-[10px] text-white/50 leading-relaxed">Local AI via Ollama. No cloud for chat.</p>
-          <div className={`absolute top-3 right-3 flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-mono ${
-            ollamaRunning === null ? 'bg-white/10 text-white/30' :
-            ollamaRunning ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-white/20'
-          }`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${ollamaRunning === null ? 'bg-white/20 animate-pulse' : ollamaRunning ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
-            {ollamaRunning === null ? 'checking...' : ollamaRunning ? 'detected' : 'not running'}
-          </div>
-        </button>
-
+      <div className="grid grid-cols-2 gap-4">
         {/* Cloud */}
-        <button onClick={selectCloud} className="flex flex-col items-start text-left p-6 rounded-xl border border-primary/50 bg-primary/10 hover:bg-primary/20 hover:scale-105 transition-all group cursor-pointer">
-          <Eye size={24} className="text-primary mb-4 group-hover:scale-110 transition-transform" />
+        <button
+          onClick={() => setSelected(s => s === 'cloud' ? null : 'cloud')}
+          className={`${cardBase} ${selected === 'cloud' ? 'border-primary/60 bg-primary/10' : 'border-primary/30 bg-primary/5 hover:bg-primary/10 hover:scale-[1.02]'}`}
+        >
+          <Eye size={22} className="text-primary mb-3" />
           <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Cloud Assisted</h3>
           <p className="text-[10px] text-white/50 leading-relaxed">Groq / OpenAI / Anthropic. Maximum speed.</p>
         </button>
+
+        {/* Ollama */}
+        <button
+          onClick={() => setSelected(s => s === 'ollama' ? null : 'ollama')}
+          className={`${cardBase} ${selected === 'ollama' ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 hover:scale-[1.02]'}`}
+        >
+          <div className={`absolute top-3 right-3 flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-mono ${
+            ollamaStatus === null ? 'bg-white/10 text-white/30' :
+            ollamaStatus.running ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-white/20'
+          }`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${ollamaStatus === null ? 'bg-white/20 animate-pulse' : ollamaStatus.running ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
+            {ollamaStatus === null ? 'checking…' : ollamaStatus.running ? 'detected' : 'not running'}
+          </div>
+          <ShieldAlert size={22} className="text-emerald-400 mb-3" />
+          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Ollama — Local</h3>
+          <p className="text-[10px] text-white/50 leading-relaxed">On-device via Ollama. No chat leaves your machine.</p>
+        </button>
+
+        {/* llama.cpp */}
+        <button
+          onClick={() => setSelected(s => s === 'llamacpp' ? null : 'llamacpp')}
+          className={`${cardBase} ${selected === 'llamacpp' ? 'border-violet-500/60 bg-violet-500/10' : 'border-violet-500/20 bg-violet-500/5 hover:bg-violet-500/10 hover:scale-[1.02]'}`}
+        >
+          <Cpu size={22} className="text-violet-400 mb-3" />
+          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">llama.cpp — Local GGUF</h3>
+          <p className="text-[10px] text-white/50 leading-relaxed">Run any GGUF model via llama-server. Fully offline.</p>
+        </button>
+
+        {/* Local Only — coming soon */}
+        <div className={`${cardBase} border-white/5 bg-white/5 opacity-40 cursor-not-allowed`}>
+          <span className="absolute top-3 right-3 text-[8px] font-mono text-white/30 bg-white/5 px-2 py-0.5 rounded-full uppercase tracking-widest">soon</span>
+          <Shield size={22} className="text-white/30 mb-3" />
+          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Local Only</h3>
+          <p className="text-[10px] text-white/40 leading-relaxed">100% on-device, no server needed. Coming soon.</p>
+        </div>
       </div>
-      {ollamaRunning === false && (
-        <p className="text-[10px] text-white/30 font-mono text-center">
-          To enable Hybrid: install Ollama at <span className="text-primary">ollama.ai</span> and run <span className="bg-white/5 px-1 rounded">ollama serve</span>
-        </p>
-      )}
+
+      {/* Ollama config panel */}
+      <AnimatePresence>
+        {selected === 'ollama' && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+            <div className="border border-emerald-500/20 bg-emerald-500/5 rounded-xl p-5 space-y-4">
+              <p className="font-mono text-[10px] text-emerald-400/70 uppercase tracking-widest font-bold">Ollama Config</p>
+              {!ollamaStatus?.running && (
+                <p className="text-[10px] text-amber-400/80 font-mono">
+                  Run <span className="bg-white/5 px-1 rounded text-amber-300">ollama serve</span> then{' '}
+                  <span className="bg-white/5 px-1 rounded text-amber-300">ollama pull llama3.2</span> to get started.
+                </p>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Server URL</label>
+                  <input value={ollamaUrl} onChange={e => setOllamaUrl(e.target.value)}
+                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80"
+                    placeholder="http://localhost:11434" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Model</label>
+                  {ollamaStatus?.running && ollamaStatus.models.length > 0 ? (
+                    <select value={ollamaModel} onChange={e => setOllamaModel(e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80 appearance-none">
+                      {ollamaStatus.models.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  ) : (
+                    <input value={ollamaModel} onChange={e => setOllamaModel(e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80"
+                      placeholder="llama3.2" />
+                  )}
+                </div>
+              </div>
+              <button onClick={confirmOllama}
+                className="w-full py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-400 rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
+                Use Ollama → Continue
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* llama.cpp config panel */}
+        {selected === 'llamacpp' && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+            <div className="border border-violet-500/20 bg-violet-500/5 rounded-xl p-5 space-y-4">
+              <p className="font-mono text-[10px] text-violet-400/70 uppercase tracking-widest font-bold">llama.cpp Config</p>
+              <p className="text-[10px] text-amber-400/80 font-mono">
+                Start with: <span className="bg-white/5 px-1 rounded text-amber-300">./llama-server -m model.gguf --port 8080</span>
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Server URL</label>
+                  <input value={llamaUrl} onChange={e => setLlamaUrl(e.target.value)}
+                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-violet-500/40 text-white/80"
+                    placeholder="http://localhost:8080" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Model Name <span className="text-white/20">(optional)</span></label>
+                  <input value={llamaModel} onChange={e => setLlamaModel(e.target.value)}
+                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-violet-500/40 text-white/80"
+                    placeholder="leave blank for default" />
+                </div>
+              </div>
+              <button onClick={confirmLlamaCpp}
+                className="w-full py-2.5 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 text-violet-400 rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
+                Use llama.cpp → Continue
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Cloud continue */}
+        {selected === 'cloud' && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+            <button onClick={confirmCloud}
+              className="w-full py-2.5 bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
+              Use Cloud → Continue
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };
@@ -289,10 +391,23 @@ const Step5Voice = ({ next, updateSettings, settings }: any) => {
       <div className="space-y-4">
         <h3 className="font-bold lowercase italic tracking-wide text-xs font-mono text-primary uppercase">Interaction Mode</h3>
         <div className="flex gap-2">
-          {['VAD (Always Listening)', 'Push To Talk', 'Hybrid', 'Disabled'].map(m => (
-            <button key={m} onClick={() => setInteractionMode(m)} className={`flex-1 py-3 px-2 text-[10px] uppercase tracking-wider font-bold rounded border ${interactionMode === m ? 'bg-primary/20 border-primary' : 'bg-transparent border-white/10 text-white/50 hover:bg-white/5'}`}>
-              {m}
-            </button>
+          {[
+            { id: 'VAD (Always Listening)', label: 'VAD', available: true },
+            { id: 'Push To Talk',           label: 'Push To Talk', available: false },
+            { id: 'Hybrid',                 label: 'Hybrid', available: false },
+            { id: 'Disabled',               label: 'Text Only', available: true },
+          ].map(m => (
+            m.available ? (
+              <button key={m.id} onClick={() => setInteractionMode(m.id)}
+                className={`flex-1 py-3 px-2 text-[10px] uppercase tracking-wider font-bold rounded border transition-all ${interactionMode === m.id ? 'bg-primary/20 border-primary text-white' : 'bg-transparent border-white/10 text-white/50 hover:bg-white/5'}`}>
+                {m.label}
+              </button>
+            ) : (
+              <div key={m.id} className="flex-1 relative flex flex-col items-center justify-center py-3 px-2 rounded border border-white/5 bg-transparent opacity-35 cursor-not-allowed select-none">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-white/40">{m.label}</span>
+                <span className="text-[7px] font-mono text-white/25 mt-0.5 uppercase tracking-widest">soon</span>
+              </div>
+            )
           ))}
         </div>
       </div>
