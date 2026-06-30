@@ -608,10 +608,10 @@ async def get_dashboard():
 @app.get("/api/ollama/status")
 async def ollama_status():
     """Returns Ollama running status + list of installed models."""
-    from brain import get_ollama_status
+    from brain import get_ollama_status, _safe_local_url
     from settings_manager import load_settings
     s = load_settings()
-    base_url = s.get("ollama_base_url", "http://localhost:11434")
+    base_url = _safe_local_url(s.get("ollama_base_url", "http://localhost:11434"), 11434)
     return get_ollama_status(base_url)
 
 @app.get("/api/profile")
@@ -1673,17 +1673,24 @@ def _onboarding_scan_sync():
                     skills.add(_SCAN_EXT_SKILL[ext])
                     has_code = True
             if depth > 0:
-                # os.walk is top-down, so a repo root is seen before its children;
-                # `under_known` then keeps src/backend/etc. from being listed twice.
-                under_known = any(root == rp or root.startswith(rp + os.sep)
-                                  for rp in project_paths.values())
+                # Case-insensitive on Windows (NTFS paths are case-insensitive but
+                # Python str comparison is not). Lower both sides before comparing.
+                root_lower = root.lower()
+                under_known = any(
+                    root_lower == rp.lower() or root_lower.startswith(rp.lower() + os.sep)
+                    for rp in project_paths.values()
+                )
+                if under_known:
+                    dirs.clear()  # stop descending into this known root's subtree
+                    continue
                 is_root = has_git or any(m in files for m in _SCAN_MARKER_FILES)
-                if is_root and not under_known:
+                if is_root:
                     name = os.path.basename(root)
                     if name not in project_paths:
                         projects.append(name)
                         project_paths[name] = root
-                elif has_code and not under_known:
+                    dirs.clear()  # don't recurse into this root's children
+                elif has_code:
                     code_folders.setdefault(os.path.basename(root), root)
             if len(projects) > 30:
                 break

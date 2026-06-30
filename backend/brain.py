@@ -176,34 +176,58 @@ def think_local(prompt, system_override=None, timeout=90):
         "You are a precise assistant. Follow the user's formatting instructions exactly."
     )
 
+    def _extract(data: dict) -> str:
+        return (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
+
     # ── Ollama ───────────────────────────────────────────────────────────────
+    # Skip the /api/tags pre-check — attempt the completion directly.
+    # ConnectionRefused is instant when Ollama is down; _extract() uses .get()
+    # so a malformed error body (no "choices" key) returns "" instead of crashing.
     ollama_url = _safe_local_url(settings.get("ollama_base_url", "http://localhost:11434"), 11434)
-    status = get_ollama_status(ollama_url)
-    if status.get("running"):
-        models = status.get("models", [])
-        model = settings.get("ollama_model", "llama3.2")
-        if models and model not in models:
-            model = models[0]  # configured model gone — use whatever's installed
-        try:
-            resp = requests.post(
-                f"{ollama_url}/v1/chat/completions",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_content},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "stream": False,
-                },
-                timeout=timeout,
-            )
-            content = resp.json()["choices"][0]["message"]["content"]
-            if content:
-                log.info(f"think_local → Ollama ({model})")
-                return content
-        except Exception as e:
-            log.warning(f"think_local Ollama call failed: {e}")
+    model = settings.get("ollama_model", "llama3.2")
+    try:
+        resp = requests.post(
+            f"{ollama_url}/v1/chat/completions",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": False,
+            },
+            timeout=timeout,
+        )
+        content = _extract(resp.json())
+        if content:
+            log.info(f"think_local → Ollama ({model})")
+            return content
+        if not resp.ok:
+            # Model might not be installed — lazy-fetch list and retry with whatever is
+            status = get_ollama_status(ollama_url)
+            fallback = next((m for m in status.get("models", []) if m != model), None)
+            if fallback:
+                log.warning(f"think_local: '{model}' not available, retrying with {fallback}")
+                resp2 = requests.post(
+                    f"{ollama_url}/v1/chat/completions",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": fallback,
+                        "messages": [
+                            {"role": "system", "content": system_content},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "stream": False,
+                    },
+                    timeout=timeout,
+                )
+                content = _extract(resp2.json())
+                if content:
+                    log.info(f"think_local → Ollama ({fallback})")
+                    return content
+    except Exception as e:
+        log.warning(f"think_local Ollama call failed: {e}")
 
     # ── llama.cpp ──────────────────────────────────────────────────────────────
     llamacpp_url = _safe_local_url(settings.get("llamacpp_base_url", "http://localhost:8080"), 8080)
@@ -224,7 +248,7 @@ def think_local(prompt, system_override=None, timeout=90):
                 },
                 timeout=timeout,
             )
-            content = resp.json()["choices"][0]["message"]["content"]
+            content = _extract(resp.json())
             if content:
                 log.info("think_local → llama.cpp")
                 return content

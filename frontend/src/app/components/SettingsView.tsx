@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { User, Terminal, Shield, Cpu, Wifi, WifiOff, RefreshCw, DownloadCloud, Brain, Zap, Calendar, Plus, Trash2, Link, Cloud, Key, Copy, Eye, EyeOff, AlertTriangle, CheckCircle, HardDrive } from 'lucide-react';
+import { FlowLocal, FlowCloud, FlowRaw } from './FlowDiagram';
 
 type ScreenId =
   | 'summaries_expanded'
@@ -19,62 +20,17 @@ type ScreenId =
   | 'meetings'
   | 'research_workspace';
 
-// ── Settings mini data-flow components ───────────────────────────────────────
-const SFN = ({ label, sub, c }: { label: string; sub?: string; c: string }) => (
-  <div className={`flex flex-col items-center px-2 py-1 rounded-md border text-center shrink-0 ${c}`}>
-    <span className="font-bold text-[9px] leading-tight whitespace-nowrap">{label}</span>
-    {sub && <span className="text-[7px] opacity-50 leading-tight mt-0.5 whitespace-nowrap">{sub}</span>}
-  </div>
-);
-const SFA = ({ c }: { c: string }) => <span className={`text-sm leading-none ${c}`}>→</span>;
+const CLOUD_MODELS = ['Groq_Llama_3', 'OpenAI_GPT_4o', 'Anthropic_Claude_3', 'Gemini_Flash'];
 
-const SFlowLocal = () => (
-  <div className="flex flex-col items-center gap-1.5 py-1.5">
-    <div className="flex items-center gap-1 flex-wrap justify-center">
-      <SFN label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
-      <SFA c="text-emerald-800" />
-      <SFN label="Primnox" sub="brain.py" c="border-emerald-800 bg-emerald-950 text-emerald-300" />
-      <SFA c="text-emerald-800" />
-      <SFN label="Local Model" sub="on-device" c="border-emerald-600 bg-emerald-950 text-emerald-300" />
-      <SFA c="text-emerald-800" />
-      <SFN label="Response" sub="raw" c="border-emerald-800 bg-emerald-950 text-emerald-300" />
-    </div>
-    <span className="text-[8px] text-emerald-700 font-mono tracking-widest uppercase">nothing leaves your machine</span>
-  </div>
-);
-
-const SFlowCloud = () => (
-  <div className="flex flex-col items-center gap-1.5 py-1.5">
-    <div className="flex items-center gap-1 flex-wrap justify-center">
-      <SFN label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
-      <SFA c="text-slate-700" />
-      <SFN label="Privacy Mirror" sub="DeBERTa NER" c="border-pink-800 bg-pink-950 text-pink-300" />
-      <SFA c="text-blue-800" />
-      <SFN label="Cloud API" sub="Groq / OpenAI" c="border-blue-800 bg-blue-950 text-blue-300" />
-      <SFA c="text-pink-800" />
-      <SFN label="Rehydrate" sub="names back" c="border-pink-800 bg-pink-950 text-pink-300" />
-      <SFA c="text-slate-700" />
-      <SFN label="You" sub="real names" c="border-slate-700 bg-slate-900 text-slate-300" />
-    </div>
-    <span className="text-[8px] text-pink-800 font-mono tracking-widest uppercase">cloud only sees §NAME_1§ — not your real name</span>
-  </div>
-);
-
-const SFlowRaw = () => (
-  <div className="flex flex-col items-center gap-1.5 py-1.5">
-    <div className="flex items-center gap-1 flex-wrap justify-center">
-      <SFN label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
-      <SFA c="text-slate-700" />
-      <SFN label="Primnox" sub="brain.py" c="border-slate-700 bg-slate-900 text-slate-400" />
-      <SFA c="text-slate-600" />
-      <SFN label="Cloud API" sub="Groq / OpenAI" c="border-slate-600 bg-slate-900 text-slate-300" />
-      <SFA c="text-slate-700" />
-      <SFN label="You" sub="response" c="border-slate-700 bg-slate-900 text-slate-300" />
-    </div>
-    <span className="text-[8px] text-amber-700 font-mono tracking-widest uppercase">your data reaches the cloud as-is</span>
-  </div>
-);
-// ─────────────────────────────────────────────────────────────────────────────
+const deriveArch = (
+  model: string,
+  mirror: boolean,
+  key: string
+): 'local' | 'hybrid' | 'cloud_shield' | 'cloud_raw' => {
+  if (model === 'Ollama_Local' || model === 'LlamaCpp_Local')
+    return key ? 'hybrid' : 'local';
+  return mirror ? 'cloud_shield' : 'cloud_raw';
+};
 
 export const IslandSettings = ({ 
   onNavigate,
@@ -187,19 +143,24 @@ export const IslandSettings = ({
   // ── PII model status ──────────────────────────────────────────────────────────
   const [piiModelStatus, setPiiModelStatus] = useState<'loading'|'ready'|'failed'|'unavailable'|null>(null);
 
-  // ── Architecture mode (derived from props on mount) ───────────────────────
-  const [archMode, setArchMode] = useState<'local' | 'hybrid' | 'cloud_shield' | 'cloud_raw'>(() => {
-    if (activeModel === 'Ollama_Local' || activeModel === 'LlamaCpp_Local')
-      return apiKey ? 'hybrid' : 'local';
-    return privacyMirrorEnabled ? 'cloud_shield' : 'cloud_raw';
-  });
+  // ── Architecture mode ─────────────────────────────────────────────────────
+  const [archMode, setArchMode] = useState<'local' | 'hybrid' | 'cloud_shield' | 'cloud_raw'>(
+    () => deriveArch(activeModel, privacyMirrorEnabled, apiKey)
+  );
   const [localEngine, setLocalEngine] = useState<'ollama' | 'llamacpp'>(
     activeModel === 'LlamaCpp_Local' ? 'llamacpp' : 'ollama'
   );
-  const [cloudModel, setCloudModel] = useState(() => {
-    const cloud = ['Groq_Llama_3', 'OpenAI_GPT_4o', 'Anthropic_Claude_3', 'Gemini_Flash'];
-    return cloud.includes(activeModel) ? activeModel : 'Groq_Llama_3';
-  });
+  const [cloudModel, setCloudModel] = useState(
+    () => CLOUD_MODELS.includes(activeModel) ? activeModel : 'Groq_Llama_3'
+  );
+
+  // Re-sync when the parent finishes its async settings load — the lazy
+  // initialisers above may have run while activeModel was still the default.
+  useEffect(() => {
+    setArchMode(deriveArch(activeModel, privacyMirrorEnabled, apiKey));
+    setLocalEngine(activeModel === 'LlamaCpp_Local' ? 'llamacpp' : 'ollama');
+    if (CLOUD_MODELS.includes(activeModel)) setCloudModel(activeModel);
+  }, [activeModel, privacyMirrorEnabled, apiKey]);
   useEffect(() => {
     if (activeTab !== 'Security') return;
     fetch('http://localhost:4009/api/status', { signal: AbortSignal.timeout(4000) })
@@ -562,7 +523,7 @@ export const IslandSettings = ({
                     {(archMode === 'local' || archMode === 'hybrid') && (
                       <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
                         className={`rounded-xl border p-5 space-y-4 ${archMode === 'hybrid' ? 'border-orange-500/20 bg-orange-500/5' : 'border-emerald-500/20 bg-emerald-500/5'}`}>
-                        <SFlowLocal />
+                        <FlowLocal />
 
                         {/* Engine toggle */}
                         <div className="flex gap-2">
@@ -652,7 +613,7 @@ export const IslandSettings = ({
                     {(archMode === 'cloud_shield' || archMode === 'cloud_raw') && (
                       <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
                         className={`rounded-xl border p-5 space-y-4 ${archMode === 'cloud_shield' ? 'border-blue-500/20 bg-blue-500/5' : 'border-slate-500/20 bg-slate-500/5'}`}>
-                        {archMode === 'cloud_shield' ? <SFlowCloud /> : <SFlowRaw />}
+                        {archMode === 'cloud_shield' ? <FlowCloud /> : <FlowRaw />}
 
                         <div className="space-y-1.5">
                           <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">Cloud_Model</label>
