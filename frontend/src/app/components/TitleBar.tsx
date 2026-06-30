@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Minus, Square, X, MessageSquare, DownloadCloud } from 'lucide-react';
 import { FeedbackModal } from './FeedbackModal';
 
-export const APP_VERSION = "0.0.9";
+// Pull version from package.json automatically via Vite — never needs manual update
+export const APP_VERSION: string = (import.meta.env.VITE_APP_VERSION as string) || "0.1.1";
+
 
 export const TitleBar = () => {
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
