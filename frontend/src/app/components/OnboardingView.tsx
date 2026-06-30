@@ -111,6 +111,49 @@ const Step1Welcome = ({ next, skip }: any) => (
   </motion.div>
 );
 
+// ── Mini data-flow diagrams for Step 2 ──────────────────────────────────────
+const FN = ({ label, sub, c }: { label: string; sub?: string; c: string }) => (
+  <div className={`flex flex-col items-center px-2 py-1 rounded-md border text-center shrink-0 ${c}`}>
+    <span className="font-bold text-[9px] leading-tight whitespace-nowrap">{label}</span>
+    {sub && <span className="text-[7px] opacity-50 leading-tight mt-0.5 whitespace-nowrap">{sub}</span>}
+  </div>
+);
+const FA = ({ c }: { c: string }) => <span className={`text-sm leading-none ${c}`}>→</span>;
+
+const FlowLocal = () => (
+  <div className="flex flex-col items-center gap-1.5 py-2">
+    <div className="flex items-center gap-1 flex-wrap justify-center">
+      <FN label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
+      <FA c="text-emerald-700" />
+      <FN label="Primnox" sub="brain.py" c="border-emerald-800 bg-emerald-950 text-emerald-300" />
+      <FA c="text-emerald-700" />
+      <FN label="Local Model" sub="on-device" c="border-emerald-600 bg-emerald-950 text-emerald-300" />
+      <FA c="text-emerald-700" />
+      <FN label="Response" sub="raw" c="border-emerald-800 bg-emerald-950 text-emerald-300" />
+    </div>
+    <span className="text-[8px] text-emerald-600 font-mono tracking-widest uppercase">nothing leaves your machine</span>
+  </div>
+);
+
+const FlowCloud = () => (
+  <div className="flex flex-col items-center gap-1.5 py-2">
+    <div className="flex items-center gap-1 flex-wrap justify-center">
+      <FN label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
+      <FA c="text-slate-600" />
+      <FN label="Privacy Mirror" sub="DeBERTa NER" c="border-pink-800 bg-pink-950 text-pink-300" />
+      <FA c="text-blue-700" />
+      <FN label="Cloud API" sub="Groq / OpenAI" c="border-blue-800 bg-blue-950 text-blue-300" />
+      <FA c="text-pink-700" />
+      <FN label="Rehydrate" sub="names restored" c="border-pink-800 bg-pink-950 text-pink-300" />
+      <FA c="text-slate-600" />
+      <FN label="You" sub="real names" c="border-slate-700 bg-slate-900 text-slate-300" />
+    </div>
+    <span className="text-[8px] text-pink-700 font-mono tracking-widest uppercase">cloud only ever sees §NAME_1§ — not your real name</span>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const Step2Privacy = ({ next, updateSettings, settings }: any) => {
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
   const [selected, setSelected] = useState<'cloud' | 'ollama' | 'llamacpp' | null>(null);
@@ -228,6 +271,9 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
                   )}
                 </div>
               </div>
+              <div className="border-t border-emerald-500/10 pt-2">
+                <FlowLocal />
+              </div>
               <button onClick={confirmOllama}
                 className="w-full py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-400 rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
                 Use Ollama → Continue
@@ -258,6 +304,9 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
                     placeholder="leave blank for default" />
                 </div>
               </div>
+              <div className="border-t border-violet-500/10 pt-2">
+                <FlowLocal />
+              </div>
               <button onClick={confirmLlamaCpp}
                 className="w-full py-2.5 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 text-violet-400 rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
                 Use llama.cpp → Continue
@@ -269,10 +318,17 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
         {/* Cloud continue */}
         {selected === 'cloud' && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-            <button onClick={confirmCloud}
-              className="w-full py-2.5 bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
-              Use Cloud → Continue
-            </button>
+            <div className="border border-primary/20 bg-primary/5 rounded-xl p-5 space-y-4">
+              <p className="font-mono text-[10px] text-primary/60 uppercase tracking-widest font-bold">Cloud + Privacy Mirror</p>
+              <FlowCloud />
+              <p className="text-[10px] text-white/30 font-mono">
+                Privacy Mirror is <span className="text-emerald-400">on by default</span> — your name, email, and phone are pseudonymised before leaving your machine. You can toggle it in Settings → Security.
+              </p>
+              <button onClick={confirmCloud}
+                className="w-full py-2.5 bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
+                Use Cloud → Continue
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
