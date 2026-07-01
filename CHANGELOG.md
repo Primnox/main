@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.1 (2026-06-29)
+## v0.1.1 (2026-07-01)
 
 ### 🔒 Privacy Mirror — Reversible PII Scrubbing
 - Replaced the old one-way redaction with a reversible pseudonymizer: detected PII is swapped for stable `§LABEL_n§` placeholders before a request leaves the device and rehydrated in the reply, so you read real names while the cloud only ever sees de-identified text.
@@ -32,7 +32,43 @@
 
 ### 🧹 Housekeeping
 - Added `social-automation` module.
-- Stopped tracking nested `__pycache__` bytecode and broadened `.gitignore` (recursive `**/__pycache__`, `*.orig`, dev screenshots).
+- Stopped tracking nested `__pycache__` bytecode and broadened `.gitignore`.
+- Added `chat_sessions.json`, `memory.json`, `memories.json` to `.gitignore` — personal data never committed.
+- Scrubbed `chat.db` from entire git history using `git-filter-repo`.
+
+### 🔧 Privacy Mirror — Quality Improvements
+- Scrubber now loads NER model in fp32 (was fp16) — eliminates tokenizer artifacts on CPU.
+- Dropped `TIME` entity type from scrubbing — timestamps are not PII and caused false positives.
+- Added app-name denylist so "Primnox", "Groq", "Gemini" etc. are never replaced.
+- Startup race fixed: `ensure_model_ready()` blocks the first cloud message until the PII model is fully loaded.
+- Privacy Mirror now **defaults to ON** (privacy-first) — users opt out rather than opt in.
+
+### ⚙️ Settings Redesign
+- Replaced the old model dropdown with a **4-card privacy architecture selector**: Full Cloud, Privacy Mirror, Local + Cloud, Full Local.
+- Each card shows a clear description of what leaves the device and what stays local.
+- Vault, backup, and cleanup controls reorganised into dedicated collapsible sections.
+
+### 🧭 Onboarding Overhaul
+- Step 2 now embeds **interactive data-flow diagrams** for each privacy mode so users understand what they're choosing.
+- Local LLM setup (Ollama / llama.cpp) added directly to onboarding step 2.
+- Voice modes that aren't yet implemented are greyed out with a "coming soon" label.
+- Local model file reader: Primnox can now read your project files via the local model without sending anything to the cloud.
+- Remaining UX gaps across steps 3, 8, 11, 13 closed.
+
+### 🔌 Port Migration
+- Backend moved from port `8000` → `4009` to avoid conflicts with other common local services.
+- All frontend fetch calls, WebSocket URLs, and `electron.cjs` port-kill logic updated to `4009`.
+
+### 🖥️ Electron / App Fixes
+- Fixed transparent frameless window not appearing: `openDevTools()` now fires **after** `ready-to-show`, not during load — was suppressing the event on Windows.
+- Dev mode no longer kills port 4009 or spawns a duplicate Python backend — uses the already-running one.
+- Version in title bar now reads from `package.json` via Vite `import.meta.env.VITE_APP_VERSION` — no more manual version string hunts.
+
+### 📄 Open Source Docs
+- Added `LICENSE` (MIT).
+- Added `CONTRIBUTING.md` with contribution guidelines.
+- Added `CLA.md` (Contributor License Agreement).
+
 
 ## v0.1.0 (2026-06-12)
 

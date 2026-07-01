@@ -1,33 +1,68 @@
-# Primnox v0.1.1 (2026-06-29)
+# Primnox v0.1.1 Release Notes
+**Released: 2026-07-01**
+
+---
+
+## What's New
 
 ### 🔒 Privacy Mirror — Reversible PII Scrubbing
-- Replaced the old one-way redaction with a reversible pseudonymizer: detected PII is swapped for stable `§LABEL_n§` placeholders before a request leaves the device and rehydrated in the reply, so you read real names while the cloud only ever sees de-identified text.
-- **Cloud-boundary gating** — scrubbing runs *only* on cloud routes (Groq / OpenAI / Anthropic / Gemini). Local models (Ollama, llama.cpp) receive raw text untouched, since nothing leaves the machine.
-- Ships a fp16-packed DeBERTa PII model (`ai4privacy` fine-tune) inside the app, resolved from the PyInstaller bundle / exe dir / `backend/models/pii` and upcast to fp32 on CPU for correctness. Reuses the torch already bundled for YOLO, so the net cost is ~480 MB.
-- Subword tokenizer fragments are coalesced so placeholders no longer come out garbled (`§FIRSTNAME_2§§EMAIL_2§…`).
-- Streaming-safe: a partial-placeholder-aware rehydrator buffers placeholders that get split across stream chunks.
-- **In-chat reveal** — a DeepSeek-style collapsible "Privacy Mirror" block shows exactly what was scrubbed (original → placeholder) for each cloud message.
-- `ensure_model_ready()` closes the startup race where early messages could reach the cloud before the model finished loading.
+Your personal data never leaves your device in plaintext. PII is detected and replaced with stable placeholders (`§FIRSTNAME_1§`) before any cloud request, then rehydrated in the reply so you read real names. Streaming-safe. An in-chat collapsible block shows exactly what was scrubbed per message.
 
-### 🎙️ Meeting Transcription & Audio Fixes
-- Added mic + speaker audio capture with WASAPI loopback to ensure full meeting audio context.
-- Integrated Whisper transcription directly into the pipeline with size-bounded buffer handling to prevent memory growth.
-- Improved the transcription engine via a shared transcriber and scoped port-killing on exit.
-- Dropped unused PortAudio DLLs (`sounddevice`) from the Windows build, relying strictly on native Windows audio handling to reduce installer size.
+**Quality improvements in this release:**
+- NER model now loads in fp32 — no more garbled placeholder output
+- `TIME` entity dropped from scrubbing (timestamps aren't PII)
+- App-name denylist: "Primnox", "Groq", "Gemini" etc. are never redacted
+- Privacy Mirror now **defaults to ON** — privacy-first out of the box
+- Startup race fixed: PII model is guaranteed loaded before the first cloud message
+
+### ⚙️ Settings Redesign
+The model picker is replaced with a **4-card privacy architecture selector**:
+- **Full Cloud** — fastest, all processing in the cloud
+- **Privacy Mirror** — cloud speed + on-device PII scrubbing
+- **Local + Cloud** — local model for chat, cloud for heavy tasks
+- **Full Local** — nothing leaves your machine (requires Ollama / llama.cpp)
+
+### 🧭 Onboarding Overhaul
+- Interactive data-flow diagrams in step 2 show what each privacy mode does
+- Local LLM setup (Ollama / llama.cpp) built into onboarding
+- Voice modes that aren't ready are greyed out with "coming soon"
+- UX gaps across steps 3, 8, 11, 13 fixed
+
+### 🎙️ Meeting Transcription & Audio
+- Full mic + speaker capture via WASAPI loopback
+- Whisper transcription with size-bounded buffers (no more memory growth)
+- Shared transcriber instance across sessions
+- Dropped unused PortAudio DLLs — smaller Windows installer
 
 ### 💾 Backup Import
-- New **Import from File** option in Settings → Backup: restore straight from a local encrypted `.prx` file with your 12-word seed phrase — no cloud provider required.
-- `POST /api/backup/import` + `backup_manager.restore_from_bytes()` reuse the existing decrypt/restore pipeline; a wrong seed phrase now surfaces a clear "Wrong seed phrase for this backup" message instead of a raw crypto error.
+Restore from a local `.prx` file with your 12-word seed phrase — no cloud provider needed.
 
-### 🛡️ App Security & Stability
-- Prevented a path traversal vulnerability in the meeting-delete endpoints.
-- Added a DNS-rebinding host guard for added local API security.
-- Hardened app lifecycle: explicitly frees backend ports on launch and cleanly kills the backend process tree when the UI quits, preventing zombie processes.
-- Updated Windows installer CI workflow (`build-windows.yml`) with proper caching, dependency stripping, and automated cross-repo publishing.
+### 🛡️ Security & Stability
+- Path traversal vulnerability in meeting-delete endpoints patched
+- DNS-rebinding host guard added to local API
+- Backend port moved `8000 → 4009` to avoid conflicts
+- App lifecycle hardened: ports freed on launch, backend process tree killed cleanly on quit
+
+### 🖥️ Electron Fixes
+- Transparent frameless window now reliably appears on Windows
+- Dev mode no longer kills and respawns the backend
+- Title bar version auto-syncs from `package.json`
 
 ### 🎨 Branding
-- First real Primnox app icon — monogram "P" + warm node on the dark brand tile. Multi-size `.ico` (16–256) wired into the Windows exe, taskbar, system tray, and the NSIS installer/uninstaller dialogs.
+- First real Primnox icon — multi-size `.ico` (16–256 px) across exe, taskbar, tray, and NSIS installer
+
+### 📄 Open Source
+- MIT License added
+- `CONTRIBUTING.md` and `CLA.md` added
 
 ### 🧹 Housekeeping
-- Added `social-automation` module.
-- Stopped tracking nested `__pycache__` bytecode and broadened `.gitignore` (recursive `**/__pycache__`, `*.orig`, dev screenshots).
+- `chat.db` scrubbed from entire git history
+- `chat_sessions.json`, `memory.json` added to `.gitignore`
+- `social-automation` module added
+
+---
+
+## Installation
+Download `Primnox-Setup-0.1.1.exe` from the [Releases page](https://github.com/Primnox/public/releases/tag/v0.1.1) and run it.
+
+**Minimum requirements:** Windows 10/11 x64, 8 GB RAM (16 GB recommended for local models)
