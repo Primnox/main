@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { Minus, Square, X, MessageSquare, DownloadCloud } from 'lucide-react';
 import { FeedbackModal } from './FeedbackModal';
 
-// Pull version from package.json automatically via Vite — never needs manual update
-export const APP_VERSION: string = (import.meta.env.VITE_APP_VERSION as string) || "0.1.1";
+// Version is injected by Vite at build time from package.json (see vite.config.ts define)
+declare const __APP_VERSION__: string;
+export const APP_VERSION: string = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.1');
 
 
 export const TitleBar = () => {
