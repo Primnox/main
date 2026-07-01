@@ -65,7 +65,7 @@
 - Version in title bar now reads from `package.json` via Vite `import.meta.env.VITE_APP_VERSION` — no more manual version string hunts.
 
 ### 📄 Open Source Docs
-- Added `LICENSE` (MIT).
+- Added `LICENSE` — **Business Source License 1.1**: free for non-commercial use, converts to AGPL v3 on 2029-06-30.
 - Added `CONTRIBUTING.md` with contribution guidelines.
 - Added `CLA.md` (Contributor License Agreement).
 

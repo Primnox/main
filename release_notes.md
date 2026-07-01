@@ -52,8 +52,8 @@ Restore from a local `.prx` file with your 12-word seed phrase — no cloud prov
 - First real Primnox icon — multi-size `.ico` (16–256 px) across exe, taskbar, tray, and NSIS installer
 
 ### 📄 Open Source
-- MIT License added
-- `CONTRIBUTING.md` and `CLA.md` added
+- **Business Source License 1.1** — free for personal, educational, and research use. Commercial use requires a separate license. On **2029-06-30** the license automatically converts to **AGPL v3**.
+- `CONTRIBUTING.md` and `CLA.md` added.
 
 ### 🧹 Housekeeping
 - `chat.db` scrubbed from entire git history
