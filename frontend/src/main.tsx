@@ -4,6 +4,12 @@ import App from './app/App.tsx'
 import './styles/tailwind.css'
 import { ErrorBoundary } from './app/components/ErrorBoundary'
 import { initTheme } from './app/hooks/useTheme'
+import { installElectronBridge } from './bridge/electronBridge'
+
+// Under Tauri there is no preload script, so `window.electron` has to be
+// installed here — before React mounts and components start registering IPC
+// listeners. No-op under Electron, where preload.js already provided it.
+installElectronBridge();
 
 // Apply the saved theme before the first paint, otherwise the window shows the
 // default palette for a frame and then swaps — very visible on light themes.

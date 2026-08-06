@@ -2,6 +2,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle, Terminal, Copy, X, Music, Maximize2, SkipBack, Play, Pause, SkipForward, Calendar } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useVadLevel } from '../../hooks/usePrimnox';
+import { isTauriRuntime } from '../../bridge/electronBridge';
+import { useIslandAutoSize } from '../../bridge/useIslandAutoSize';
 
 type AppMode = 'chat' | 'notes' | 'research';
 type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy' | 'error';
@@ -81,6 +83,12 @@ export const DynamicIsland = ({
   // High-frequency (10Hz+) VAD level — read via a pub-sub bus (vadBus), not
   // App-level React state, so updates only re-render this component.
   const vadLevel = useVadLevel();
+
+  // Under Tauri the overlay window is resized to hug the pill instead of being
+  // made click-through; see useIslandAutoSize for why the Electron handshake
+  // cannot work there.
+  const usesClickThrough = isWindowIsland && !isTauriRuntime();
+  const pillRef = useIslandAutoSize(isWindowIsland);
 
   // ── Error fix copy ─────────────────────────────────────────────────────
   const [fixCopied, setFixCopied] = useState(false);
@@ -218,8 +226,13 @@ export const DynamicIsland = ({
     let holdTimer: ReturnType<typeof setTimeout> | null = null;
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (MODIFIERS.has(e.key) && !showChordHints) {
+      // Holding a modifier auto-repeats keydown. Without the `e.repeat` and
+      // `!holdTimer` guards each repeat armed another timer while overwriting
+      // the handle, so keyup could only cancel the last one — the rest fired
+      // after release and left the hints stuck on screen with no key held.
+      if (MODIFIERS.has(e.key) && !showChordHints && !e.repeat && !holdTimer) {
         holdTimer = setTimeout(() => {
+          holdTimer = null;
           setChordModifier(e.key);
           setShowChordHints(true);
         }, 400);
@@ -303,15 +316,16 @@ export const DynamicIsland = ({
           mass: 1,
           layout: { type: 'spring', stiffness: 500, damping: 30 },
         }}
+        ref={pillRef as any}
         style={{ borderRadius: '0 0 28px 28px', WebkitAppRegion: 'no-drag' } as any}
         className={`pointer-events-auto bg-surface/90 backdrop-blur-2xl border-b border-l border-r flex flex-col shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden min-h-[52px] ${islandBorderClass}`}
         onMouseEnter={() => {
-          if (isWindowIsland && (window as any).electron) {
+          if (usesClickThrough && (window as any).electron) {
             (window as any).electron.ipcRenderer.send('island:set-ignore-mouse', false);
           }
         }}
         onMouseLeave={() => {
-          if (isWindowIsland && (window as any).electron) {
+          if (usesClickThrough && (window as any).electron) {
             (window as any).electron.ipcRenderer.send('island:set-ignore-mouse', true);
           }
         }}
