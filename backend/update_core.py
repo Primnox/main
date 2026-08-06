@@ -1,4 +1,10 @@
 import re
+from pathlib import Path
+
+# Resolve paths relative to this file. These were absolute paths on the
+# original author's Windows machine, which leaked a username and broke the
+# script for everyone else.
+_BACKEND_DIR = Path(__file__).resolve().parent
 
 new_process_input = """
     def _process_input(self, raw_text, speaker, input_mode="text", session_id="current"):
@@ -89,12 +95,12 @@ new_process_input = """
 
 """
 
-with open('C:/Users/aniketh/Projects/Primnox/backend/core.py', 'r', encoding='utf-8') as f:
+with open(str(_BACKEND_DIR / "core.py"), 'r', encoding='utf-8') as f:
     content = f.read()
 
 # Replace _process_input entirely. We also need to strip out route_by_trigger and handle_route as they are obsolete, but it's safer to just replace _process_input.
 content = re.sub(r'    def _process_input\(self, raw_text, speaker, input_mode="text", session_id="current"\):.*?(?=    def route_by_trigger)', new_process_input, content, flags=re.DOTALL)
 
-with open('C:/Users/aniketh/Projects/Primnox/backend/core.py', 'w', encoding='utf-8') as f:
+with open(str(_BACKEND_DIR / "core.py"), 'w', encoding='utf-8') as f:
     f.write(content)
 print('Updated core.py.')

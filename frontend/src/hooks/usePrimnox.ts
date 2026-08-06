@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import { API_BASE } from '../config';
 
-const API_BASE_URL = 'http://localhost:4009';
+const API_BASE_URL = API_BASE;
 
 export interface Toast {
   id: string;

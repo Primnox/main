@@ -267,18 +267,18 @@ export const DynamicIsland = ({
 
   const islandBorderClass =
     isZenith
-      ? 'border-indigo-500/30 shadow-[0_0_50px_rgba(99,102,241,0.2)]'
+      ? 'border-primary/30 shadow-[0_0_50px_rgba(99,102,241,0.2)]'
       : deadline && isDeadlineCritical
-      ? 'border-red-500/60 shadow-[0_0_60px_rgba(239,68,68,0.4)]'
+      ? 'border-error/60 shadow-[0_0_60px_rgba(239,68,68,0.4)]'
       : deadline && isDeadlineWarning
-      ? 'border-amber-500/40 shadow-[0_0_40px_rgba(245,158,11,0.2)]'
+      ? 'border-warn/40 shadow-[0_0_40px_rgba(245,158,11,0.2)]'
       : status === 'listening'
       ? 'border-primary/50 shadow-[0_0_50px_rgba(79,70,229,0.3)]'
       : status === 'error'
-      ? 'border-red-500/50 shadow-[0_0_50px_rgba(239,68,68,0.25)]'
+      ? 'border-error/50 shadow-[0_0_50px_rgba(239,68,68,0.25)]'
       : productivityScore < 50
-      ? 'border-amber-500/15 shadow-[0_10px_40px_rgba(0,0,0,0.8)]'
-      : 'border-white/10';
+      ? 'border-warn/15 shadow-[0_10px_40px_rgba(0,0,0,0.8)]'
+      : 'border-on-surface/10';
 
   return (
     <div className="fixed top-0 left-0 right-0 z-[100] pointer-events-none flex flex-col justify-center items-center gap-2">
@@ -304,7 +304,7 @@ export const DynamicIsland = ({
           layout: { type: 'spring', stiffness: 500, damping: 30 },
         }}
         style={{ borderRadius: '0 0 28px 28px', WebkitAppRegion: 'no-drag' } as any}
-        className={`pointer-events-auto bg-black/90 backdrop-blur-2xl border-b border-l border-r flex flex-col shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden min-h-[52px] ${islandBorderClass}`}
+        className={`pointer-events-auto bg-surface/90 backdrop-blur-2xl border-b border-l border-r flex flex-col shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden min-h-[52px] ${islandBorderClass}`}
         onMouseEnter={() => {
           if (isWindowIsland && (window as any).electron) {
             (window as any).electron.ipcRenderer.send('island:set-ignore-mouse', false);
@@ -328,20 +328,20 @@ export const DynamicIsland = ({
               className="flex flex-col w-[520px] p-4 space-y-2"
             >
               <div className="flex justify-between items-center">
-                <span className="font-mono text-[9px] text-indigo-400/60 uppercase tracking-widest">⬡ Zenith_Mode</span>
+                <span className="font-mono text-[9px] text-primary/60 uppercase tracking-widest">⬡ Zenith_Mode</span>
                 <div className="flex items-center gap-3">
-                  <span className="font-mono text-[9px] text-white/25 tabular-nums">{zenithElapsed}</span>
-                  <button onClick={deactivateZenith} className="text-white/30 hover:text-white transition-colors"><X size={13} /></button>
+                  <span className="font-mono text-[9px] text-on-surface/52 tabular-nums">{zenithElapsed}</span>
+                  <button onClick={deactivateZenith} className="text-on-surface/55 hover:text-on-surface transition-colors"><X size={13} /></button>
                 </div>
               </div>
               <input
                 value={zenithTask}
                 onChange={e => setZenithTask(e.target.value)}
                 placeholder="what are you locked in on..."
-                className="bg-transparent text-[12px] text-white font-mono outline-none placeholder-white/20 border-b border-white/10 pb-1 w-full"
+                className="bg-transparent text-[12px] text-on-surface font-mono outline-none placeholder-on-surface/20 border-b border-on-surface/10 pb-1 w-full"
                 autoFocus
               />
-              <div className="flex items-center text-[8px] font-mono text-white/15 uppercase tracking-widest gap-3">
+              <div className="flex items-center text-[8px] font-mono text-on-surface/42 uppercase tracking-widest gap-3">
                 <span>⬡ notifications suppressed</span>
                 <span className="ml-auto">Esc · Ctrl+Shift+Z to exit</span>
               </div>
@@ -357,28 +357,28 @@ export const DynamicIsland = ({
               className="flex flex-col w-[360px] p-4 space-y-2"
             >
               <div className="flex justify-between items-center">
-                <span className="font-mono text-[9px] text-amber-400/60 uppercase tracking-widest">Deadline_Bomb</span>
-                <button onClick={() => setDeadlineInput(false)} className="text-white/30 hover:text-white transition-colors"><X size={13} /></button>
+                <span className="font-mono text-[9px] text-warn/60 uppercase tracking-widest">Deadline_Bomb</span>
+                <button onClick={() => setDeadlineInput(false)} className="text-on-surface/55 hover:text-on-surface transition-colors"><X size={13} /></button>
               </div>
               <input
                 value={deadlineText}
                 onChange={e => setDeadlineText(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && armDeadline()}
                 placeholder="what's the deadline for?"
-                className="bg-transparent text-[11px] text-white font-mono outline-none placeholder-white/20 border-b border-white/10 pb-1 w-full"
+                className="bg-transparent text-[11px] text-on-surface font-mono outline-none placeholder-on-surface/20 border-b border-on-surface/10 pb-1 w-full"
                 autoFocus
               />
               <div className="flex items-center gap-2">
                 <input
                   value={deadlineMinutes}
                   onChange={e => setDeadlineMinutes(e.target.value.replace(/[^0-9]/g, ''))}
-                  className="w-14 bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[10px] font-mono text-center text-white outline-none"
+                  className="w-14 bg-on-surface/5 border border-on-surface/10 rounded px-2 py-0.5 text-[10px] font-mono text-center text-on-surface outline-none"
                   placeholder="25"
                 />
-                <span className="text-white/30 text-[9px] font-mono">minutes</span>
+                <span className="text-on-surface/55 text-[9px] font-mono">minutes</span>
                 <button
                   onClick={armDeadline}
-                  className="ml-auto bg-amber-500/20 text-amber-300 border border-amber-500/30 px-4 py-1 rounded-full font-mono text-[9px] uppercase hover:bg-amber-500 hover:text-black transition-all"
+                  className="ml-auto bg-warn/20 text-warn border border-warn/30 px-4 py-1 rounded-full font-mono text-[9px] uppercase hover:bg-warn/20 hover:text-surface transition-all"
                 >
                   ARM
                 </button>
@@ -392,22 +392,22 @@ export const DynamicIsland = ({
               initial={{ opacity: 0, filter: 'blur(5px)' }}
               animate={{ opacity: 1, filter: 'blur(0px)' }}
               exit={{ opacity: 0, filter: 'blur(5px)' }}
-              className={`flex items-center gap-4 w-[400px] px-5 py-3 ${isDeadlineCritical ? 'bg-red-500/5' : ''}`}
+              className={`flex items-center gap-4 w-[400px] px-5 py-3 ${isDeadlineCritical ? 'bg-error/5' : ''}`}
             >
               <div className="flex-1 overflow-hidden min-w-0">
-                <p className="font-mono text-[9px] text-amber-400/50 uppercase tracking-widest truncate">{deadline.label}</p>
-                <div className="mt-1.5 h-0.5 w-full bg-white/5 rounded-full overflow-hidden">
+                <p className="font-mono text-[9px] text-warn/50 uppercase tracking-widest truncate">{deadline.label}</p>
+                <div className="mt-1.5 h-0.5 w-full bg-on-surface/5 rounded-full overflow-hidden">
                   <motion.div
-                    className={`h-full rounded-full transition-colors ${isDeadlineCritical ? 'bg-red-500' : isDeadlineWarning ? 'bg-amber-400' : 'bg-amber-500/60'}`}
+                    className={`h-full rounded-full transition-colors ${isDeadlineCritical ? 'bg-error/20' : isDeadlineWarning ? 'bg-warn/25' : 'bg-warn/60'}`}
                     animate={{ width: `${deadlinePct}%` }}
                     transition={{ duration: 0.5 }}
                   />
                 </div>
               </div>
-              <span className={`font-mono text-xl font-bold tabular-nums shrink-0 ${isDeadlineCritical ? 'text-red-400' : 'text-amber-300'}`}>
+              <span className={`font-mono text-xl font-bold tabular-nums shrink-0 ${isDeadlineCritical ? 'text-error' : 'text-warn'}`}>
                 {deadlineRemaining}
               </span>
-              <button onClick={() => setDeadline(null)} className="text-white/30 hover:text-white transition-colors shrink-0"><X size={13} /></button>
+              <button onClick={() => setDeadline(null)} className="text-on-surface/55 hover:text-on-surface transition-colors shrink-0"><X size={13} /></button>
             </motion.div>
 
           ) : status === 'error' && errorPayload ? (
@@ -420,18 +420,18 @@ export const DynamicIsland = ({
               className="flex flex-col w-[420px] p-4 space-y-2"
             >
               <div className="flex justify-between items-center">
-                <span className="font-mono text-[9px] text-red-400/70 uppercase tracking-widest">System_Error</span>
-                <button onClick={() => { onClearError?.(); setStatus('idle'); }} className="text-white/40 hover:text-white transition-colors"><X size={13} /></button>
+                <span className="font-mono text-[9px] text-error/70 uppercase tracking-widest">System_Error</span>
+                <button onClick={() => { onClearError?.(); setStatus('idle'); }} className="text-on-surface/60 hover:text-on-surface transition-colors"><X size={13} /></button>
               </div>
-              <p className="text-[11px] text-white/90 font-mono leading-relaxed">{errorPayload.summary}</p>
+              <p className="text-[11px] text-on-surface/90 font-mono leading-relaxed">{errorPayload.summary}</p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 text-[10px] text-red-300 bg-red-500/10 border border-red-500/20 px-2 py-1 rounded font-mono truncate">
+                <code className="flex-1 text-[10px] text-error bg-error/10 border border-error/20 px-2 py-1 rounded font-mono truncate">
                   {errorPayload.fix}
                 </code>
                 <button
                   onClick={copyFix}
                   title={errorPayload.hover_text}
-                  className="shrink-0 flex items-center gap-1 bg-red-500/20 text-red-300 border border-red-500/30 px-3 py-1 rounded-full font-mono text-[9px] uppercase hover:bg-red-500 hover:text-white transition-all"
+                  className="shrink-0 flex items-center gap-1 bg-error/20 text-error border border-error/30 px-3 py-1 rounded-full font-mono text-[9px] uppercase hover:bg-error/20 hover:text-on-surface transition-all"
                 >
                   {fixCopied ? <CheckCircle size={10} /> : <Copy size={10} />}
                   {fixCopied ? 'Copied' : 'Copy'}
@@ -450,18 +450,18 @@ export const DynamicIsland = ({
             >
               <div className="flex justify-between items-center">
                 <span className="font-mono text-[9px] text-primary/50 uppercase tracking-widest">⬡ Primnox</span>
-                <button onClick={onDismissProactive} className="text-white/30 hover:text-white transition-colors">
+                <button onClick={onDismissProactive} className="text-on-surface/55 hover:text-on-surface transition-colors">
                   <X size={13} />
                 </button>
               </div>
-              <p className="text-[12px] text-white/80 leading-relaxed font-light">{proactiveAlert.message}</p>
+              <p className="text-[12px] text-on-surface/80 leading-relaxed font-light">{proactiveAlert.message}</p>
               {proactiveAlert.suggestions.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {proactiveAlert.suggestions.map(s => (
                     <button
                       key={s}
                       onClick={() => { onSuggestionClick?.(s); onDismissProactive?.(); }}
-                      className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-mono text-white/50 hover:bg-primary/20 hover:text-primary hover:border-primary/30 transition-all"
+                      className="px-3 py-1 rounded-full bg-on-surface/5 border border-on-surface/10 text-[10px] font-mono text-on-surface/50 hover:bg-primary/20 hover:text-primary hover:border-primary/30 transition-all"
                     >
                       {s}
                     </button>
@@ -480,14 +480,14 @@ export const DynamicIsland = ({
               className="flex flex-col w-[340px] p-4 space-y-3"
             >
               <div className="flex justify-between items-center">
-                <span className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Clipboard_Buffer</span>
-                <button onClick={() => setStatus('idle')} className="bg-white text-black p-1 rounded-full hover:bg-primary transition-colors">
+                <span className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">Clipboard_Buffer</span>
+                <button onClick={() => setStatus('idle')} className="bg-on-surface text-surface p-1 rounded-full hover:bg-primary transition-colors">
                   <CheckCircle size={12} />
                 </button>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <p className="text-[11px] text-white font-mono truncate max-w-[200px]">{attachedFile || 'SOVEREIGN_V2_ENCRYPTED.BIN'}</p>
-                <button onClick={() => setStatus('idle')} className="bg-primary/20 text-primary border border-primary/30 px-4 py-1 rounded-full font-mono text-[9px] uppercase hover:bg-primary hover:text-white transition-all">
+                <p className="text-[11px] text-on-surface font-mono truncate max-w-[200px]">{attachedFile || 'SOVEREIGN_V2_ENCRYPTED.BIN'}</p>
+                <button onClick={() => setStatus('idle')} className="bg-primary/20 text-primary border border-primary/30 px-4 py-1 rounded-full font-mono text-[9px] uppercase hover:bg-primary hover:text-on-surface transition-all">
                   Flush_Buffer
                 </button>
               </div>
@@ -509,7 +509,7 @@ export const DynamicIsland = ({
                 <Terminal size={14} className="text-primary" />
               </div>
               <div className="flex-1 overflow-hidden">
-                <p className="text-[12px] text-white font-mono whitespace-nowrap overflow-hidden text-ellipsis italic">
+                <p className="text-[12px] text-on-surface font-mono whitespace-nowrap overflow-hidden text-ellipsis italic">
                   "{transcript}"
                 </p>
               </div>
@@ -530,19 +530,19 @@ export const DynamicIsland = ({
                 {/* Mode switcher — full app only, hidden in the island overlay window */}
                 {!isWindowIsland && (
                   <>
-                    <div className="flex items-center gap-1 bg-white/[0.05] p-1 rounded-full shrink-0">
+                    <div className="flex items-center gap-1 bg-on-surface/[0.05] p-1 rounded-full shrink-0">
                       {(['notes', 'chat', 'research'] as AppMode[]).map(m => (
                         <button
                           key={m}
                           onClick={() => setMode(m)}
                           className={`px-4 py-1.5 rounded-full font-mono text-[9px] uppercase tracking-widest transition-all
-                            ${mode === m ? 'bg-white text-black font-bold shadow-xl' : 'text-white/40 hover:text-white'}`}
+                            ${mode === m ? 'bg-on-surface text-surface font-bold shadow-xl' : 'text-on-surface/60 hover:text-on-surface'}`}
                         >
                           {m}
                         </button>
                       ))}
                     </div>
-                    <div className="w-px h-5 bg-white/10 shrink-0" />
+                    <div className="w-px h-5 bg-on-surface/10 shrink-0" />
                   </>
                 )}
 
@@ -550,15 +550,15 @@ export const DynamicIsland = ({
                 <div className="flex items-center gap-0.5">
                   <button
                     onClick={onProfileClick}
-                    className="p-2 rounded-full hover:bg-white/10 transition-colors text-white/50 hover:text-white"
+                    className="p-2 rounded-full hover:bg-on-surface/10 transition-colors text-on-surface/50 hover:text-on-surface"
                     title="Settings"
                   >
                     <div className="w-4 h-4 rounded-full border-2 border-current" />
                   </button>
                   <button
                     onClick={() => setDeadlineInput(d => !d)}
-                    className={`p-1.5 rounded-full hover:bg-white/10 transition-colors text-[11px] font-mono
-                      ${deadline ? 'text-amber-400/70' : 'text-white/20 hover:text-white/50'}`}
+                    className={`p-1.5 rounded-full hover:bg-on-surface/10 transition-colors text-[11px] font-mono
+                      ${deadline ? 'text-warn/70' : 'text-on-surface/48 hover:text-on-surface/50'}`}
                     title="Alt+D — Deadline bomb"
                   >
                     ◈
@@ -570,16 +570,16 @@ export const DynamicIsland = ({
                   <div className="flex items-center gap-2">
                     <div className="relative">
                       <span className={`block w-2 h-2 rounded-full transition-all duration-500
-                        ${status === 'listening' ? 'bg-red-500 scale-125' :
+                        ${status === 'listening' ? 'bg-error/20 scale-125' :
                           status === 'thinking' ? 'bg-primary' :
-                          flowState ? 'bg-indigo-500/60' :
-                          'bg-white/20'}`}
+                          flowState ? 'bg-primary/60' :
+                          'bg-on-surface/20'}`}
                       />
                       {status === 'listening' && (
-                        <span className="absolute inset-0 bg-red-500 rounded-full animate-ping opacity-50" />
+                        <span className="absolute inset-0 bg-error/20 rounded-full animate-ping opacity-50" />
                       )}
                     </div>
-                    <span className="font-mono text-[8px] text-white/30 uppercase tracking-[0.2em] group-hover/status:text-white/60 transition-colors">
+                    <span className="font-mono text-[8px] text-on-surface/55 uppercase tracking-[0.2em] group-hover/status:text-on-surface/60 transition-colors">
                       {status === 'listening' ? 'Listening' :
                        status === 'thinking' ? 'Syncing' :
                        flowState ? 'Flow' :
@@ -638,7 +638,7 @@ export const DynamicIsland = ({
                 {isWindowIsland && (
                   <button
                     onClick={onRestoreWindow}
-                    className="ml-auto p-1.5 rounded-full text-white/20 hover:text-white/70 hover:bg-white/10 transition-colors shrink-0"
+                    className="ml-auto p-1.5 rounded-full text-on-surface/48 hover:text-on-surface/70 hover:bg-on-surface/10 transition-colors shrink-0"
                     title="Open Primnox"
                   >
                     <Maximize2 size={11} />
@@ -656,14 +656,14 @@ export const DynamicIsland = ({
                     exit={{ opacity: 0, height: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="flex items-center gap-4 px-5 pb-2 border-t border-white/[0.04] pt-1.5">
+                    <div className="flex items-center gap-4 px-5 pb-2 border-t border-on-surface/[0.04] pt-1.5">
                       {flowState && (
-                        <span className="text-[8px] font-mono text-indigo-400/50 uppercase tracking-widest whitespace-nowrap">
+                        <span className="text-[8px] font-mono text-primary/50 uppercase tracking-widest whitespace-nowrap">
                           ⬡ FLOW:{flowElapsed || `${flowState.duration_minutes}m`}
                         </span>
                       )}
                       {errorStreak && (
-                        <span className="text-[8px] font-mono text-red-400/50 uppercase tracking-widest whitespace-nowrap">
+                        <span className="text-[8px] font-mono text-error/50 uppercase tracking-widest whitespace-nowrap">
                           ⚡ ERR:{errorStreak.duration_minutes}m
                         </span>
                       )}
@@ -682,35 +682,35 @@ export const DynamicIsland = ({
                     exit={{ opacity: 0, height: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="flex flex-col px-5 pb-2 border-t border-white/[0.04] pt-1.5 gap-1">
+                    <div className="flex flex-col px-5 pb-2 border-t border-on-surface/[0.04] pt-1.5 gap-1">
                       {/* Track row: icon · title · source · controls */}
                       <div className="flex items-center gap-2">
-                        <Music size={10} className="text-white/20 shrink-0" />
-                        <span className="text-[9px] font-mono text-white/35 truncate flex-1 min-w-0">
+                        <Music size={10} className="text-on-surface/48 shrink-0" />
+                        <span className="text-[9px] font-mono text-on-surface/58 truncate flex-1 min-w-0">
                           {nowPlaying.artist ? `${nowPlaying.artist} — ${nowPlaying.title}` : nowPlaying.title}
                         </span>
-                        <span className="text-[7px] font-mono text-white/15 uppercase shrink-0">
+                        <span className="text-[7px] font-mono text-on-surface/42 uppercase shrink-0">
                           {nowPlaying.source}
                         </span>
                         {onMediaControl && (
                           <div className="flex items-center shrink-0 ml-0.5">
                             <button
                               onClick={() => onMediaControl('prev')}
-                              className="p-1 rounded-full text-white/20 hover:text-white/60 hover:bg-white/10 transition-colors"
+                              className="p-1 rounded-full text-on-surface/48 hover:text-on-surface/60 hover:bg-on-surface/10 transition-colors"
                               title="Previous"
                             >
                               <SkipBack size={9} />
                             </button>
                             <button
                               onClick={() => onMediaControl('play_pause')}
-                              className="p-1 rounded-full text-white/20 hover:text-white/60 hover:bg-white/10 transition-colors"
+                              className="p-1 rounded-full text-on-surface/48 hover:text-on-surface/60 hover:bg-on-surface/10 transition-colors"
                               title={nowPlaying.is_playing !== false ? 'Pause' : 'Play'}
                             >
                               {nowPlaying.is_playing !== false ? <Pause size={9} /> : <Play size={9} />}
                             </button>
                             <button
                               onClick={() => onMediaControl('next')}
-                              className="p-1 rounded-full text-white/20 hover:text-white/60 hover:bg-white/10 transition-colors"
+                              className="p-1 rounded-full text-on-surface/48 hover:text-on-surface/60 hover:bg-on-surface/10 transition-colors"
                               title="Next"
                             >
                               <SkipForward size={9} />
@@ -720,9 +720,9 @@ export const DynamicIsland = ({
                       </div>
                       {/* Progress bar — only shown when SMTC reports a duration */}
                       {(nowPlaying.duration_ms ?? 0) > 0 && (
-                        <div className="h-0.5 w-full bg-white/5 rounded-full overflow-hidden">
+                        <div className="h-0.5 w-full bg-on-surface/5 rounded-full overflow-hidden">
                           <motion.div
-                            className="h-full bg-white/25 rounded-full"
+                            className="h-full bg-on-surface/25 rounded-full"
                             style={{ width: `${npProgress}%` }}
                           />
                         </div>
@@ -736,7 +736,8 @@ export const DynamicIsland = ({
                 if (!data) return null;
                 const urgent  = data.urgent as boolean | undefined;
                 const color   = (data.color as string | undefined) || '#6366f1';
-                const borderColor = urgent ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)';
+                // Literal white/amber ignored the theme — invisible on the light palettes.
+                const borderColor = urgent ? 'var(--a-line)' : 'var(--border)';
                 return (
                   <AnimatePresence key={skillName}>
                     <motion.div
@@ -759,12 +760,12 @@ export const DynamicIsland = ({
                         </span>
                         <span
                           className="text-[9px] font-medium truncate flex-1 min-w-0"
-                          style={{ color: urgent ? '#fde68a' : 'rgba(255,255,255,0.65)' }}
+                          style={{ color: urgent ? 'var(--a-text)' : 'var(--muted)' }}
                         >
                           {data.title}
                         </span>
                         {data.subtitle && (
-                          <span className="text-[8px] font-mono text-white/20 shrink-0 truncate max-w-[180px]">
+                          <span className="text-[8px] font-mono text-on-surface/48 shrink-0 truncate max-w-[180px]">
                             {data.subtitle}
                           </span>
                         )}
@@ -772,8 +773,8 @@ export const DynamicIsland = ({
                           <span
                             className="font-mono text-[8px] px-1.5 py-0.5 rounded shrink-0"
                             style={{
-                              background: urgent ? 'rgba(245,158,11,0.12)' : `${color}18`,
-                              color: urgent ? '#fbbf24' : color,
+                              background: urgent ? 'var(--a-fill)' : `${color}18`,
+                              color: urgent ? 'var(--a-text)' : color,
                             }}
                           >
                             {data.badge}
@@ -802,10 +803,10 @@ export const DynamicIsland = ({
             {CHORD_HINTS[chordModifier].map(hint => (
               <div
                 key={hint.key}
-                className="px-3 py-1.5 rounded-xl bg-black/80 border border-white/10 backdrop-blur-xl"
+                className="px-3 py-1.5 rounded-xl bg-surface/80 border border-on-surface/10 backdrop-blur-xl"
               >
-                <span className="font-mono text-[8px] text-white/50">{hint.key}</span>
-                <span className="font-mono text-[8px] text-white/25 ml-2">{hint.label}</span>
+                <span className="font-mono text-[8px] text-on-surface/50">{hint.key}</span>
+                <span className="font-mono text-[8px] text-on-surface/52 ml-2">{hint.label}</span>
               </div>
             ))}
           </motion.div>

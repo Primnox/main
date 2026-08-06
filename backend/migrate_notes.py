@@ -3,10 +3,15 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-DB_PATH = Path("C:/Users/aniketh/Projects/Primnox/backend/memory.db")
-NOTES_PATH = Path("C:/Users/aniketh/Projects/Primnox/backend/notes.json")
-TASKS_PATH = Path("C:/Users/aniketh/Projects/Primnox/backend/tasks.json")
-CONV_PATH = Path("C:/Users/aniketh/Projects/Primnox/backend/conversations.json")
+# Resolve paths relative to this file. These were absolute paths on the
+# original author's Windows machine, which leaked a username and broke the
+# script for everyone else.
+_BACKEND_DIR = Path(__file__).resolve().parent
+
+DB_PATH = _BACKEND_DIR / "memory.db"
+NOTES_PATH = _BACKEND_DIR / "notes.json"
+TASKS_PATH = _BACKEND_DIR / "tasks.json"
+CONV_PATH = _BACKEND_DIR / "conversations.json"
 
 conn = sqlite3.connect(DB_PATH)
 c = conn.cursor()

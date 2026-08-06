@@ -31,7 +31,7 @@ DEFAULT_SETTINGS = {
     "llamacpp_model": "",
     "gemini_api_key": "",
     "nickname": "primnox",
-    "operator_alias": "ANIKETH_P_01",
+    "operator_alias": "Operator",   # placeholder; onboarding asks for the real name
     "ai_codename": "PRIMNOX",
     "vad_sensitivity": 0.5,
     "theme": "dark",
@@ -142,9 +142,13 @@ def load_settings():
         # Only auto-complete onboarding when settings.json existed on disk (partial key loss
         # after a minor update). Do NOT fire on a fully-wiped reinstall — that should show
         # onboarding fresh even if the keyring still has an old API key.
+        # Only recover when the flag is ABSENT from the file. Testing `not
+        # merged.get(...)` also matched an explicit `false`, so once any API key
+        # existed the flag was forced back to True on every load and onboarding
+        # could never be re-run — there was no way to reset it at all.
         any_api_key = any(merged.get(k) for k in _KEYRING_KEYS)
-        if settings_file_existed and any_api_key and not merged.get("onboarding_completed"):
-            log.info("API key present but onboarding_completed=False — marking complete (post-update recovery).")
+        if settings_file_existed and any_api_key and "onboarding_completed" not in data:
+            log.info("API key present but onboarding_completed missing — marking complete (post-update recovery).")
             merged["onboarding_completed"] = True
 
         return merged

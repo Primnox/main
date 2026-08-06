@@ -21,6 +21,7 @@ import {
   HardDrive,
 } from 'lucide-react';
 import { type ScreenId } from '../App';
+import { API_BASE } from '../../config';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -83,32 +84,32 @@ function MeetingCard({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
-      className="rounded-xl border border-white/[0.06] bg-white/[0.03] overflow-hidden"
+      className="rounded-xl border border-on-surface/[0.06] bg-on-surface/[0.03] overflow-hidden"
     >
       {/* Header row */}
       <div
-        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-white/[0.04] transition-colors"
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-on-surface/[0.04] transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         {/* Icon */}
-        <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
-          <Mic size={14} className="text-indigo-400" />
+        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <Mic size={14} className="text-primary" />
         </div>
 
         {/* Name + date */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-white/80 truncate">{meeting.name}</p>
-          <p className="text-[11px] text-white/30 mt-0.5">
+          <p className="text-sm font-medium text-on-surface/80 truncate">{meeting.name}</p>
+          <p className="text-[11px] text-on-surface/55 mt-0.5">
             {formatDate(meeting.date)} · {formatTime(meeting.date)}
           </p>
         </div>
 
         {/* Stats */}
         <div className="flex items-center gap-3 shrink-0">
-          <span className="text-[10px] font-mono text-white/25 hidden sm:block">
+          <span className="text-[10px] font-mono text-on-surface/52 hidden sm:block">
             {meeting.file_count} files
           </span>
-          <span className="text-[10px] font-mono text-indigo-400/60 bg-indigo-500/10 px-2 py-0.5 rounded">
+          <span className="text-[10px] font-mono text-primary/60 bg-primary/10 px-2 py-0.5 rounded">
             {sizeLabel(meeting.size_mb)}
           </span>
 
@@ -117,7 +118,7 @@ function MeetingCard({
             <button
               onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
               disabled={deleting}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-on-surface/48 hover:text-error hover:bg-error/10 transition-all"
               title="Delete recording"
             >
               <Trash2 size={13} />
@@ -130,13 +131,13 @@ function MeetingCard({
               <button
                 onClick={() => { onDelete(meeting.name); setConfirmDelete(false); }}
                 disabled={deleting}
-                className="text-[10px] px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors font-mono"
+                className="text-[10px] px-2 py-1 rounded bg-error/15 text-error hover:bg-error/25 transition-colors font-mono"
               >
                 {deleting ? '…' : 'Delete'}
               </button>
               <button
                 onClick={() => setConfirmDelete(false)}
-                className="text-[10px] px-2 py-1 rounded bg-white/5 text-white/40 hover:bg-white/10 transition-colors font-mono"
+                className="text-[10px] px-2 py-1 rounded bg-on-surface/5 text-on-surface/60 hover:bg-on-surface/10 transition-colors font-mono"
               >
                 Cancel
               </button>
@@ -144,7 +145,7 @@ function MeetingCard({
           )}
 
           {/* Expand chevron */}
-          <div className="text-white/20">
+          <div className="text-on-surface/48">
             {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           </div>
         </div>
@@ -160,21 +161,21 @@ function MeetingCard({
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 border-t border-white/[0.04]">
+            <div className="px-4 pb-4 border-t border-on-surface/[0.04]">
               {/* Media files */}
               {meeting.media_files.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-[9px] font-mono uppercase tracking-widest text-white/20 mb-2">
+                  <p className="text-[9px] font-mono uppercase tracking-widest text-on-surface/48 mb-2">
                     Audio / Video
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {meeting.media_files.map((f) => (
                       <div
                         key={f}
-                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.04] border border-white/[0.05]"
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-on-surface/[0.04] border border-on-surface/[0.05]"
                       >
-                        <FileAudio size={11} className="text-indigo-400/60" />
-                        <span className="text-[10px] font-mono text-white/50">{f}</span>
+                        <FileAudio size={11} className="text-primary/60" />
+                        <span className="text-[10px] font-mono text-on-surface/50">{f}</span>
                       </div>
                     ))}
                   </div>
@@ -184,15 +185,15 @@ function MeetingCard({
               {/* Summary */}
               {meeting.summary ? (
                 <div className="mt-3">
-                  <p className="text-[9px] font-mono uppercase tracking-widest text-white/20 mb-2">
+                  <p className="text-[9px] font-mono uppercase tracking-widest text-on-surface/48 mb-2">
                     Summary Preview
                   </p>
-                  <p className="text-[11px] text-white/40 leading-relaxed line-clamp-4">
+                  <p className="text-[11px] text-on-surface/60 leading-relaxed line-clamp-4">
                     {meeting.summary}
                   </p>
                 </div>
               ) : (
-                <p className="mt-3 text-[11px] text-white/20 italic">No summary file found.</p>
+                <p className="mt-3 text-[11px] text-on-surface/48 italic">No summary file found.</p>
               )}
             </div>
           </motion.div>
@@ -216,7 +217,7 @@ export function MeetingsView({ onNavigate: _onNavigate }: Props) {
     else setRefreshing(true);
     setError('');
     try {
-      const res = await fetch('http://localhost:4009/api/meetings');
+      const res = await fetch(`${API_BASE}/api/meetings`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: { meetings: Meeting[] } = await res.json();
       setMeetings(data.meetings);
@@ -233,7 +234,7 @@ export function MeetingsView({ onNavigate: _onNavigate }: Props) {
   const handleDelete = async (name: string) => {
     setDeletingName(name);
     try {
-      const res = await fetch(`http://localhost:4009/api/meetings/${encodeURIComponent(name)}`, {
+      const res = await fetch(`${API_BASE}/api/meetings/${encodeURIComponent(name)}`, {
         method: 'DELETE',
       });
       if (!res.ok) {
@@ -258,8 +259,8 @@ export function MeetingsView({ onNavigate: _onNavigate }: Props) {
       <div className="shrink-0 px-6 pt-6 pb-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-sm font-semibold text-white/80 tracking-wide">Meeting Recordings</h1>
-            <p className="text-[11px] text-white/30 mt-0.5 font-mono uppercase tracking-widest">
+            <h1 className="text-sm font-semibold text-on-surface/80 tracking-wide">Meeting Recordings</h1>
+            <p className="text-[11px] text-on-surface/55 mt-0.5 font-mono uppercase tracking-widest">
               Manual Review · No Auto-Deletion
             </p>
           </div>
@@ -267,7 +268,7 @@ export function MeetingsView({ onNavigate: _onNavigate }: Props) {
           <button
             onClick={() => load(true)}
             disabled={refreshing || loading}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white/25 hover:text-white/60 hover:bg-white/5 transition-all"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface/52 hover:text-on-surface/60 hover:bg-on-surface/5 transition-all"
             title="Refresh"
           >
             <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
@@ -277,15 +278,15 @@ export function MeetingsView({ onNavigate: _onNavigate }: Props) {
         {/* Stats bar */}
         {meetings.length > 0 && (
           <div className="flex items-center gap-4 mt-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.05]">
-              <FolderOpen size={11} className="text-indigo-400/60" />
-              <span className="text-[11px] font-mono text-white/40">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-on-surface/[0.04] border border-on-surface/[0.05]">
+              <FolderOpen size={11} className="text-primary/60" />
+              <span className="text-[11px] font-mono text-on-surface/60">
                 {meetings.length} recording{meetings.length !== 1 ? 's' : ''}
               </span>
             </div>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.05]">
-              <HardDrive size={11} className="text-indigo-400/60" />
-              <span className="text-[11px] font-mono text-white/40">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-on-surface/[0.04] border border-on-surface/[0.05]">
+              <HardDrive size={11} className="text-primary/60" />
+              <span className="text-[11px] font-mono text-on-surface/60">
                 {sizeLabel(totalMb)} · {totalFiles} files
               </span>
             </div>
@@ -300,7 +301,7 @@ export function MeetingsView({ onNavigate: _onNavigate }: Props) {
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
-            className="mx-6 mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs"
+            className="mx-6 mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-error/10 border border-error/20 text-error text-xs"
           >
             <AlertCircle size={13} />
             {error}
@@ -311,14 +312,14 @@ export function MeetingsView({ onNavigate: _onNavigate }: Props) {
       {/* ── Content ── */}
       <div className="flex-1 overflow-y-auto px-6 pb-6 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
         {loading ? (
-          <div className="flex items-center justify-center h-40 text-white/20 text-xs font-mono">
+          <div className="flex items-center justify-center h-40 text-on-surface/48 text-xs font-mono">
             Loading recordings…
           </div>
         ) : meetings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 gap-3 text-white/20">
+          <div className="flex flex-col items-center justify-center h-40 gap-3 text-on-surface/48">
             <Inbox size={28} strokeWidth={1.5} />
             <p className="text-xs font-mono">No meeting recordings found.</p>
-            <p className="text-[10px] text-white/15 text-center max-w-xs">
+            <p className="text-[10px] text-on-surface/42 text-center max-w-xs">
               Recordings will appear here when Primnox captures a meeting.
             </p>
           </div>

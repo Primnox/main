@@ -1,65 +1,50 @@
-@import url('https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+/* Syne + DM Sans + JetBrains Mono — the website's three typefaces. Weights match
+   the site's request except JetBrains Mono 700, which the site does not load but
+   87 call sites here render at font-bold; without it the browser fakes the bold.
+   Urbanist was dropped: after the design-language pass nothing referenced it, so
+   it was a font download for glyphs that never rendered. */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* All colour tokens — including the --color-* ones Tailwind consumes — live in
+   themes.css, generated from the live website palettes so the app and the
+   marketing site render the same themes. Must stay above the @tailwind rules:
+   postcss-import requires @import to precede all other statements. */
+@import './themes.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --font-sans: "Urbanist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-
-  --color-surface: #13121b;
-  --color-surface-dim: #13121b;
-  --color-surface-bright: #393842;
-  --color-surface-container-lowest: #0e0d16;
-  --color-surface-container-low: #1b1b24;
-  --color-surface-container: #1f1f28;
-  --color-surface-container-high: #2a2933;
-  --color-surface-container-highest: #35343e;
-  --color-on-surface: #e4e1ee;
-  --color-on-surface-variant: #c7c4d8;
-  --color-inverse-surface: #e4e1ee;
-  --color-inverse-on-surface: #302f39;
-  --color-outline: #918fa1;
-  --color-outline-variant: #464555;
-  --color-surface-tint: #c3c0ff;
-  --color-primary: #c3c0ff;
-  --color-on-primary: #1d00a5;
-  --color-primary-container: #4f46e5;
-  --color-on-primary-container: #dad7ff;
-  --color-inverse-primary: #4d44e3;
-  --color-secondary: #c6c6c7;
-  --color-on-secondary: #2f3131;
-  --color-secondary-container: #454747;
-  --color-on-secondary-container: #b4b5b5;
-  --color-tertiary: #ffb695;
-  --color-on-tertiary: #571f00;
-  --color-tertiary-container: #a44100;
-  --color-on-tertiary-container: #ffd2be;
-  --color-error: #ffb4ab;
-  --color-on-error: #690005;
-  --color-error-container: #93000a;
-  --color-on-error-container: #ffdad6;
-  --color-primary-fixed: #e2dfff;
-  --color-primary-fixed-dim: #c3c0ff;
-  --color-on-primary-fixed: #0f0069;
-  --color-on-primary-fixed-variant: #3323cc;
-  --color-secondary-fixed: #e2e2e2;
-  --color-secondary-fixed-dim: #c6c6c7;
-  --color-on-secondary-fixed: #1a1c1c;
-  --color-on-secondary-fixed-variant: #454747;
-  --color-tertiary-fixed: #ffdbcc;
-  --color-tertiary-fixed-dim: #ffb695;
-  --color-on-tertiary-fixed: #351000;
-  --color-on-tertiary-fixed-variant: #7b2f00;
+  /* Aliases of the website's own --display / --body / --mono tokens (themes.css)
+     so there is exactly one definition of the type stack, not two that drift. */
+  --font-display: var(--display);
+  --font-sans: var(--body);
+  --font-mono: var(--mono);
 }
 
 @layer base {
+  html { scroll-behavior: smooth; }
+
   body {
-    @apply bg-black text-on-surface;
-    background-image: radial-gradient(#ffffff0a 1px, transparent 1px);
+    /* Was `bg-black`, which ignored the theme entirely and left light themes
+       rendering white text on black. */
+    @apply bg-surface text-on-surface;
+    background-image: radial-gradient(var(--dot-matrix) 1px, transparent 1px);
     background-size: 24px 24px;
+    /* The site cross-fades rather than snapping when the theme changes. */
+    transition: background-color 0.35s, color 0.35s;
   }
+
+  /* Site base rules, verbatim. */
+  ::selection {
+    background: var(--primary);
+    color: var(--sel-fg);
+  }
+
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--scroll); }
 }
 
 .dot-matrix {
@@ -67,16 +52,196 @@
   background-size: 4px 4px;
 }
 
+/* ─── PRIMNOX DESIGN LANGUAGE ─────────────────────────────────────────────────
+   Ported from primnox.github.io so the app reads as the same product as the
+   site. Values are the site's, not approximations: Syne 800 uppercase at
+   line-height 0.9 / -0.033em, DM Sans at 1.78, JetBrains Mono 10px with wide
+   tracking for labels. Editorial and brutalist — hairline rules and negative
+   space instead of cards and shadows.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Big uppercase display type. `px-display-sm` is the in-app working size —
+   the site's clamp() tops out at 152px, which no app view can carry. */
+.px-display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: -0.033em;
+  text-transform: uppercase;
+}
+.px-display-lg { font-size: clamp(34px, 4.5vw, 62px); }
+.px-display-sm { font-size: clamp(20px, 2.2vw, 30px); }
+
+/* Italic weight-400 counterpoint inside a display line — the site sets one word
+   of each heading this way ("THAT *ACTUALLY* GIVES A DAMN"). */
+.px-display em,
+.px-display i {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--primary);
+}
+
+/* Section index: the "00 /" that precedes every heading on the site. */
+.px-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+}
+
+/* Mono micro-label — nav items, field labels, table headers. */
+.px-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Outlined pill, primary-tinted. Used for status and version chips. */
+.px-pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  border: 1px solid var(--p-line);
+  border-radius: 100px;
+  padding: 4px 13px;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+/* Primary action: inverted fill, exactly as the site's .btn-solid. */
+.px-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bg);
+  background: var(--text);
+  padding: 14px 26px;
+  border-radius: 100px;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+  display: inline-block;
+}
+.px-btn:hover { opacity: 0.8; }
+
+.px-btn-ghost {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+  border: 1px solid var(--border);
+  background: transparent;
+  padding: 13px 25px;
+  border-radius: 100px;
+  transition: border-color 0.2s, background 0.2s;
+  white-space: nowrap;
+  display: inline-block;
+}
+.px-btn-ghost:hover { border-color: var(--p-line); background: var(--p-faint); }
+
+/* Hairline list row — the site's .feat-row. Replaces card grids: an index
+   column, the content, and a trailing affordance. */
+.px-row {
+  display: grid;
+  grid-template-columns: 44px 1fr 28px;
+  align-items: start;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.2s;
+}
+.px-row:hover { background: var(--hover); }
+.px-row-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  padding-top: 3px;
+}
+.px-row-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.015em;
+  margin-bottom: 5px;
+}
+.px-row-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+  max-width: 62ch;
+}
+
+/* Body copy at the site's measure and leading. */
+.px-body {
+  font-family: var(--font-sans);
+  line-height: 1.78;
+  color: var(--muted);
+}
+
+/* Full-bleed hairline divider matching section boundaries. */
+.px-rule { border-bottom: 1px solid var(--border); }
+
+/* ─── DATA-FLOW DIAGRAM TONES ────────────────────────────────────────────────
+   The privacy diagrams are a legend: colour carries meaning (safe / shielded /
+   caution), so they cannot collapse to one token. They were slate/emerald/pink/
+   blue/amber literals, which ignored the theme entirely and rendered dark chips
+   on the light palettes. These four tones keep the distinctions and follow the
+   active theme.
+   ──────────────────────────────────────────────────────────────────────────── */
+.px-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.px-tone-neutral {
+  border-color: color-mix(in srgb, var(--text) 22%, transparent);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+}
+.px-tone-safe {
+  border-color: var(--g-line);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+  color: var(--green);
+}
+.px-tone-shield {
+  border-color: var(--p-line);
+  background: var(--p-fill);
+  color: var(--primary);
+}
+.px-tone-warn {
+  border-color: var(--a-line);
+  background: var(--a-fill);
+  color: var(--a-text);
+}
+
+/* Colour-only variants, for arrows and captions. */
+.px-ink-neutral { color: color-mix(in srgb, var(--text) 45%, transparent); }
+.px-ink-safe    { color: var(--green); }
+.px-ink-shield  { color: var(--primary); }
+.px-ink-warn    { color: var(--a-text); }
+
 .glass-panel {
-  @apply bg-black/70 backdrop-blur-3xl;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+  @apply backdrop-blur-3xl;
+  background: var(--nav-bg);
+  border: 1px solid var(--surface-brd);
+  box-shadow: 0 8px 32px rgb(0 0 0 / var(--shadow-op)), inset 0 1px 0 var(--hover);
   backdrop-filter: blur(40px) saturate(180%);
   -webkit-backdrop-filter: blur(40px) saturate(180%);
 }
 
 .strong-glass {
-  background: rgba(255,255,255,0.02);
+  background: var(--hover);
   backdrop-filter: blur(60px) saturate(200%);
   -webkit-backdrop-filter: blur(60px) saturate(200%);
 }
@@ -89,7 +254,7 @@
 }
 
 .orb-1 {
-  background: #c3c0ff;
+  background: var(--primary);
   width: 300px;
   height: 300px;
   top: -50px;
@@ -99,7 +264,7 @@
 }
 
 .orb-2 {
-  background: #4f46e5;
+  background: var(--accent);
   width: 250px;
   height: 250px;
   bottom: -50px;
@@ -109,7 +274,7 @@
 }
 
 .orb-3 {
-  background: #34d399;
+  background: var(--green);
   width: 200px;
   height: 200px;
   top: 50%;
@@ -127,11 +292,11 @@
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--scroll);
   border-radius: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--ring);
 }
 
 /* ─── BlockNote Seamless Integration ─────────────────────── */

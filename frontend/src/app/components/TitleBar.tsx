@@ -57,7 +57,7 @@ export const TitleBar = () => {
         style={{ WebkitAppRegion: 'drag' } as any}
       >
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[9px] text-white/30 tracking-widest font-bold">PRIMNOX {APP_VERSION}</span>
+          <span className="font-mono text-[9px] text-on-surface/55 tracking-widest font-bold">PRIMNOX {APP_VERSION}</span>
         </div>
         
         <div className="flex h-full" style={{ WebkitAppRegion: 'no-drag' } as any}>
@@ -66,8 +66,8 @@ export const TitleBar = () => {
               onClick={updateStatus === 'downloaded' ? handleRestartUpdate : undefined}
               className={`h-full px-4 transition-colors flex items-center gap-2 ${
                 updateStatus === 'downloaded' 
-                  ? 'text-cyan-400 hover:bg-cyan-500/10 cursor-pointer animate-pulse' 
-                  : 'text-cyan-500/50 cursor-default'
+                  ? 'text-primary hover:bg-primary/10 cursor-pointer animate-pulse' 
+                  : 'text-primary/50 cursor-default'
               }`}
               title={updateStatus === 'downloaded' ? "Click to restart and install update" : "Downloading update..."}
             >
@@ -80,7 +80,7 @@ export const TitleBar = () => {
 
           <button 
             onClick={() => setIsFeedbackOpen(true)}
-            className="h-full px-4 text-emerald-500/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors flex items-center gap-2"
+            className="h-full px-4 text-success/60 hover:text-success hover:bg-success/10 transition-colors flex items-center gap-2"
             title="Send Feedback"
           >
             <MessageSquare size={12} />
@@ -88,21 +88,21 @@ export const TitleBar = () => {
           </button>
           <button
             onClick={handleMinimize}
-            className="h-full px-4 text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+            className="h-full px-4 text-on-surface/60 hover:text-on-surface hover:bg-on-surface/10 transition-colors"
             title="Island mode  ·  click tray icon to restore"
           >
             <Minus size={14} />
           </button>
           <button 
             onClick={handleMaximize}
-            className="h-full px-4 text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+            className="h-full px-4 text-on-surface/60 hover:text-on-surface hover:bg-on-surface/10 transition-colors"
             title="Maximize"
           >
             <Square size={12} />
           </button>
           <button
             onClick={handleClose}
-            className="h-full px-4 text-white/40 hover:text-white hover:bg-red-500/80 transition-colors"
+            className="h-full px-4 text-on-surface/60 hover:text-on-surface hover:bg-error/80 transition-colors"
             title="Minimize to tray  ·  Right-click tray → Quit to exit"
           >
             <X size={14} />

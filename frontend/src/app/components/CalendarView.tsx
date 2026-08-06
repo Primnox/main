@@ -4,6 +4,7 @@ import {
   ChevronLeft, ChevronRight, Calendar, Clock, MapPin,
   Plus, X, Edit2, Trash2, AlignLeft, Zap, Check,
 } from 'lucide-react';
+import { API_BASE } from '../../config';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ const MONTH_NAMES = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December'];
 const EVENT_COLORS = ['#6366f1','#22c55e','#f59e0b','#ef4444','#06b6d4','#ec4899','#8b5cf6','#f97316'];
 const CAL_NAMES   = ['Personal', 'Work', 'College', 'Health'];
-const API         = 'http://localhost:4009';
+const API         = `${API_BASE}`;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -136,19 +137,19 @@ function MiniMonth({
   return (
     <div className="select-none">
       <div className="flex items-center justify-between mb-3">
-        <button onClick={onPrev} className="p-1 rounded hover:bg-white/5 text-white/30 hover:text-white/70 transition-colors">
+        <button onClick={onPrev} className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
           <ChevronLeft size={12} />
         </button>
-        <span className="font-mono text-[10px] font-bold text-white/50 uppercase tracking-widest">
+        <span className="font-mono text-[10px] font-bold text-on-surface/50 uppercase tracking-widest">
           {MONTH_NAMES[month].slice(0, 3)} {year}
         </span>
-        <button onClick={onNext} className="p-1 rounded hover:bg-white/5 text-white/30 hover:text-white/70 transition-colors">
+        <button onClick={onNext} className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
           <ChevronRight size={12} />
         </button>
       </div>
       <div className="grid grid-cols-7 mb-1">
         {['M','T','W','T','F','S','S'].map((d, i) => (
-          <div key={i} className="text-center font-mono text-[9px] text-white/20 pb-1">{d}</div>
+          <div key={i} className="text-center font-mono text-[9px] text-on-surface/48 pb-1">{d}</div>
         ))}
       </div>
       <div className="grid grid-cols-7 gap-px">
@@ -163,9 +164,9 @@ function MiniMonth({
               key={day}
               onClick={() => onSelect(date)}
               className={`relative flex flex-col items-center justify-center h-7 rounded text-[10px] font-mono font-bold transition-all
-                ${isSel   ? 'bg-primary text-black'
+                ${isSel   ? 'bg-primary text-surface'
                 : isToday ? 'text-primary ring-1 ring-primary/30 bg-primary/5'
-                :           'text-white/40 hover:text-white hover:bg-white/5'}`}
+                :           'text-on-surface/60 hover:text-on-surface hover:bg-on-surface/5'}`}
             >
               {day}
               {dotDays.has(k) && !isSel && (
@@ -212,38 +213,38 @@ function EventForm({
         value={form.title}
         onChange={e => set('title', e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter' && form.title.trim()) onSave(form); }}
-        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 outline-none focus:border-primary/50"
+        className="w-full bg-on-surface/5 border border-on-surface/10 rounded-lg px-3 py-2 text-sm text-on-surface placeholder-on-surface/20 outline-none focus:border-primary/50"
       />
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest block mb-1">Start</label>
+          <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest block mb-1">Start</label>
           <input
             type="datetime-local"
             value={form.start_dt.slice(0, 16)}
             onChange={e => set('start_dt', e.target.value + ':00')}
-            className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-[11px] text-white/70 outline-none focus:border-primary/50"
+            className="w-full bg-on-surface/5 border border-on-surface/10 rounded px-2 py-1.5 text-[11px] text-on-surface/70 outline-none focus:border-primary/50"
           />
         </div>
         <div>
-          <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest block mb-1">End</label>
+          <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest block mb-1">End</label>
           <input
             type="datetime-local"
             value={form.end_dt.slice(0, 16)}
             onChange={e => set('end_dt', e.target.value + ':00')}
-            className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-[11px] text-white/70 outline-none focus:border-primary/50"
+            className="w-full bg-on-surface/5 border border-on-surface/10 rounded px-2 py-1.5 text-[11px] text-on-surface/70 outline-none focus:border-primary/50"
           />
         </div>
       </div>
 
       <div>
-        <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest block mb-1.5">Color</label>
+        <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest block mb-1.5">Color</label>
         <div className="flex gap-2">
           {EVENT_COLORS.map(c => (
             <button
               key={c}
               onClick={() => set('color', c)}
-              className={`w-5 h-5 rounded-full transition-transform ${form.color === c ? 'ring-2 ring-white/60 scale-110' : 'hover:scale-105'}`}
+              className={`w-5 h-5 rounded-full transition-transform ${form.color === c ? 'ring-2 ring-on-surface/60 scale-110' : 'hover:scale-105'}`}
               style={{ background: c }}
             />
           ))}
@@ -255,7 +256,7 @@ function EventForm({
         placeholder="Location (optional)"
         value={form.location}
         onChange={e => set('location', e.target.value)}
-        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[11px] text-white/70 placeholder-white/20 outline-none focus:border-primary/50"
+        className="w-full bg-on-surface/5 border border-on-surface/10 rounded-lg px-3 py-2 text-[11px] text-on-surface/70 placeholder-on-surface/20 outline-none focus:border-primary/50"
       />
 
       <textarea
@@ -263,15 +264,15 @@ function EventForm({
         value={form.description}
         onChange={e => set('description', e.target.value)}
         rows={2}
-        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[11px] text-white/70 placeholder-white/20 outline-none focus:border-primary/50 resize-none"
+        className="w-full bg-on-surface/5 border border-on-surface/10 rounded-lg px-3 py-2 text-[11px] text-on-surface/70 placeholder-on-surface/20 outline-none focus:border-primary/50 resize-none"
       />
 
       <div>
-        <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest block mb-1">Calendar</label>
+        <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest block mb-1">Calendar</label>
         <select
           value={form.calendar}
           onChange={e => set('calendar', e.target.value)}
-          className="w-full bg-[#111] border border-white/10 rounded px-2 py-1.5 text-[11px] text-white/70 outline-none focus:border-primary/50"
+          className="w-full bg-surface-container border border-on-surface/10 rounded px-2 py-1.5 text-[11px] text-on-surface/70 outline-none focus:border-primary/50"
         >
           {CAL_NAMES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
@@ -281,14 +282,14 @@ function EventForm({
         <button
           onClick={() => form.title.trim() && new Date(form.start_dt) < new Date(form.end_dt) && onSave(form)}
           disabled={!form.title.trim() || new Date(form.start_dt) >= new Date(form.end_dt)}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-black text-xs font-bold rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-surface text-xs font-bold rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
         >
           <Check size={12} />
           {isCreating ? 'Create Event' : 'Save Changes'}
         </button>
         <button
           onClick={onCancel}
-          className="px-4 py-2 bg-white/5 text-white/40 text-xs font-mono rounded-lg hover:bg-white/10 transition-colors"
+          className="px-4 py-2 bg-on-surface/5 text-on-surface/60 text-xs font-mono rounded-lg hover:bg-on-surface/10 transition-colors"
         >
           Cancel
         </button>
@@ -315,36 +316,36 @@ function EventDetailPanel({
       initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 16 }}
-      className="w-[272px] shrink-0 border-l border-white/[0.06] flex flex-col overflow-y-auto"
+      className="w-[272px] shrink-0 border-l border-on-surface/[0.06] flex flex-col overflow-y-auto"
     >
       <div className="p-5 space-y-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-start gap-3 min-w-0">
             <div className="w-3 h-3 rounded-full mt-0.5 shrink-0" style={{ background: event.color }} />
-            <h3 className="text-sm font-semibold text-white leading-tight">{event.title}</h3>
+            <h3 className="text-sm font-semibold text-on-surface leading-tight">{event.title}</h3>
           </div>
-          <button onClick={onClose} className="p-1 text-white/20 hover:text-white/60 transition-colors shrink-0">
+          <button onClick={onClose} className="p-1 text-on-surface/48 hover:text-on-surface/60 transition-colors shrink-0">
             <X size={13} />
           </button>
         </div>
 
-        <div className="flex items-center gap-2 text-white/50">
+        <div className="flex items-center gap-2 text-on-surface/50">
           <Clock size={12} className="shrink-0" />
           <div className="font-mono text-[11px]">
             <div>{start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</div>
-            <div className="text-white/30 mt-0.5">{fmtTime(start)} — {fmtTime(end)} · {durationLabel(start, end)}</div>
+            <div className="text-on-surface/55 mt-0.5">{fmtTime(start)} — {fmtTime(end)} · {durationLabel(start, end)}</div>
           </div>
         </div>
 
         {event.location && (
-          <div className="flex items-center gap-2 text-white/40">
+          <div className="flex items-center gap-2 text-on-surface/60">
             <MapPin size={12} className="shrink-0" />
             <span className="text-[11px]">{event.location}</span>
           </div>
         )}
 
         {event.description && (
-          <div className="flex items-start gap-2 text-white/40">
+          <div className="flex items-start gap-2 text-on-surface/60">
             <AlignLeft size={12} className="shrink-0 mt-0.5" />
             <p className="text-[11px] leading-relaxed">{event.description}</p>
           </div>
@@ -352,19 +353,19 @@ function EventDetailPanel({
 
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: `${event.color}80` }} />
-          <span className="font-mono text-[9px] text-white/20 uppercase tracking-widest">{event.calendar}</span>
+          <span className="font-mono text-[9px] text-on-surface/48 uppercase tracking-widest">{event.calendar}</span>
         </div>
 
-        <div className="flex gap-2 pt-2 border-t border-white/[0.06]">
+        <div className="flex gap-2 pt-2 border-t border-on-surface/[0.06]">
           <button
             onClick={onEdit}
-            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[11px] rounded-lg transition-all"
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-on-surface/5 hover:bg-on-surface/10 text-on-surface/50 hover:text-on-surface/80 text-[11px] rounded-lg transition-all"
           >
             <Edit2 size={10} /> Edit
           </button>
           <button
             onClick={onDelete}
-            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400/70 hover:text-red-400 text-[11px] rounded-lg transition-all"
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-error/10 hover:bg-error/20 text-error/70 hover:text-error text-[11px] rounded-lg transition-all"
           >
             <Trash2 size={10} /> Delete
           </button>
@@ -421,19 +422,19 @@ function WeekGrid({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Day header row */}
-      <div className="flex border-b border-white/[0.05] shrink-0">
-        <div className="w-12 shrink-0 border-r border-white/[0.04]" />
+      <div className="flex border-b border-on-surface/[0.05] shrink-0">
+        <div className="w-12 shrink-0 border-r border-on-surface/[0.04]" />
         {weekDays.map((d, i) => {
           const isToday = isSameDay(d, today);
           const k       = dayKey(d);
           const ad      = allDayByDay.get(k)!;
           const hasAD   = ad.events.length + ad.tasks.length > 0;
           return (
-            <div key={i} className={`flex-1 border-l border-white/[0.04] flex flex-col ${isToday ? 'bg-primary/[0.02]' : ''}`}>
-              <div className={`flex flex-col items-center py-2 ${isToday ? 'text-primary' : 'text-white/40'}`}>
+            <div key={i} className={`flex-1 border-l border-on-surface/[0.04] flex flex-col ${isToday ? 'bg-primary/[0.02]' : ''}`}>
+              <div className={`flex flex-col items-center py-2 ${isToday ? 'text-primary' : 'text-on-surface/60'}`}>
                 <span className="font-mono text-[9px] uppercase tracking-widest">{DAY_NAMES[d.getDay()]}</span>
                 <span className={`font-mono text-[14px] font-bold mt-0.5 w-7 h-7 flex items-center justify-center rounded-full
-                  ${isToday ? 'bg-primary text-black' : ''}`}>
+                  ${isToday ? 'bg-primary text-surface' : ''}`}>
                   {d.getDate()}
                 </span>
               </div>
@@ -443,14 +444,14 @@ function WeekGrid({
                     <button
                       key={ei}
                       onClick={() => onEventClick(ev)}
-                      className="w-full text-left px-1.5 py-0.5 rounded text-[9px] font-semibold text-black truncate"
+                      className="w-full text-left px-1.5 py-0.5 rounded text-[9px] font-semibold text-surface truncate"
                       style={{ background: ev.color }}
                     >
                       {ev.title}
                     </button>
                   ))}
                   {ad.tasks.map((t, ti) => (
-                    <div key={ti} className="px-1.5 py-0.5 rounded text-[9px] text-white/50 truncate bg-white/[0.05] border border-white/[0.07]">
+                    <div key={ti} className="px-1.5 py-0.5 rounded text-[9px] text-on-surface/50 truncate bg-on-surface/[0.05] border border-on-surface/[0.07]">
                       ✓ {t.text}
                     </div>
                   ))}
@@ -465,11 +466,11 @@ function WeekGrid({
       <div ref={gridRef} className="flex-1 overflow-y-auto">
         <div className="relative flex" style={{ height: `${24 * 60 * PX_PER_MIN}px` }}>
           {/* Time gutter */}
-          <div className="w-12 shrink-0 relative border-r border-white/[0.04]">
+          <div className="w-12 shrink-0 relative border-r border-on-surface/[0.04]">
             {HOURS.map(h => (
               <div
                 key={h}
-                className="absolute right-2 font-mono text-[9px] text-white/20 select-none leading-none"
+                className="absolute right-2 font-mono text-[9px] text-on-surface/48 select-none leading-none"
                 style={{ top: `${h * 60 * PX_PER_MIN - 5}px` }}
               >
                 {h === 0 ? '' : `${String(h).padStart(2,'0')}:00`}
@@ -486,14 +487,14 @@ function WeekGrid({
             return (
               <div
                 key={dayIdx}
-                className={`flex-1 border-l border-white/[0.04] relative ${isToday ? 'bg-primary/[0.015]' : ''}`}
+                className={`flex-1 border-l border-on-surface/[0.04] relative ${isToday ? 'bg-primary/[0.015]' : ''}`}
               >
                 {HOURS.map(h => (
-                  <div key={h} className="absolute left-0 right-0 border-t border-white/[0.04]"
+                  <div key={h} className="absolute left-0 right-0 border-t border-on-surface/[0.04]"
                     style={{ top: `${h * 60 * PX_PER_MIN}px` }} />
                 ))}
                 {HOURS.map(h => (
-                  <div key={`hh-${h}`} className="absolute left-0 right-0 border-t border-white/[0.02]"
+                  <div key={`hh-${h}`} className="absolute left-0 right-0 border-t border-on-surface/[0.02]"
                     style={{ top: `${(h * 60 + 30) * PX_PER_MIN}px` }} />
                 ))}
 
@@ -539,7 +540,7 @@ function WeekGrid({
                           {ev.title}
                         </p>
                         {durM * PX_PER_MIN > 32 && (
-                          <p className="font-mono text-[9px] text-white/40 truncate">{fmtTime(s)}</p>
+                          <p className="font-mono text-[9px] text-on-surface/60 truncate">{fmtTime(s)}</p>
                         )}
                       </div>
                     </button>
@@ -549,10 +550,10 @@ function WeekGrid({
                 {/* Current time line */}
                 {isToday && (
                   <div
-                    className="absolute left-0 right-0 border-t-2 border-red-400/80 pointer-events-none z-20"
+                    className="absolute left-0 right-0 border-t-2 border-error/80 pointer-events-none z-20"
                     style={{ top: `${nowMins * PX_PER_MIN}px` }}
                   >
-                    <div className="absolute -left-1 -top-1.5 w-3 h-3 rounded-full bg-red-400" />
+                    <div className="absolute -left-1 -top-1.5 w-3 h-3 rounded-full bg-error/25" />
                   </div>
                 )}
               </div>
@@ -587,10 +588,10 @@ function AgendaView({
 
   if (daysWithItems.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/20">
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-on-surface/48">
         <Calendar size={28} />
         <span className="font-mono text-[10px] uppercase tracking-widest">No events in the next 30 days</span>
-        <span className="font-mono text-[9px] text-white/10">Click "+ Event" to add one</span>
+        <span className="font-mono text-[9px] text-on-surface/38">Click "+ Event" to add one</span>
       </div>
     );
   }
@@ -607,12 +608,12 @@ function AgendaView({
 
         return (
           <div key={k} className="flex gap-4 mb-4">
-            <div className={`w-14 shrink-0 pt-2 text-right ${isToday ? 'text-primary' : 'text-white/30'}`}>
+            <div className={`w-14 shrink-0 pt-2 text-right ${isToday ? 'text-primary' : 'text-on-surface/55'}`}>
               <div className="font-mono text-[9px] uppercase tracking-wider">{DAY_NAMES[day.getDay()]}</div>
               <div className="font-mono text-[18px] font-bold leading-tight">{day.getDate()}</div>
-              <div className="font-mono text-[9px] text-white/20">{MONTH_NAMES[day.getMonth()].slice(0,3)}</div>
+              <div className="font-mono text-[9px] text-on-surface/48">{MONTH_NAMES[day.getMonth()].slice(0,3)}</div>
             </div>
-            <div className="flex-1 space-y-1.5 pb-4 border-b border-white/[0.04]">
+            <div className="flex-1 space-y-1.5 pb-4 border-b border-on-surface/[0.04]">
               {dayEvs.map(ev => {
                 const s  = new Date(ev.start_dt);
                 const e2 = new Date(ev.end_dt);
@@ -620,21 +621,21 @@ function AgendaView({
                   <button
                     key={ev.id}
                     onClick={() => onEventClick(ev)}
-                    className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.03] border border-transparent hover:border-white/[0.06] group transition-all"
+                    className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-on-surface/[0.03] border border-transparent hover:border-on-surface/[0.06] group transition-all"
                   >
                     <div className="w-0.5 min-h-[36px] rounded-full self-stretch shrink-0" style={{ background: ev.color }} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white/80 group-hover:text-white truncate transition-colors">{ev.title}</p>
-                      <p className="font-mono text-[10px] text-white/30">{fmtTime(s)} — {fmtTime(e2)} · {durationLabel(s, e2)}</p>
-                      {ev.location && <p className="font-mono text-[9px] text-white/20 truncate">{ev.location}</p>}
+                      <p className="text-sm font-medium text-on-surface/80 group-hover:text-on-surface truncate transition-colors">{ev.title}</p>
+                      <p className="font-mono text-[10px] text-on-surface/55">{fmtTime(s)} — {fmtTime(e2)} · {durationLabel(s, e2)}</p>
+                      {ev.location && <p className="font-mono text-[9px] text-on-surface/48 truncate">{ev.location}</p>}
                     </div>
                   </button>
                 );
               })}
               {dayTasks.map(t => (
-                <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                  <div className="w-3 h-3 rounded-full border border-white/20 shrink-0" />
-                  <p className="text-[11px] text-white/50 truncate">{t.text}</p>
+                <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-on-surface/[0.02] border border-on-surface/[0.04]">
+                  <div className="w-3 h-3 rounded-full border border-on-surface/20 shrink-0" />
+                  <p className="text-[11px] text-on-surface/50 truncate">{t.text}</p>
                 </div>
               ))}
             </div>
@@ -682,11 +683,11 @@ function NLQuickAdd({
       initial={{ opacity: 0, y: -6, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -6, scale: 0.98 }}
-      className="absolute top-full left-6 right-6 mt-2 z-50 bg-[#0d0d0d] border border-white/[0.1] rounded-2xl shadow-2xl p-4"
+      className="absolute top-full left-6 right-6 mt-2 z-50 bg-[var(--nav-bg)] backdrop-blur-2xl border border-on-surface/[0.1] rounded-2xl shadow-2xl p-4"
     >
       <div className="flex items-center gap-2 mb-3">
         <Zap size={12} className="text-primary/60" />
-        <span className="font-mono text-[9px] text-white/30 uppercase tracking-widest">AI Event Parser</span>
+        <span className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">AI Event Parser</span>
       </div>
       <div className="flex gap-2">
         <input
@@ -699,20 +700,20 @@ function NLQuickAdd({
             if (e.key === 'Enter') handleSubmit();
             if (e.key === 'Escape') onClose();
           }}
-          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/15 outline-none focus:border-primary/50"
+          className="flex-1 bg-on-surface/5 border border-on-surface/10 rounded-lg px-3 py-2 text-sm text-on-surface placeholder-on-surface/15 outline-none focus:border-primary/50"
         />
         <button
           onClick={handleSubmit}
           disabled={loading || !text.trim()}
-          className="px-4 py-2 bg-primary text-black text-xs font-bold rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
+          className="px-4 py-2 bg-primary text-surface text-xs font-bold rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
         >
           {loading ? '…' : 'Parse'}
         </button>
-        <button onClick={onClose} className="px-3 py-2 bg-white/5 text-white/30 rounded-lg hover:bg-white/10 transition-colors">
+        <button onClick={onClose} className="px-3 py-2 bg-on-surface/5 text-on-surface/55 rounded-lg hover:bg-on-surface/10 transition-colors">
           <X size={13} />
         </button>
       </div>
-      {error && <p className="text-red-400/80 text-[11px] mt-2 font-mono">{error}</p>}
+      {error && <p className="text-error/80 text-[11px] mt-2 font-mono">{error}</p>}
     </motion.div>
   );
 }
@@ -756,9 +757,9 @@ function MonthView({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Day-of-week headers */}
-      <div className="grid grid-cols-7 border-b border-white/[0.05] shrink-0">
+      <div className="grid grid-cols-7 border-b border-on-surface/[0.05] shrink-0">
         {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => (
-          <div key={d} className="py-2 text-center font-mono text-[9px] uppercase tracking-widest text-white/20">
+          <div key={d} className="py-2 text-center font-mono text-[9px] uppercase tracking-widest text-on-surface/48">
             {d}
           </div>
         ))}
@@ -769,7 +770,7 @@ function MonthView({
         <div className="grid grid-cols-7 h-full" style={{ gridAutoRows: 'minmax(90px, 1fr)' }}>
           {cells.map((date, i) => {
             if (!date) {
-              return <div key={`e-${i}`} className="border-r border-b border-white/[0.04] bg-black/30" />;
+              return <div key={`e-${i}`} className="border-r border-b border-on-surface/[0.04] bg-surface/30" />;
             }
             const k        = dayKey(date);
             const isToday  = isSameDay(date, today);
@@ -781,11 +782,11 @@ function MonthView({
               <div
                 key={k}
                 onClick={() => onDayClick(date)}
-                className={`border-r border-b border-white/[0.04] p-1.5 flex flex-col gap-0.5 cursor-pointer group transition-colors
-                  ${isToday ? 'bg-primary/[0.04]' : 'hover:bg-white/[0.015]'}`}
+                className={`border-r border-b border-on-surface/[0.04] p-1.5 flex flex-col gap-0.5 cursor-pointer group transition-colors
+                  ${isToday ? 'bg-primary/[0.04]' : 'hover:bg-on-surface/[0.015]'}`}
               >
                 <div className={`w-6 h-6 flex items-center justify-center rounded-full text-[11px] font-mono font-bold mb-0.5 transition-colors
-                  ${isToday ? 'bg-primary text-black' : 'text-white/30 group-hover:text-white/60'}`}>
+                  ${isToday ? 'bg-primary text-surface' : 'text-on-surface/55 group-hover:text-on-surface/60'}`}>
                   {date.getDate()}
                 </div>
 
@@ -803,14 +804,14 @@ function MonthView({
                 {dayTasks.slice(0, Math.max(0, 3 - dayEvs.length)).map(t => (
                   <div
                     key={t.id}
-                    className="w-full text-left px-1.5 py-0.5 rounded text-[9px] truncate text-white/30 bg-white/[0.03] border border-white/[0.06]"
+                    className="w-full text-left px-1.5 py-0.5 rounded text-[9px] truncate text-on-surface/55 bg-on-surface/[0.03] border border-on-surface/[0.06]"
                   >
                     ✓ {t.text}
                   </div>
                 ))}
 
                 {overflow > 0 && (
-                  <div className="text-[9px] font-mono text-white/25 px-1 mt-0.5">+{overflow} more</div>
+                  <div className="text-[9px] font-mono text-on-surface/52 px-1 mt-0.5">+{overflow} more</div>
                 )}
               </div>
             );
@@ -1014,16 +1015,16 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
     : `${MONTH_NAMES[selected.getMonth()]} ${selected.getFullYear()}`;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-black text-white relative">
+    <div className="h-full flex flex-col overflow-hidden bg-surface text-on-surface relative">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center justify-between px-6 pt-5 pb-3 border-b border-white/[0.05]">
+      <div className="shrink-0 flex items-center justify-between px-6 pt-5 pb-3 border-b border-on-surface/[0.05]">
         <div className="flex items-center gap-2">
-          <button onClick={navPrev} className="p-1.5 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/70 transition-colors">
+          <button onClick={navPrev} className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
             <ChevronLeft size={14} />
           </button>
-          <span className="font-mono text-sm font-bold text-white/70 min-w-[220px] select-none">{viewLabel}</span>
-          <button onClick={navNext} className="p-1.5 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/70 transition-colors">
+          <span className="font-mono text-sm font-bold text-on-surface/70 min-w-[220px] select-none">{viewLabel}</span>
+          <button onClick={navNext} className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
             <ChevronRight size={14} />
           </button>
           <button
@@ -1035,13 +1036,13 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-white/[0.07] overflow-hidden">
+          <div className="flex rounded-lg border border-on-surface/[0.07] overflow-hidden">
             {(['week', 'day', 'month', 'agenda'] as ViewMode[]).map(v => (
               <button
                 key={v}
                 onClick={() => setView(v)}
                 className={`px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest transition-colors
-                  ${view === v ? 'bg-white/10 text-white/80' : 'text-white/25 hover:text-white/60 hover:bg-white/5'}`}
+                  ${view === v ? 'bg-on-surface/10 text-on-surface/80' : 'text-on-surface/52 hover:text-on-surface/60 hover:bg-on-surface/5'}`}
               >
                 {v}
               </button>
@@ -1053,7 +1054,7 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all font-mono text-[10px] uppercase tracking-widest
               ${showNL
                 ? 'bg-primary/15 border-primary/40 text-primary'
-                : 'border-white/[0.07] text-white/25 hover:text-white/60 hover:bg-white/5'}`}
+                : 'border-on-surface/[0.07] text-on-surface/52 hover:text-on-surface/60 hover:bg-on-surface/5'}`}
           >
             <Zap size={11} /> AI
           </button>
@@ -1066,7 +1067,7 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
               setSelectedEvent(null);
               setEditingEvent(null);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-black text-xs font-bold rounded-lg hover:opacity-90 transition-opacity"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-surface text-xs font-bold rounded-lg hover:opacity-90 transition-opacity"
           >
             <Plus size={12} /> Event
           </button>
@@ -1091,7 +1092,7 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
       <div className="flex-1 flex overflow-hidden">
 
         {/* Left sidebar */}
-        <div className="w-[212px] shrink-0 border-r border-white/[0.05] flex flex-col overflow-y-auto p-4 space-y-5">
+        <div className="w-[212px] shrink-0 border-r border-on-surface/[0.05] flex flex-col overflow-y-auto p-4 space-y-5">
           <MiniMonth
             year={monthYear.year}
             month={monthYear.month}
@@ -1117,10 +1118,10 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
           <div>
             {/* Header row */}
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[9px] font-mono uppercase tracking-widest text-white/30">Pending Tasks</span>
+              <span className="text-[9px] font-mono uppercase tracking-widest text-on-surface/55">Pending Tasks</span>
               <button
                 onClick={() => setShowAddTask(t => !t)}
-                className="text-[9px] font-mono uppercase tracking-widest text-emerald-400/70 hover:text-emerald-400 transition-colors flex items-center gap-1"
+                className="text-[9px] font-mono uppercase tracking-widest text-success/70 hover:text-success transition-colors flex items-center gap-1"
               >
                 <Plus size={9} /> Task
               </button>
@@ -1128,30 +1129,30 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
 
             {/* Inline add task form */}
             {showAddTask && (
-              <div className="mb-3 p-2 rounded-lg bg-white/5 border border-white/10 space-y-2">
+              <div className="mb-3 p-2 rounded-lg bg-on-surface/5 border border-on-surface/10 space-y-2">
                 <input
                   autoFocus
                   value={newTaskTitle}
                   onChange={e => setNewTaskTitle(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && doAddTask()}
                   placeholder="Task title..."
-                  className="w-full bg-transparent text-xs text-white placeholder:text-white/30 outline-none border-b border-white/10 pb-1"
+                  className="w-full bg-transparent text-xs text-on-surface placeholder:text-on-surface/55 outline-none border-b border-on-surface/10 pb-1"
                 />
                 <input
                   type="date"
                   value={newTaskDueDate}
                   onChange={e => setNewTaskDueDate(e.target.value)}
-                  className="w-full bg-transparent text-[10px] text-white/50 outline-none"
+                  className="w-full bg-transparent text-[10px] text-on-surface/50 outline-none"
                 />
                 <div className="flex gap-1">
                   {['low','medium','high'].map(p => (
                     <button key={p} onClick={() => setNewTaskPriority(p)}
                       className={`px-2 py-0.5 text-[9px] font-mono uppercase rounded transition-colors ${
-                        newTaskPriority === p ? 'bg-emerald-500/20 text-emerald-400' : 'text-white/30 hover:text-white/60'
+                        newTaskPriority === p ? 'bg-success/20 text-success' : 'text-on-surface/55 hover:text-on-surface/60'
                       }`}>{p}</button>
                   ))}
                   <button onClick={doAddTask} disabled={addingTask || !newTaskTitle.trim()}
-                    className="ml-auto px-2 py-0.5 text-[9px] font-mono uppercase bg-emerald-500/20 text-emerald-400 rounded hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
+                    className="ml-auto px-2 py-0.5 text-[9px] font-mono uppercase bg-success/20 text-success rounded hover:bg-success/30 transition-colors disabled:opacity-40">
                     {addingTask ? '...' : 'Add'}
                   </button>
                 </div>
@@ -1163,7 +1164,7 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
                 {tasks.filter(t => !t.completed).slice(0, 7).map(t => (
                   <div key={t.id} className="flex items-start gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-primary/40 mt-1 shrink-0" />
-                    <span className="text-[10px] text-white/40 leading-snug line-clamp-2">{t.text}</span>
+                    <span className="text-[10px] text-on-surface/60 leading-snug line-clamp-2">{t.text}</span>
                   </div>
                 ))}
               </div>
@@ -1171,8 +1172,8 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
           </div>
 
           {showCreateForm && !selectedEvent && !editingEvent && (
-            <div className="border-t border-white/[0.06] pt-4">
-              <p className="font-mono text-[9px] text-white/30 uppercase tracking-widest mb-3">New Event</p>
+            <div className="border-t border-on-surface/[0.06] pt-4">
+              <p className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest mb-3">New Event</p>
               <EventForm
                 draft={createDraft}
                 onSave={doCreate}
@@ -1186,7 +1187,7 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
         {/* Center grid */}
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
-            <span className="font-mono text-[10px] text-white/20 uppercase tracking-widest">Loading…</span>
+            <span className="font-mono text-[10px] text-on-surface/48 uppercase tracking-widest">Loading…</span>
           </div>
         ) : view === 'week' ? (
           <WeekGrid
@@ -1224,11 +1225,11 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
               initial={{ opacity: 0, x: 16 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 16 }}
-              className="w-[272px] shrink-0 border-l border-white/[0.06] p-5 overflow-y-auto"
+              className="w-[272px] shrink-0 border-l border-on-surface/[0.06] p-5 overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-4">
-                <p className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Edit Event</p>
-                <button onClick={() => setEditingEvent(null)} className="text-white/20 hover:text-white/60 transition-colors">
+                <p className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">Edit Event</p>
+                <button onClick={() => setEditingEvent(null)} className="text-on-surface/48 hover:text-on-surface/60 transition-colors">
                   <X size={13} />
                 </button>
               </div>

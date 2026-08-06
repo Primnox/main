@@ -6,6 +6,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { useCreateBlockNote, SuggestionMenuController, getDefaultReactSlashMenuItems } from "@blocknote/react";
 import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 import { NoteGeneratorPanel } from './NoteGeneratorPanel';
+import { API_BASE } from '../../config';
 
 /*
 // ─── AI Custom Block (disabled - not yet integrated into schema) ─────
@@ -27,7 +28,7 @@ const AiBlock = createReactBlockSpec(
         if (!prompt) return;
         setIsGenerating(true);
         try {
-          const res = await fetch("http://localhost:4009/api/generate", {
+          const res = await fetch(`${API_BASE}/api/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ prompt: `Generate content strictly based on this prompt. Output ONLY markdown content for the editor, no conversational filler. Prompt: ${prompt}` }),
@@ -51,15 +52,15 @@ const AiBlock = createReactBlockSpec(
       };
 
       return (
-        <div className="w-full bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 my-2 flex flex-col gap-2 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
-          <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs uppercase tracking-widest font-bold">
+        <div className="w-full bg-success/10 border border-success/30 rounded-lg p-3 my-2 flex flex-col gap-2 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+          <div className="flex items-center gap-2 text-success font-mono text-xs uppercase tracking-widest font-bold">
             <Sparkles size={14} /> AI Generation
           </div>
           <div className="flex gap-2">
             <input 
               autoFocus
               disabled={isGenerating}
-              className="flex-1 bg-black/50 border border-emerald-500/20 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-500/50 text-white placeholder-white/30"
+              className="flex-1 bg-surface/50 border border-success/20 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-success/50 text-on-surface placeholder-on-surface/30"
               placeholder="What do you want me to write?..."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -70,7 +71,7 @@ const AiBlock = createReactBlockSpec(
             <button 
               disabled={isGenerating}
               onClick={handleGenerate}
-              className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded text-sm transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="px-3 py-1.5 bg-success/20 hover:bg-success/30 text-success rounded text-sm transition-colors flex items-center gap-2 disabled:opacity-50"
             >
               {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
               {isGenerating ? "Generating..." : "Generate"}
@@ -207,7 +208,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
     if (id === 0) return; // Don't save if there's no valid note ID
     setSaveStatus('saving');
     try {
-      const res = await fetch('http://localhost:4009/notes/update', {
+      const res = await fetch(`${API_BASE}/notes/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ index: id, id: id, title, text, project })
@@ -234,7 +235,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
   const deleteNote = async () => {
     if (notes.length === 0 || !activeNote?.id) return;
     try {
-      await fetch(`http://localhost:4009/notes/${activeNote.id}`, {
+      await fetch(`${API_BASE}/notes/${activeNote.id}`, {
         method: 'DELETE'
       });
       setActiveNoteId(null);
@@ -247,7 +248,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
   // ─── New Note ───────────────────────────────────────────────
   const handleNewNote = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:4009/notes/update', {
+      const res = await fetch(`${API_BASE}/notes/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace })
@@ -305,7 +306,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
       const selectionContext = selectedText ? `The user has highlighted this specific text: "${selectedText}"\n\n` : "";
       const contextPrompt = `The user has a note titled "${activeNote.title}" with this content:\n\n${activeNote.text}\n\n${selectionContext}Their question about this note is: "${aiQuery}"\n\nAnswer concisely and helpfully.`;
       
-      const res = await fetch('http://localhost:4009/api/generate', {
+      const res = await fetch(`${API_BASE}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: contextPrompt })
@@ -332,7 +333,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
 
   const handleNewSubNote = async (parentId: number) => {
     try {
-      const res = await fetch('http://localhost:4009/notes/update', {
+      const res = await fetch(`${API_BASE}/notes/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: "Untitled", text: "", project: activeWorkspace, parent_id: parentId })
@@ -349,7 +350,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
 
   const togglePin = async (id: number, currentStatus: boolean) => {
     try {
-      await fetch('http://localhost:4009/notes/pin', {
+      await fetch(`${API_BASE}/notes/pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, pinned: !currentStatus })
@@ -378,7 +379,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
       <div key={note.id || `temp-${note.originalIdx}`} className="w-full">
         <div 
           onClick={() => setActiveNoteId(note.id ?? null)}
-          className={`px-3 py-1.5 text-sm cursor-pointer rounded flex items-center justify-between group transition-colors duration-300 ${activeNoteId === note.id ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white/90'}`}
+          className={`px-3 py-1.5 text-sm cursor-pointer rounded flex items-center justify-between group transition-colors duration-300 ${activeNoteId === note.id ? 'bg-on-surface/10 text-on-surface' : 'text-on-surface/60 hover:bg-on-surface/5 hover:text-on-surface/90'}`}
           style={{ paddingLeft: `${0.75 + depth * 1.5}rem` }}
         >
           <div className="flex items-center gap-2 overflow-hidden">
@@ -393,17 +394,17 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
                     e.stopPropagation();
                     togglePin(note.id!, note.pinned || false);
                   }} 
-                  className={`p-1 hover:bg-white/20 rounded transition-colors ${note.pinned ? 'text-yellow-400 opacity-100' : 'text-white/50 hover:text-white'}`} 
+                  className={`p-1 hover:bg-on-surface/20 rounded transition-colors ${note.pinned ? 'text-warn opacity-100' : 'text-on-surface/50 hover:text-on-surface'}`} 
                   title={note.pinned ? "Unpin" : "Pin to top"}
                 >
-                  <Pin size={12} className={note.pinned ? "fill-yellow-400" : ""} />
+                  <Pin size={12} className={note.pinned ? "fill-warn/25" : ""} />
                 </button>
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
                   handleNewSubNote(note.id!);
                 }} 
-                className="p-1 hover:bg-white/20 rounded text-white/50 hover:text-white transition-colors" title="Add Subpage"
+                className="p-1 hover:bg-on-surface/20 rounded text-on-surface/50 hover:text-on-surface transition-colors" title="Add Subpage"
               >
                 <Plus size={12} />
               </button>
@@ -420,25 +421,25 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
   const readingTime = Math.max(1, Math.ceil(wordCount / 200));
 
   return (
-    <div className="h-full flex flex-col md:flex-row overflow-hidden bg-black text-[#D4D4D4] font-sans">
+    <div className="h-full flex flex-col md:flex-row overflow-hidden bg-surface text-on-surface font-sans">
       
       {/* ─── Sidebar ─────────────────────────────────────────── */}
-      <aside className="w-full md:w-64 h-auto md:h-full border-r border-white/10 flex flex-col bg-white/5 backdrop-blur-2xl pb-20 shrink-0 z-10">
+      <aside className="w-full md:w-64 h-auto md:h-full border-r border-on-surface/10 flex flex-col bg-on-surface/5 backdrop-blur-2xl pb-20 shrink-0 z-10">
         <div className="p-4 space-y-4 pt-8">
           <div className="flex justify-between items-center mb-2">
-            <div className="flex gap-2 bg-black/40 p-1 rounded-lg w-full text-xs overflow-x-auto custom-scrollbar flex-nowrap shrink-0">
+            <div className="flex gap-2 bg-surface/40 p-1 rounded-lg w-full text-xs overflow-x-auto custom-scrollbar flex-nowrap shrink-0">
               {['General', ...Array.from(new Set(notes.map(n => n.project).filter((p): p is string => Boolean(p)))).filter(p => p !== 'General')].map(ws => (
                 <button
                   key={ws}
                   onClick={() => setActiveWorkspace(ws)}
-                  className={`flex-1 min-w-[max-content] px-3 py-1 rounded transition-colors ${activeWorkspace === ws ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/80'}`}
+                  className={`flex-1 min-w-[max-content] px-3 py-1 rounded transition-colors ${activeWorkspace === ws ? 'bg-on-surface/10 text-on-surface' : 'text-on-surface/60 hover:text-on-surface/80'}`}
                 >
                   {ws}
                 </button>
               ))}
               <button
                 onClick={() => { setAddingWorkspace(true); setNewWsName(''); }}
-                className="px-2 py-1 rounded transition-colors text-white/40 hover:text-white hover:bg-white/10 flex items-center shrink-0"
+                className="px-2 py-1 rounded transition-colors text-on-surface/60 hover:text-on-surface hover:bg-on-surface/10 flex items-center shrink-0"
                 title="Add Project"
               >
                 <Plus size={12} />
@@ -464,28 +465,28 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
                   setAddingWorkspace(false);
                 }}
                 placeholder="Workspace name…"
-                className="flex-1 bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-primary/40 placeholder-white/25"
+                className="flex-1 bg-surface/40 border border-on-surface/10 rounded px-2 py-1 text-xs text-on-surface outline-none focus:border-primary/40 placeholder-on-surface/25"
               />
             </div>
           )}
           <div className="flex justify-between items-center">
-            <h2 className="text-sm font-semibold text-white/80 tracking-wide flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-on-surface/80 tracking-wide flex items-center gap-2">
               <Folder size={14} /> {activeWorkspace}
             </h2>
             <div className="flex gap-1">
-              <button onClick={() => setShowGenerator(!showGenerator)} title="Generate AI Notes" className="w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded transition-colors text-emerald-400/70 hover:text-emerald-400">
+              <button onClick={() => setShowGenerator(!showGenerator)} title="Generate AI Notes" className="w-6 h-6 flex items-center justify-center hover:bg-on-surface/10 rounded transition-colors text-success/70 hover:text-success">
                 <Sparkles size={14} />
               </button>
-              <button onClick={handleNewNote} title="New page (Ctrl+N)" className="w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded transition-colors text-white/50 hover:text-white">
+              <button onClick={handleNewNote} title="New page (Ctrl+N)" className="w-6 h-6 flex items-center justify-center hover:bg-on-surface/10 rounded transition-colors text-on-surface/50 hover:text-on-surface">
                 <Plus size={14} />
               </button>
             </div>
           </div>
           
           <div className="relative group">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-white/80 transition-colors" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/55 group-focus-within:text-on-surface/80 transition-colors" />
             <input 
-              className="w-full bg-black/20 border border-transparent pl-9 pr-3 py-1.5 text-xs focus-visible:ring-1 focus-visible:ring-emerald-500/50 outline-none transition-all placeholder-white/30 rounded" 
+              className="w-full bg-surface/20 border border-transparent pl-9 pr-3 py-1.5 text-xs focus-visible:ring-1 focus-visible:ring-success/50 outline-none transition-all placeholder-on-surface/30 rounded" 
               placeholder="Search notes..." 
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -499,7 +500,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
         </div>
 
         {/* Sidebar Footer */}
-        <div className="px-4 py-3 border-t border-white/5 text-[10px] text-white/30 font-mono">
+        <div className="px-4 py-3 border-t border-on-surface/5 text-[10px] text-on-surface/55 font-mono">
           {notes.length} page{notes.length !== 1 ? 's' : ''}
         </div>
       </aside>
@@ -511,44 +512,46 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
         <section className="flex-1 h-full flex flex-col bg-transparent relative z-0 min-w-0">
           
           {/* Top bar */}
-          <div className="h-12 border-b border-white/10 flex items-center px-6 justify-between bg-transparent shrink-0">
-            <div className="flex items-center gap-4 text-xs text-white/50">
-              <span>{activeWorkspace}</span>
-              <ChevronRight size={12} />
-              <span className="text-white/80">{activeNote?.title || "Untitled"}</span>
+          <div className="h-12 border-b border-on-surface/10 flex items-center gap-3 px-6 justify-between bg-transparent shrink-0">
+            {/* min-w-0 + truncate: without them the breadcrumb refused to shrink
+                and the action labels collided into each other ("Auto-Untitledsaveon"). */}
+            <div className="flex items-center gap-2 text-xs text-on-surface/50 min-w-0 flex-1">
+              <span className="truncate shrink-0 max-w-[35%]">{activeWorkspace}</span>
+              <ChevronRight size={12} className="shrink-0" />
+              <span className="text-on-surface/80 truncate">{activeNote?.title || "Untitled"}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0 whitespace-nowrap">
               {/* Auto-save indicator */}
-              <div className="flex items-center gap-1.5 text-[10px] font-mono mr-2">
+              <div className="flex items-center gap-1.5 text-[10px] font-mono mr-2 whitespace-nowrap shrink-0">
                 {saveStatus === 'saving' && (
-                  <span className="text-yellow-400/80 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Saving...</span>
+                  <span className="text-warn/80 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Saving...</span>
                 )}
                 {saveStatus === 'saved' && (
-                  <span className="text-emerald-400/80">✓ Saved</span>
+                  <span className="text-success/80">✓ Saved</span>
                 )}
                 {saveStatus === 'idle' && activeNote && (
-                  <span className="text-white/20">Auto-save on</span>
+                  <span className="text-on-surface/48">Auto-save on</span>
                 )}
               </div>
               
               {/* Ask AI Button */}
               <button 
                 onClick={() => setShowAskAI(!showAskAI)} 
-                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded transition-colors ${showAskAI ? 'bg-purple-500/20 text-purple-400' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded transition-colors ${showAskAI ? 'bg-primary/20 text-primary' : 'text-on-surface/60 hover:text-on-surface hover:bg-on-surface/5'}`}
                 title="Ask AI about this note"
               >
                 <Sparkles size={14} /> Ask AI
               </button>
-              <button onClick={onExport} className="text-xs text-white/60 hover:text-white px-3 py-1.5 rounded hover:bg-white/5 transition-colors">
+              <button onClick={onExport} className="text-xs text-on-surface/60 hover:text-on-surface px-3 py-1.5 rounded hover:bg-on-surface/5 transition-colors">
                 Export
               </button>
-              <button onClick={deleteNote} className="text-white/40 hover:text-red-400 p-1.5 rounded hover:bg-red-400/10 transition-colors" title="Delete note">
+              <button onClick={deleteNote} className="text-on-surface/60 hover:text-error p-1.5 rounded hover:bg-error/10 transition-colors" title="Delete note">
                 <Trash2 size={14} />
               </button>
-              <div className="w-px h-5 bg-white/10 mx-1" />
+              <div className="w-px h-5 bg-on-surface/10 mx-1" />
               <button 
                 onClick={() => setShowContextPanel(!showContextPanel)} 
-                className="text-white/40 hover:text-white p-1.5 rounded hover:bg-white/5 transition-colors" 
+                className="text-on-surface/60 hover:text-on-surface p-1.5 rounded hover:bg-on-surface/5 transition-colors" 
                 title={showContextPanel ? 'Hide details' : 'Show details'}
               >
                 {showContextPanel ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
@@ -558,10 +561,10 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
 
           {/* Ask AI Panel */}
           {showAskAI && (
-            <div className="border-b border-white/5 bg-purple-500/[0.03] px-6 py-4 flex flex-col gap-3 shrink-0">
-              <div className="flex items-center gap-2 text-xs text-purple-300/80 font-semibold">
+            <div className="border-b border-on-surface/5 bg-primary/20/[0.03] px-6 py-4 flex flex-col gap-3 shrink-0">
+              <div className="flex items-center gap-2 text-xs text-primary/80 font-semibold">
                 <Sparkles size={14} /> Ask Primnox about "{activeNote?.title}"
-                <button onClick={() => { setShowAskAI(false); setAiAnswer(""); }} className="ml-auto text-white/40 hover:text-white"><X size={14} /></button>
+                <button onClick={() => { setShowAskAI(false); setAiAnswer(""); }} className="ml-auto text-on-surface/60 hover:text-on-surface"><X size={14} /></button>
               </div>
               <div className="flex gap-2">
                 <input
@@ -569,24 +572,24 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
                   onChange={e => setAiQuery(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleAskAI()}
                   placeholder="e.g. 'What are the action items?' or 'Summarize in 3 bullets'"
-                  className="flex-1 bg-black/30 border border-white/10 px-3 py-2 text-sm rounded outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50 placeholder-white/20"
+                  className="flex-1 bg-surface/30 border border-on-surface/10 px-3 py-2 text-sm rounded outline-none focus-visible:ring-1 focus-visible:ring-success/50 placeholder-on-surface/20"
                 />
                 <button 
                   onClick={handleAskAI} 
                   disabled={aiLoading || !aiQuery.trim()}
-                  className="px-4 py-2 bg-purple-500/20 text-purple-300 rounded text-xs font-bold hover:bg-purple-500/30 transition-colors disabled:opacity-40"
+                  className="px-4 py-2 bg-primary/20 text-primary rounded text-xs font-bold hover:bg-primary/30 transition-colors disabled:opacity-40"
                 >
                   {aiLoading ? <Loader2 size={14} className="animate-spin" /> : 'Ask'}
                 </button>
               </div>
               {aiAnswer && (
-                <div className="bg-black/30 border border-purple-500/10 rounded p-3 text-sm text-white/70 leading-relaxed">
+                <div className="bg-surface/30 border border-primary/10 rounded p-3 text-sm text-on-surface/70 leading-relaxed">
                   {aiAnswer}
                 </div>
               )}
               <div className="flex gap-2 flex-wrap">
                 {['Summarize this note', 'What are the action items?', 'Key takeaways'].map(q => (
-                  <button key={q} onClick={() => { setAiQuery(q); }} className="text-[10px] px-2 py-1 bg-white/5 border border-white/10 rounded text-white/50 hover:text-white/80 hover:bg-white/10 transition-colors">
+                  <button key={q} onClick={() => { setAiQuery(q); }} className="text-[10px] px-2 py-1 bg-on-surface/5 border border-on-surface/10 rounded text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/10 transition-colors">
                     {q}
                   </button>
                 ))}
@@ -597,14 +600,20 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
           {/* Editor Content — fills full width, padding controls reading width */}
           <div className="flex-1 overflow-y-auto custom-scrollbar relative w-full">
             {activeNote ? (
-              <div className="w-full px-16 lg:px-28 xl:px-36 pt-20 pb-40 flex flex-col min-h-full">
+              // Padding was px-16 lg:px-28 xl:px-36. Those variants key off the
+              // VIEWPORT, but this element sits in a column between a 256px note
+              // list and a 280px details panel — so at a 961px window the column
+              // was 165px wide and 128px of that was padding, leaving 31px of
+              // text: the editor rendered one character per line. Base padding is
+              // now column-appropriate and only grows when there is room.
+              <div className="w-full px-6 sm:px-8 lg:px-14 xl:px-20 pt-20 pb-40 flex flex-col min-h-full">
                 <input
                   value={editTitle}
                   onChange={e => onTitleChange(e.target.value)}
-                  className="bg-transparent border-none outline-none text-4xl font-bold text-white w-full placeholder-white/20 mb-2"
+                  className="bg-transparent border-none outline-none text-4xl font-bold text-on-surface w-full placeholder-on-surface/20 mb-2"
                   placeholder="Untitled"
                 />
-                <p className="text-[10px] text-white/20 font-mono mb-10">
+                <p className="text-[10px] text-on-surface/48 font-mono mb-10">
                   {wordCount} words · {readingTime} min read · {activeNote.timestamp ? new Date(activeNote.timestamp).toLocaleDateString() : 'just now'}
                 </p>
                 
@@ -632,21 +641,21 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
                 <div className="relative flex items-center justify-center w-24 h-24">
-                  <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-2xl animate-pulse" />
-                  <div className="relative bg-white/5 border border-emerald-500/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(16,185,129,0.15)] flex items-center justify-center">
-                    <FileText size={40} className="text-emerald-400/80 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                  <div className="absolute inset-0 bg-success/20 rounded-full blur-2xl animate-pulse" />
+                  <div className="relative bg-on-surface/5 border border-success/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(16,185,129,0.15)] flex items-center justify-center">
+                    <FileText size={40} className="text-success/80 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                   </div>
                 </div>
                 
                 <div className="text-center space-y-2">
-                  <h3 className="text-xl font-bold text-white tracking-wide">Workspace Empty</h3>
-                  <p className="text-sm text-white/40 max-w-sm">Select a page from the sidebar to view its contents, or create a new one to start writing.</p>
+                  <h3 className="text-xl font-bold text-on-surface tracking-wide">Workspace Empty</h3>
+                  <p className="text-sm text-on-surface/60 max-w-sm">Select a page from the sidebar to view its contents, or create a new one to start writing.</p>
                 </div>
                 
                 <div className="flex gap-4 mt-2">
                   <button 
                     onClick={handleNewNote} 
-                    className="px-6 py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:border-emerald-500/60 rounded-xl text-sm font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 transition-all duration-300 flex items-center gap-2 group shadow-[0_0_15px_rgba(16,185,129,0.05)] hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+                    className="px-6 py-2.5 bg-success/10 border border-success/30 hover:border-success/60 rounded-xl text-sm font-medium text-success hover:text-success hover:bg-success/20 transition-all duration-300 flex items-center gap-2 group shadow-[0_0_15px_rgba(16,185,129,0.05)] hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]"
                   >
                     <Plus size={16} className="group-hover:scale-110 transition-transform" /> 
                     Create New Page
@@ -660,73 +669,76 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
 
         {/* ─── Context / Details Panel ───────────────────────── */}
         {showContextPanel && activeNote && (
-          <aside className="w-[280px] h-full border-l border-white/10 bg-white/[0.02] flex flex-col shrink-0 overflow-y-auto custom-scrollbar">
+          // 280px of fixed width on top of the 256px note list starved the editor
+          // on anything narrower than a wide desktop. Yield it back until there
+          // is room for all three panes.
+          <aside className="w-[280px] h-full border-l border-on-surface/10 bg-on-surface/[0.02] hidden xl:flex flex-col shrink-0 overflow-y-auto custom-scrollbar">
             
             {/* Panel Header */}
-            <div className="h-12 border-b border-white/10 flex items-center px-5 shrink-0">
-              <h3 className="text-xs font-semibold text-white/60 tracking-wide uppercase">Page Details</h3>
+            <div className="h-12 border-b border-on-surface/10 flex items-center px-5 shrink-0">
+              <h3 className="text-xs font-semibold text-on-surface/60 tracking-wide uppercase">Page Details</h3>
             </div>
 
             <div className="p-5 space-y-6 text-xs">
 
               {/* Properties Section */}
               <div className="space-y-3">
-                <h4 className="text-white/40 uppercase tracking-widest text-[10px] font-semibold">Properties</h4>
+                <h4 className="text-on-surface/60 uppercase tracking-widest text-[10px] font-semibold">Properties</h4>
                 
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-3">
-                    <Clock size={13} className="text-white/30 shrink-0" />
-                    <span className="text-white/40 w-16 shrink-0">Created</span>
-                    <span className="text-white/70">{activeNote.timestamp ? new Date(activeNote.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
+                    <Clock size={13} className="text-on-surface/55 shrink-0" />
+                    <span className="text-on-surface/60 w-16 shrink-0">Created</span>
+                    <span className="text-on-surface/70">{activeNote.timestamp ? new Date(activeNote.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Folder size={13} className="text-white/30 shrink-0" />
-                    <span className="text-white/40 w-16 shrink-0">Project</span>
-                    <span className="text-white/70">{activeNote.project || 'General'}</span>
+                    <Folder size={13} className="text-on-surface/55 shrink-0" />
+                    <span className="text-on-surface/60 w-16 shrink-0">Project</span>
+                    <span className="text-on-surface/70">{activeNote.project || 'General'}</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Hash size={13} className="text-white/30 shrink-0" />
-                    <span className="text-white/40 w-16 shrink-0">ID</span>
-                    <span className="text-white/50 font-mono">{activeNote.id}</span>
+                    <Hash size={13} className="text-on-surface/55 shrink-0" />
+                    <span className="text-on-surface/60 w-16 shrink-0">ID</span>
+                    <span className="text-on-surface/50 font-mono">{activeNote.id}</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Pin size={13} className="text-white/30 shrink-0" />
-                    <span className="text-white/40 w-16 shrink-0">Pinned</span>
-                    <span className="text-white/70">{activeNote.pinned ? 'Yes' : 'No'}</span>
+                    <Pin size={13} className="text-on-surface/55 shrink-0" />
+                    <span className="text-on-surface/60 w-16 shrink-0">Pinned</span>
+                    <span className="text-on-surface/70">{activeNote.pinned ? 'Yes' : 'No'}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="h-px bg-white/5" />
+              <div className="h-px bg-on-surface/5" />
 
               {/* Stats Section */}
               <div className="space-y-3">
-                <h4 className="text-white/40 uppercase tracking-widest text-[10px] font-semibold">Statistics</h4>
+                <h4 className="text-on-surface/60 uppercase tracking-widest text-[10px] font-semibold">Statistics</h4>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white/[0.03] rounded-lg p-3 text-center">
-                    <div className="text-lg font-bold text-white/80">{wordCount}</div>
-                    <div className="text-[10px] text-white/30">Words</div>
+                  <div className="bg-on-surface/[0.03] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-on-surface/80">{wordCount}</div>
+                    <div className="text-[10px] text-on-surface/55">Words</div>
                   </div>
-                  <div className="bg-white/[0.03] rounded-lg p-3 text-center">
-                    <div className="text-lg font-bold text-white/80">{readingTime}</div>
-                    <div className="text-[10px] text-white/30">Min read</div>
+                  <div className="bg-on-surface/[0.03] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-on-surface/80">{readingTime}</div>
+                    <div className="text-[10px] text-on-surface/55">Min read</div>
                   </div>
-                  <div className="bg-white/[0.03] rounded-lg p-3 text-center">
-                    <div className="text-lg font-bold text-white/80">{editText.split('\n').filter(Boolean).length}</div>
-                    <div className="text-[10px] text-white/30">Lines</div>
+                  <div className="bg-on-surface/[0.03] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-on-surface/80">{editText.split('\n').filter(Boolean).length}</div>
+                    <div className="text-[10px] text-on-surface/55">Lines</div>
                   </div>
-                  <div className="bg-white/[0.03] rounded-lg p-3 text-center">
-                    <div className="text-lg font-bold text-white/80">{editText.length}</div>
-                    <div className="text-[10px] text-white/30">Characters</div>
+                  <div className="bg-on-surface/[0.03] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-on-surface/80">{editText.length}</div>
+                    <div className="text-[10px] text-on-surface/55">Characters</div>
                   </div>
                 </div>
               </div>
 
-              <div className="h-px bg-white/5" />
+              <div className="h-px bg-on-surface/5" />
 
               {/* Outline Section */}
               <div className="space-y-3">
-                <h4 className="text-white/40 uppercase tracking-widest text-[10px] font-semibold flex items-center gap-2">
+                <h4 className="text-on-surface/60 uppercase tracking-widest text-[10px] font-semibold flex items-center gap-2">
                   <AlignLeft size={12} /> Outline
                 </h4>
                 <div className="space-y-1">
@@ -735,30 +747,30 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
                       const level = heading.match(/^#+/)?.[0].length || 1;
                       const text = heading.replace(/^#+\s*/, '');
                       return (
-                        <div key={i} className="text-white/50 hover:text-white/80 cursor-pointer transition-colors py-0.5 truncate" style={{ paddingLeft: `${(level - 1) * 12}px` }}>
+                        <div key={i} className="text-on-surface/50 hover:text-on-surface/80 cursor-pointer transition-colors py-0.5 truncate" style={{ paddingLeft: `${(level - 1) * 12}px` }}>
                           {text}
                         </div>
                       );
                     })
                   ) : (
-                    <p className="text-white/20 italic">No headings found</p>
+                    <p className="text-on-surface/48 italic">No headings found</p>
                   )}
                 </div>
               </div>
 
-              <div className="h-px bg-white/5" />
+              <div className="h-px bg-on-surface/5" />
 
               {/* Quick Actions */}
               <div className="space-y-3">
-                <h4 className="text-white/40 uppercase tracking-widest text-[10px] font-semibold">Quick Actions</h4>
+                <h4 className="text-on-surface/60 uppercase tracking-widest text-[10px] font-semibold">Quick Actions</h4>
                 <div className="space-y-1">
-                  <button onClick={() => setShowAskAI(true)} className="w-full text-left px-3 py-2 rounded hover:bg-white/5 text-white/50 hover:text-white/80 transition-colors flex items-center gap-2">
+                  <button onClick={() => setShowAskAI(true)} className="w-full text-left px-3 py-2 rounded hover:bg-on-surface/5 text-on-surface/50 hover:text-on-surface/80 transition-colors flex items-center gap-2">
                     <Sparkles size={13} /> Ask AI about this note
                   </button>
-                  <button onClick={onExport} className="w-full text-left px-3 py-2 rounded hover:bg-white/5 text-white/50 hover:text-white/80 transition-colors flex items-center gap-2">
+                  <button onClick={onExport} className="w-full text-left px-3 py-2 rounded hover:bg-on-surface/5 text-on-surface/50 hover:text-on-surface/80 transition-colors flex items-center gap-2">
                     <FileText size={13} /> Export as Markdown
                   </button>
-                  <button onClick={deleteNote} className="w-full text-left px-3 py-2 rounded hover:bg-red-500/10 text-white/50 hover:text-red-400 transition-colors flex items-center gap-2">
+                  <button onClick={deleteNote} className="w-full text-left px-3 py-2 rounded hover:bg-error/10 text-on-surface/50 hover:text-error transition-colors flex items-center gap-2">
                     <Trash2 size={13} /> Delete page
                   </button>
                 </div>

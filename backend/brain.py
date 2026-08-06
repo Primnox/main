@@ -13,13 +13,27 @@ load_dotenv()
 
 log = get_logger("brain")
 
+# Verified against the Groq API on 2026-08-06. The previous chain listed
+# llama-4-scout, llama-4-maverick, qwen3-32b and mistral-saba-24b, all of which
+# now return 404 model_not_found — including the first entry, which is the
+# default, so every request failed even with a valid key. Ordered strongest
+# first, ending in the fastest model so the last fallback is the most likely to
+# answer under load.
 GROQ_FALLBACK_CHAIN = [
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "qwen/qwen3-32b",
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "mistralai/mistral-saba-24b",
+    "openai/gpt-oss-120b",      # documented primary
+    "qwen/qwen3.6-27b",         # was listed as "qwen/qwen3-32b", which 404s
+    "openai/gpt-oss-20b",
     "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",     # fastest — last resort under load
 ]
+
+# Vision on Groq. Probed 2026-08-06: llama-3.2-*-vision-preview are decommissioned
+# (400) and llama-4-scout/maverick return 404 on this account, so there is no
+# reachable Groq vision model. Both image paths used to hardcode llama-4-scout,
+# which meant every screenshot request failed with a bare 404. Leave this empty
+# to route images to Gemini (which is vision-capable) and, failing that, degrade
+# to a text-only answer rather than erroring. Set it if Groq vision returns.
+GROQ_VISION_MODEL = ""
 
 GEMINI_MODELS = [
     "gemini-2.0-flash",
@@ -554,7 +568,10 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
             msg_content = build_openai_vision(text_content, image_base64) if image_base64 else text_content
             
             if image_base64:
-                models_to_try = ["meta-llama/llama-4-scout-17b-16e-instruct"]
+                # Was hardcoded to llama-4-scout, which 404s — so every image
+                # request failed outright. Fall back to the text chain when no
+                # Groq vision model is reachable: a text-only answer beats an error.
+                models_to_try = [GROQ_VISION_MODEL] if GROQ_VISION_MODEL else list(GROQ_FALLBACK_CHAIN)
             else:
                 with _groq_lb_lock:
                     idx = _groq_lb_state["current_idx"]
@@ -857,7 +874,8 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
         api_key = get_api_key("groq")
         url = "https://api.groq.com/openai/v1/chat/completions"
         if images_b64:
-            model_name = "meta-llama/llama-4-scout-17b-16e-instruct"  # Vision-capable model
+            # See GROQ_VISION_MODEL — llama-4-scout was hardcoded here and 404s.
+            model_name = GROQ_VISION_MODEL or GROQ_FALLBACK_CHAIN[0]
         else:
             with _groq_lb_lock:
                 model_name = GROQ_FALLBACK_CHAIN[_groq_lb_state["current_idx"]]

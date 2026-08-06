@@ -1,7 +1,12 @@
+from pathlib import Path
+
+# Was an absolute path on the original author's Windows machine: it leaked a
+# username and the script could not run anywhere else.
+_FRONTEND_DIR = Path(__file__).resolve().parent
 import os
 import re
 
-components_dir = 'C:/Users/aniketh/Projects/Primnox/frontend/src/app'
+components_dir = str(_FRONTEND_DIR / 'src/app')
 
 # 1. Update App.tsx
 with open(os.path.join(components_dir, 'App.tsx'), 'r', encoding='utf-8') as f:
@@ -48,7 +53,7 @@ app_content = app_content.replace(old_destructure, new_destructure)
 # ChatExpandedSidebar
 app_content = re.sub(
     r'<ChatExpandedSidebar[^>]*>',
-    r'<ChatExpandedSidebar aiName="Primnox" userName="Aniketh" setStatus={setStatus} />',
+    r'<ChatExpandedSidebar aiName="Primnox" userName="Operator" setStatus={setStatus} />',
     app_content, flags=re.DOTALL
 )
 

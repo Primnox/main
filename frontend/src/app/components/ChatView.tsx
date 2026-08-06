@@ -20,6 +20,7 @@ import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
 import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'; // html/xml
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
+import { API_BASE } from '../../config';
 
 SyntaxHighlighter.registerLanguage('jsx', jsx);
 SyntaxHighlighter.registerLanguage('tsx', tsx);
@@ -59,11 +60,11 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
       .catch(() => {});
   };
   return (
-    <div className="my-3 rounded-xl overflow-hidden border border-white/10 bg-black/60">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-white/[0.03]">
-        <span className="text-[9px] font-mono text-white/30 uppercase tracking-widest">{language}</span>
+    <div className="my-3 rounded-xl overflow-hidden border border-on-surface/10 bg-surface/60">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-on-surface/5 bg-on-surface/[0.03]">
+        <span className="text-[9px] font-mono text-on-surface/55 uppercase tracking-widest">{language}</span>
         <button onClick={copy}
-          className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest text-white/30 hover:text-primary transition-colors active:scale-95">
+          className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest text-on-surface/55 hover:text-primary transition-colors active:scale-95">
           {copied ? <><Check size={11} /> Copied</> : <><Copy size={11} /> Copy</>}
         </button>
       </div>
@@ -88,7 +89,7 @@ const MD_COMPONENTS: any = {
     const text = String(children).replace(/\n$/, '');
     if (!lang && !text.includes('\n')) {
       return (
-        <code className="bg-white/10 text-primary/90 px-1.5 py-0.5 rounded-md text-[0.82em] font-mono" {...props}>
+        <code className="bg-on-surface/10 text-primary/90 px-1.5 py-0.5 rounded-md text-[0.82em] font-mono" {...props}>
           {children}
         </code>
       );
@@ -97,35 +98,35 @@ const MD_COMPONENTS: any = {
   },
   pre({ children }: any) { return <>{children}</>; },
   p({ children }: any) {
-    return <p className="mb-3 last:mb-0 leading-7 text-white/85">{children}</p>;
+    return <p className="mb-3 last:mb-0 leading-7 text-on-surface/85">{children}</p>;
   },
   ul({ children }: any) {
-    return <ul className="mb-3 space-y-1 pl-5 list-disc text-white/85">{children}</ul>;
+    return <ul className="mb-3 space-y-1 pl-5 list-disc text-on-surface/85">{children}</ul>;
   },
   ol({ children }: any) {
-    return <ol className="mb-3 space-y-1 pl-5 list-decimal text-white/85">{children}</ol>;
+    return <ol className="mb-3 space-y-1 pl-5 list-decimal text-on-surface/85">{children}</ol>;
   },
   li({ children }: any) {
     return <li className="leading-7">{children}</li>;
   },
-  h1({ children }: any) { return <h1 className="text-xl font-bold text-white mb-3 mt-4">{children}</h1>; },
-  h2({ children }: any) { return <h2 className="text-base font-bold text-white mb-2 mt-3">{children}</h2>; },
-  h3({ children }: any) { return <h3 className="text-sm font-semibold text-white/90 mb-2 mt-3">{children}</h3>; },
-  strong({ children }: any) { return <strong className="font-semibold text-white">{children}</strong>; },
+  h1({ children }: any) { return <h1 className="text-xl font-bold text-on-surface mb-3 mt-4">{children}</h1>; },
+  h2({ children }: any) { return <h2 className="text-base font-bold text-on-surface mb-2 mt-3">{children}</h2>; },
+  h3({ children }: any) { return <h3 className="text-sm font-semibold text-on-surface/90 mb-2 mt-3">{children}</h3>; },
+  strong({ children }: any) { return <strong className="font-semibold text-on-surface">{children}</strong>; },
   a({ href, children }: any) { return <a href={href} className="text-primary underline underline-offset-2 hover:text-primary/70 transition-colors">{children}</a>; },
   blockquote({ children }: any) {
-    return <blockquote className="border-l-2 border-white/20 pl-4 my-2 text-white/50 italic">{children}</blockquote>;
+    return <blockquote className="border-l-2 border-on-surface/20 pl-4 my-2 text-on-surface/50 italic">{children}</blockquote>;
   },
   table({ children }: any) {
     return (
-      <div className="my-3 overflow-x-auto rounded-xl border border-white/10">
+      <div className="my-3 overflow-x-auto rounded-xl border border-on-surface/10">
         <table className="w-full text-xs">{children}</table>
       </div>
     );
   },
-  th({ children }: any) { return <th className="px-4 py-2 text-left font-semibold text-white/60 bg-white/5 border-b border-white/10">{children}</th>; },
-  td({ children }: any) { return <td className="px-4 py-2 text-white/75 border-b border-white/5">{children}</td>; },
-  hr() { return <hr className="my-4 border-white/10" />; },
+  th({ children }: any) { return <th className="px-4 py-2 text-left font-semibold text-on-surface/60 bg-on-surface/5 border-b border-on-surface/10">{children}</th>; },
+  td({ children }: any) { return <td className="px-4 py-2 text-on-surface/75 border-b border-on-surface/5">{children}</td>; },
+  hr() { return <hr className="my-4 border-on-surface/10" />; },
 };
 
 // ── Relative time formatter ────────────────────────────────────────────────────
@@ -159,34 +160,34 @@ const PrivacyMirrorBlock = ({ data }: { data: { mapping?: ScrubItem[]; model?: s
   const items = data?.mapping ?? [];
   if (!items.length) return null;
   return (
-    <div className="mb-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] overflow-hidden">
+    <div className="mb-2 rounded-xl border border-success/15 bg-success/25/[0.04] overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-emerald-400/[0.06] transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-success/25/[0.06] transition-colors"
       >
-        <ShieldCheck size={13} className="text-emerald-400/70 shrink-0" />
-        <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-300/60">
+        <ShieldCheck size={13} className="text-success/70 shrink-0" />
+        <span className="text-[10px] font-mono uppercase tracking-widest text-success/60">
           Privacy Mirror · {items.length} scrubbed
         </span>
         {data?.model && (
-          <span className="text-[9px] font-mono text-white/20 truncate">→ {data.model}</span>
+          <span className="text-[9px] font-mono text-on-surface/48 truncate">→ {data.model}</span>
         )}
         <ChevronDown
           size={12}
-          className={`ml-auto text-emerald-300/40 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`ml-auto text-success/60 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
         />
       </button>
       {open && (
-        <div className="px-3 pb-2.5 pt-1 space-y-1 border-t border-emerald-400/10">
-          <p className="text-[10px] text-white/30 leading-5 pt-1">
+        <div className="px-3 pb-2.5 pt-1 space-y-1 border-t border-success/10">
+          <p className="text-[10px] text-on-surface/55 leading-5 pt-1">
             Replaced before leaving your device — restored in the reply below.
           </p>
           {items.map((it, i) => (
             <div key={i} className="flex items-center gap-2 text-[11px] font-mono">
-              <span className="text-rose-300/70 line-through truncate max-w-[45%]">{it.original}</span>
-              <span className="text-white/20">→</span>
-              <span className="text-emerald-300/80 truncate">{it.placeholder}</span>
-              <span className="ml-auto text-[9px] uppercase tracking-wider text-white/20 shrink-0">{it.label}</span>
+              <span className="text-error/70 line-through truncate max-w-[45%]">{it.original}</span>
+              <span className="text-on-surface/48">→</span>
+              <span className="text-success/80 truncate">{it.placeholder}</span>
+              <span className="ml-auto text-[9px] uppercase tracking-wider text-on-surface/48 shrink-0">{it.label}</span>
             </div>
           ))}
         </div>
@@ -201,7 +202,7 @@ const TypingDots = () => (
     {[0, 1, 2].map(i => (
       <motion.div
         key={i}
-        className="w-1.5 h-1.5 rounded-full bg-white/30"
+        className="w-1.5 h-1.5 rounded-full bg-on-surface/30"
         animate={{ opacity: [0.25, 1, 0.25], y: [0, -3, 0] }}
         transition={{ repeat: Infinity, duration: 1, delay: i * 0.18, ease: 'easeInOut' }}
       />
@@ -234,12 +235,12 @@ const UserMessage = ({ text }: { text: string }) => {
   }
   return (
     <>
-      {clean && <p className="text-sm text-white/90 leading-6 break-words whitespace-pre-wrap">{clean}</p>}
+      {clean && <p className="text-sm text-on-surface/90 leading-6 break-words whitespace-pre-wrap">{clean}</p>}
       {chips.length > 0 && (
         <div className={`flex flex-wrap gap-1.5 ${clean ? 'mt-2' : ''}`}>
           {chips.map((name, i) => (
-            <span key={i} className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/[0.08] text-white/60 px-2.5 py-1 rounded-lg text-xs font-medium">
-              <FileText size={12} className="text-white/30 shrink-0" />
+            <span key={i} className="inline-flex items-center gap-1.5 bg-on-surface/[0.06] border border-on-surface/[0.08] text-on-surface/60 px-2.5 py-1 rounded-lg text-xs font-medium">
+              <FileText size={12} className="text-on-surface/55 shrink-0" />
               <span className="max-w-[180px] truncate">{name}</span>
             </span>
           ))}
@@ -318,21 +319,21 @@ export const ChatExpandedSidebar = ({
     setContextMenu(null);
     try {
       if (action === 'pin') {
-        await fetch(`http://localhost:4009/api/chats/${chat.id}`, {
+        await fetch(`${API_BASE}/api/chats/${chat.id}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ isPinned: !chat.isPinned })
         });
       } else if (action === 'rename') {
         setRenameState({ chatId: chat.id, value: chat.title }); return;
       } else if (action === 'move') {
-        await fetch(`http://localhost:4009/api/chats/${chat.id}`, {
+        await fetch(`${API_BASE}/api/chats/${chat.id}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folderId })
         });
       } else if (action === 'auto_assign') {
-        await fetch(`http://localhost:4009/api/chats/${chat.id}/auto_assign`, { method: 'POST' });
+        await fetch(`${API_BASE}/api/chats/${chat.id}/auto_assign`, { method: 'POST' });
       } else if (action === 'delete') {
-        await fetch(`http://localhost:4009/api/chats/${chat.id}`, { method: 'DELETE' });
+        await fetch(`${API_BASE}/api/chats/${chat.id}`, { method: 'DELETE' });
       }
       refreshChats();
     } catch (e) { console.error(e); }
@@ -341,7 +342,7 @@ export const ChatExpandedSidebar = ({
   const submitRename = async () => {
     if (!renameState || !renameState.value.trim()) { setRenameState(null); return; }
     try {
-      const res = await fetch(`http://localhost:4009/api/chats/${renameState.chatId}`, {
+      const res = await fetch(`${API_BASE}/api/chats/${renameState.chatId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: renameState.value.trim() })
       });
@@ -354,7 +355,7 @@ export const ChatExpandedSidebar = ({
   const createFolder = async () => {
     const name = newFolderName.trim(); if (!name) return;
     try {
-      await fetch('http://localhost:4009/api/folders', {
+      await fetch(`${API_BASE}/api/folders`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: name }),
       });
@@ -364,7 +365,7 @@ export const ChatExpandedSidebar = ({
 
   const deleteFolder = async (folderId: string) => {
     try {
-      await fetch(`http://localhost:4009/api/folders/${folderId}`, { method: 'DELETE' });
+      await fetch(`${API_BASE}/api/folders/${folderId}`, { method: 'DELETE' });
       if (activeFolderId === folderId) setActiveFolderId(null);
       refreshChats();
     } catch (e) { console.error(e); }
@@ -423,15 +424,15 @@ export const ChatExpandedSidebar = ({
         onContextMenu={e => handleContextMenu(e, c)}
         className={`w-full text-left px-3 py-2.5 rounded-xl transition-all group flex items-start gap-2.5
           ${isActive
-            ? 'bg-primary/15 text-white'
-            : 'hover:bg-white/5 text-white/55 hover:text-white/85'}`}
+            ? 'bg-primary/15 text-on-surface'
+            : 'hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/85'}`}
       >
-        <MessageSquare size={13} className={`mt-0.5 shrink-0 ${isActive ? 'text-primary/70' : 'text-white/20 group-hover:text-white/40'}`} />
+        <MessageSquare size={13} className={`mt-0.5 shrink-0 ${isActive ? 'text-primary/70' : 'text-on-surface/48 group-hover:text-on-surface/60'}`} />
         <div className="flex-1 min-w-0">
           <p className="text-sm truncate font-medium leading-snug">{c.title}</p>
-          <p className="text-[10px] mt-0.5 text-white/25">{sidebarDate(c.date)}</p>
+          <p className="text-[10px] mt-0.5 text-on-surface/52">{sidebarDate(c.date)}</p>
         </div>
-        {c.isPinned && <Pin size={10} className="shrink-0 mt-1 text-primary/40" />}
+        {c.isPinned && <Pin size={10} className="shrink-0 mt-1 text-primary/60" />}
       </button>
     );
   };
@@ -463,47 +464,47 @@ export const ChatExpandedSidebar = ({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full bg-black overflow-hidden">
+    <div className="flex h-full bg-surface overflow-hidden">
 
       {/* ── Context Menu ────────────────────────────────────────────────── */}
       {contextMenu && createPortal(
         <div
-          className="fixed z-50 bg-zinc-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-2xl py-1.5 w-52 text-sm overflow-hidden"
+          className="fixed z-50 bg-[var(--nav-bg)] border border-on-surface/10 rounded-2xl shadow-2xl backdrop-blur-2xl py-1.5 w-52 text-sm overflow-hidden"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={e => e.stopPropagation()}
         >
-          <p className="px-4 py-2 border-b border-white/5 font-semibold text-white/80 truncate text-xs">{contextMenu.chat.title}</p>
+          <p className="px-4 py-2 border-b border-on-surface/5 font-semibold text-on-surface/80 truncate text-xs">{contextMenu.chat.title}</p>
           {[
             { action: 'pin', icon: Pin, label: contextMenu.chat.isPinned ? 'Unpin' : 'Pin to top' },
             { action: 'rename', icon: Pencil, label: 'Rename' },
           ].map(({ action, icon: Icon, label }) => (
             <button key={action} onClick={() => handleMenuAction(action, contextMenu.chat)}
-              className="w-full text-left px-4 py-2.5 hover:bg-white/8 text-white/70 hover:text-white flex items-center gap-3 transition-colors">
+              className="w-full text-left px-4 py-2.5 hover:bg-on-surface/8 text-on-surface/70 hover:text-on-surface flex items-center gap-3 transition-colors">
               <Icon size={13} /> {label}
             </button>
           ))}
           <div className="group/sub relative">
-            <button className="w-full text-left px-4 py-2.5 hover:bg-white/8 text-white/70 hover:text-white flex items-center justify-between transition-colors">
+            <button className="w-full text-left px-4 py-2.5 hover:bg-on-surface/8 text-on-surface/70 hover:text-on-surface flex items-center justify-between transition-colors">
               <span className="flex items-center gap-3"><Folder size={13} /> Move to folder</span>
               <ChevronRight size={13} />
             </button>
-            <div className="absolute left-full top-0 hidden group-hover/sub:block w-52 bg-zinc-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-2xl py-1.5 ml-1">
+            <div className="absolute left-full top-0 hidden group-hover/sub:block w-52 bg-[var(--nav-bg)] border border-on-surface/10 rounded-2xl shadow-2xl backdrop-blur-2xl py-1.5 ml-1">
               <button onClick={() => handleMenuAction('auto_assign', contextMenu.chat)}
-                className="w-full text-left px-4 py-2.5 hover:bg-white/8 text-primary flex items-center gap-3 transition-colors">
+                className="w-full text-left px-4 py-2.5 hover:bg-on-surface/8 text-primary flex items-center gap-3 transition-colors">
                 <Bot size={13} /> Auto-detect
               </button>
-              <div className="h-px bg-white/10 my-1" />
+              <div className="h-px bg-on-surface/10 my-1" />
               {chatFolders.map((f: any) => (
                 <button key={f.id} onClick={() => handleMenuAction('move', contextMenu.chat, f.id)}
-                  className="w-full text-left px-4 py-2.5 hover:bg-white/8 text-white/70 hover:text-white truncate text-xs transition-colors">
+                  className="w-full text-left px-4 py-2.5 hover:bg-on-surface/8 text-on-surface/70 hover:text-on-surface truncate text-xs transition-colors">
                   {f.title}
                 </button>
               ))}
             </div>
           </div>
-          <div className="h-px bg-white/8 my-1" />
+          <div className="h-px bg-on-surface/8 my-1" />
           <button onClick={() => handleMenuAction('delete', contextMenu.chat)}
-            className="w-full text-left px-4 py-2.5 hover:bg-red-500/15 text-red-400/80 hover:text-red-400 flex items-center gap-3 transition-colors">
+            className="w-full text-left px-4 py-2.5 hover:bg-error/15 text-error/80 hover:text-error flex items-center gap-3 transition-colors">
             <Trash2 size={13} /> Delete
           </button>
         </div>,
@@ -512,24 +513,24 @@ export const ChatExpandedSidebar = ({
 
       {/* ── Rename Modal ─────────────────────────────────────────────────── */}
       {renameState && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface/70 backdrop-blur-sm"
           onClick={() => setRenameState(null)}>
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            className="bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl p-6 w-96"
+            className="bg-surface-container border border-on-surface/10 rounded-2xl shadow-2xl p-6 w-96"
             onClick={e => e.stopPropagation()}>
-            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4">Rename Chat</p>
+            <p className="text-xs font-semibold text-on-surface/50 uppercase tracking-widest mb-4">Rename Chat</p>
             <input ref={renameInputRef} value={renameState.value}
               onChange={e => setRenameState({ ...renameState, value: e.target.value })}
               onKeyDown={e => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenameState(null); }}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-primary/50 transition-colors"
+              className="w-full bg-on-surface/5 border border-on-surface/10 rounded-xl px-4 py-3 text-on-surface text-sm focus:outline-none focus:border-primary/50 transition-colors"
             />
             <div className="flex gap-2 mt-4">
               <button onClick={submitRename}
-                className="flex-1 flex items-center justify-center gap-2 bg-primary text-black font-bold px-4 py-2.5 rounded-xl text-sm hover:bg-white transition-all">
+                className="flex-1 flex items-center justify-center gap-2 bg-primary text-surface font-bold px-4 py-2.5 rounded-xl text-sm hover:bg-on-surface transition-all">
                 <Check size={14} /> Save
               </button>
               <button onClick={() => setRenameState(null)}
-                className="px-4 py-2.5 rounded-xl text-sm text-white/40 hover:text-white hover:bg-white/8 transition-all">
+                className="px-4 py-2.5 rounded-xl text-sm text-on-surface/60 hover:text-on-surface hover:bg-on-surface/8 transition-all">
                 Cancel
               </button>
             </div>
@@ -539,9 +540,9 @@ export const ChatExpandedSidebar = ({
       )}
 
       {/* ── Left Sidebar ─────────────────────────────────────────────────── */}
-      <div className="w-64 border-r border-white/5 bg-zinc-950/60 flex flex-col shrink-0 overflow-hidden">
+      <div className="w-64 border-r border-on-surface/5 bg-[var(--nav-bg)] flex flex-col shrink-0 overflow-hidden">
         {/* New Chat */}
-        <div className="p-4 pt-10 border-b border-white/5">
+        <div className="p-4 pt-10 border-b border-on-surface/5">
           <button onClick={createNewChat}
             className="w-full flex items-center justify-between px-4 py-2.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 rounded-xl transition-all group font-medium text-sm">
             New chat
@@ -554,7 +555,7 @@ export const ChatExpandedSidebar = ({
           {/* Pinned */}
           {pinnedChats.length > 0 && (
             <div>
-              <p className="px-3 text-[10px] font-mono text-white/25 uppercase tracking-widest mb-2 flex items-center gap-2">
+              <p className="px-3 text-[10px] font-mono text-on-surface/52 uppercase tracking-widest mb-2 flex items-center gap-2">
                 <Pin size={10} /> Pinned
               </p>
               <div className="space-y-0.5">
@@ -567,12 +568,12 @@ export const ChatExpandedSidebar = ({
           <div>
             <div className="px-3 mb-2 flex items-center justify-between">
               <button onClick={() => setFoldersOpen(!foldersOpen)}
-                className="flex items-center gap-2 text-[10px] font-mono text-white/25 uppercase tracking-widest hover:text-white/60 transition-colors">
+                className="flex items-center gap-2 text-[10px] font-mono text-on-surface/52 uppercase tracking-widest hover:text-on-surface/60 transition-colors">
                 <Folder size={10} /> Folders
                 {foldersOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
               </button>
               <button onClick={() => { setCreatingFolder(true); setFoldersOpen(true); }}
-                className="text-white/20 hover:text-primary/70 transition-colors" title="New folder">
+                className="text-on-surface/48 hover:text-primary/70 transition-colors" title="New folder">
                 <FolderPlus size={13} />
               </button>
             </div>
@@ -583,22 +584,22 @@ export const ChatExpandedSidebar = ({
                     <input autoFocus value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); } }}
                       placeholder="Folder name…"
-                      className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/20 outline-none focus:border-primary/50"
+                      className="flex-1 bg-on-surface/5 border border-on-surface/10 rounded-lg px-3 py-1.5 text-xs text-on-surface placeholder-on-surface/20 outline-none focus:border-primary/50"
                     />
-                    <button onClick={createFolder} className="text-primary hover:text-white transition-colors p-1"><Check size={12} /></button>
-                    <button onClick={() => { setCreatingFolder(false); setNewFolderName(''); }} className="text-white/25 hover:text-white/60 transition-colors p-1"><X size={12} /></button>
+                    <button onClick={createFolder} className="text-primary hover:text-on-surface transition-colors p-1"><Check size={12} /></button>
+                    <button onClick={() => { setCreatingFolder(false); setNewFolderName(''); }} className="text-on-surface/52 hover:text-on-surface/60 transition-colors p-1"><X size={12} /></button>
                   </div>
                 )}
                 {chatFolders.map((f: any) => (
-                  <div key={f.id} className={`flex items-center group rounded-xl transition-all ${activeFolderId === f.id ? 'bg-white/8' : 'hover:bg-white/5'}`}>
+                  <div key={f.id} className={`flex items-center group rounded-xl transition-all ${activeFolderId === f.id ? 'bg-on-surface/8' : 'hover:bg-on-surface/5'}`}>
                     <button onClick={() => { setActiveFolderId(f.id); setHistoryOpen(true); }}
-                      className={`flex-1 text-left px-3 py-2.5 text-sm flex items-center gap-2.5 ${activeFolderId === f.id ? 'text-primary' : 'text-white/55 group-hover:text-white/85'}`}>
-                      <Folder size={13} className={activeFolderId === f.id ? 'text-primary/70' : 'text-white/20'} />
+                      className={`flex-1 text-left px-3 py-2.5 text-sm flex items-center gap-2.5 ${activeFolderId === f.id ? 'text-primary' : 'text-on-surface/55 group-hover:text-on-surface/85'}`}>
+                      <Folder size={13} className={activeFolderId === f.id ? 'text-primary/70' : 'text-on-surface/48'} />
                       <span className="truncate flex-1">{f.title}</span>
-                      <span className="text-[10px] text-white/25 shrink-0">{f.count}</span>
+                      <span className="text-[10px] text-on-surface/52 shrink-0">{f.count}</span>
                     </button>
                     <button onClick={() => deleteFolder(f.id)}
-                      className="pr-2.5 opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-400/80 transition-all">
+                      className="pr-2.5 opacity-0 group-hover:opacity-100 text-on-surface/48 hover:text-error/80 transition-all">
                       <Trash2 size={11} />
                     </button>
                   </div>
@@ -611,7 +612,7 @@ export const ChatExpandedSidebar = ({
           <div>
             <button onClick={() => { setActiveFolderId(null); setHistoryOpen(h => !h); }}
               className={`w-full px-3 mb-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-widest transition-colors
-                ${activeFolderId === null ? 'text-white/50' : 'text-white/25 hover:text-white/50'}`}>
+                ${activeFolderId === null ? 'text-on-surface/50' : 'text-on-surface/52 hover:text-on-surface/50'}`}>
               <span className="flex items-center gap-2">
                 <MessageSquare size={10} /> {activeFolderId ? 'Back to recent' : 'Recent'}
               </span>
@@ -621,7 +622,7 @@ export const ChatExpandedSidebar = ({
               <div className="space-y-0.5">
                 {unpinnedChats.map(c => <ChatItem key={c.id} c={c} />)}
                 {unpinnedChats.length === 0 && (
-                  <p className="px-3 py-4 text-xs text-white/20 text-center">No chats yet</p>
+                  <p className="px-3 py-4 text-xs text-on-surface/48 text-center">No chats yet</p>
                 )}
               </div>
             )}
@@ -645,7 +646,7 @@ export const ChatExpandedSidebar = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
-              className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm border-2 border-dashed border-primary/50 rounded-2xl flex flex-col items-center justify-center gap-3 pointer-events-none"
+              className="absolute inset-0 z-40 bg-surface/70 backdrop-blur-sm border-2 border-dashed border-primary/50 rounded-2xl flex flex-col items-center justify-center gap-3 pointer-events-none"
             >
               <motion.div
                 animate={{ scale: [1, 1.1, 1] }}
@@ -654,26 +655,26 @@ export const ChatExpandedSidebar = ({
               >
                 <Paperclip size={24} className="text-primary" />
               </motion.div>
-              <p className="text-sm font-medium text-white/70">Drop files here</p>
-              <p className="text-[11px] text-white/30">PDF, images, code, text — anything</p>
+              <p className="text-sm font-medium text-on-surface/70">Drop files here</p>
+              <p className="text-[11px] text-on-surface/55">PDF, images, code, text — anything</p>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.08)_transparent]">
+        <div className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--scroll)_transparent]">
           {liveMessages.length === 0 ? (
             /* ── Empty state ──── */
             <div className="h-full flex flex-col items-center justify-center px-8 text-center">
               <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-5">
                 <Sparkles size={22} className="text-primary/70" />
               </div>
-              <h2 className="text-xl font-semibold text-white/80 mb-1">How can I help?</h2>
-              <p className="text-sm text-white/30 mb-8">Ask anything or pick a quick action below.</p>
+              <h2 className="text-xl font-semibold text-on-surface/80 mb-1">How can I help?</h2>
+              <p className="text-sm text-on-surface/55 mb-8">Ask anything or pick a quick action below.</p>
               <div className="grid grid-cols-2 gap-2 w-full max-w-md">
                 {QUICK_ACTIONS.map(({ label, prompt }) => (
                   <button key={label} onClick={() => setInputValue(prompt)}
-                    className="text-left px-4 py-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.06] hover:border-white/10 text-white/55 hover:text-white/80 text-sm transition-all">
+                    className="text-left px-4 py-3 rounded-xl bg-on-surface/[0.04] hover:bg-on-surface/[0.07] border border-on-surface/[0.06] hover:border-on-surface/10 text-on-surface/55 hover:text-on-surface/80 text-sm transition-all">
                     {label}
                   </button>
                 ))}
@@ -709,18 +710,18 @@ export const ChatExpandedSidebar = ({
 
                           <div className="flex-1 min-w-0">
                             {isFirst && (
-                              <p className="text-[10px] font-mono text-primary/40 uppercase tracking-widest mb-1 select-none">Primnox</p>
+                              <p className="text-[10px] font-mono text-primary/60 uppercase tracking-widest mb-1 select-none">Primnox</p>
                             )}
                             {msg.privacyScrub && <PrivacyMirrorBlock data={msg.privacyScrub} />}
                             {msg.isTyping && !msg.text ? (
                               <TypingDots />
                             ) : (
-                              <div className="text-sm leading-6 text-white/80 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                              <div className="text-sm leading-6 text-on-surface/80 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{msg.text || ''}</ReactMarkdown>
                               </div>
                             )}
                             {msg.timestamp && (
-                              <p className="text-[10px] text-white/15 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <p className="text-[10px] text-on-surface/42 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {relativeTime(msg.timestamp)}
                               </p>
                             )}
@@ -730,11 +731,11 @@ export const ChatExpandedSidebar = ({
                         /* ── User message ── */
                         <div className="flex justify-end group">
                           <div className="max-w-[65%]">
-                            <div className="bg-white/[0.07] border border-white/[0.08] rounded-2xl rounded-br-sm px-4 py-2.5">
+                            <div className="bg-on-surface/[0.07] border border-on-surface/[0.08] rounded-2xl rounded-br-sm px-4 py-2.5">
                               <UserMessage text={msg.text || ''} />
                             </div>
                             {msg.timestamp && (
-                              <p className="text-[10px] text-white/15 mt-1 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                              <p className="text-[10px] text-on-surface/42 mt-1 text-right opacity-0 group-hover:opacity-100 transition-opacity">
                                 {relativeTime(msg.timestamp)}
                               </p>
                             )}
@@ -751,7 +752,7 @@ export const ChatExpandedSidebar = ({
         </div>
 
         {/* ── Input Bar ───────────────────────────────────────────────────── */}
-        <div className="shrink-0 px-5 py-4 border-t border-white/[0.05]">
+        <div className="shrink-0 px-5 py-4 border-t border-on-surface/[0.05]">
           <div>
             {/* Attached file pills */}
             <AnimatePresence>
@@ -764,13 +765,13 @@ export const ChatExpandedSidebar = ({
                     <div key={`${file.name}-${i}`} className="flex items-center gap-2 bg-primary/10 text-primary border border-primary/20 px-3 py-1.5 rounded-full text-xs font-medium">
                       <Paperclip size={11} />
                       <span className="max-w-[200px] truncate">{file.name}</span>
-                      <button onClick={() => removeAttachedFile(i)} className="hover:text-white transition-colors ml-0.5">
+                      <button onClick={() => removeAttachedFile(i)} className="hover:text-on-surface transition-colors ml-0.5">
                         <X size={11} />
                       </button>
                     </div>
                   ))}
                   {attachedFiles.length > 1 && (
-                    <button onClick={clearAttachedFiles} className="text-[10px] text-white/30 hover:text-red-400 transition-colors">
+                    <button onClick={clearAttachedFiles} className="text-[10px] text-on-surface/55 hover:text-error transition-colors">
                       Clear all
                     </button>
                   )}
@@ -779,11 +780,11 @@ export const ChatExpandedSidebar = ({
             </AnimatePresence>
 
             {/* Input row */}
-            <div className="flex items-end gap-3 bg-white/[0.04] border border-white/[0.08] rounded-2xl px-4 py-3 focus-within:border-white/15 transition-colors">
+            <div className="flex items-end gap-3 bg-on-surface/[0.04] border border-on-surface/[0.08] rounded-2xl px-4 py-3 focus-within:border-on-surface/15 transition-colors">
               <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} multiple />
 
               <button onClick={() => fileInputRef.current?.click()}
-                className="p-1.5 text-white/20 hover:text-white/60 transition-colors shrink-0 self-end mb-0.5"
+                className="p-1.5 text-on-surface/48 hover:text-on-surface/60 transition-colors shrink-0 self-end mb-0.5"
                 title="Attach file">
                 <Paperclip size={17} />
               </button>
@@ -793,19 +794,19 @@ export const ChatExpandedSidebar = ({
                 onChange={e => { setInputValue(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; }}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 rows={1}
-                className="flex-1 bg-transparent border-none focus:ring-0 text-white/90 placeholder-white/20 text-sm resize-none overflow-y-auto leading-6 min-h-[24px] max-h-[160px] py-0 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                className="flex-1 bg-transparent border-none focus:ring-0 text-on-surface/90 placeholder-on-surface/20 text-sm resize-none overflow-y-auto leading-6 min-h-[24px] max-h-[160px] py-0 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 placeholder="Message Primnox…"
               />
 
               <button onClick={handleSend}
                 disabled={!inputValue.trim() && attachedFiles.length === 0}
                 className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 self-end
-                  disabled:bg-white/5 disabled:text-white/15 disabled:cursor-not-allowed
-                  enabled:bg-primary enabled:text-black enabled:hover:bg-white enabled:active:scale-90">
+                  disabled:bg-on-surface/5 disabled:text-on-surface/42 disabled:cursor-not-allowed
+                  enabled:bg-primary enabled:text-surface enabled:hover:bg-on-surface enabled:active:scale-90">
                 <ArrowUp size={16} strokeWidth={2.5} />
               </button>
             </div>
-            <p className="text-[10px] text-white/15 text-center mt-2.5">Enter to send · Shift+Enter for new line</p>
+            <p className="text-[10px] text-on-surface/42 text-center mt-2.5">Enter to send · Shift+Enter for new line</p>
           </div>
         </div>
       </div>

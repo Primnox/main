@@ -1,0 +1,407 @@
+/* ─── PRIMNOX THEMES ──────────────────────────────────────────────────────────
+   Ported verbatim from the live site (primnox.github.io) so the app and the
+   marketing site render the same palettes. Token names match the website's
+   exactly; the Material-3 --color-* tokens the app's Tailwind config consumes
+   are DERIVED from them at the bottom of this file, so a theme is defined once
+   and drives both naming systems.
+
+   Applied via data-theme on <html>. :root carries the default ("signature").
+   Do not hand-edit values here — they are generated from the live stylesheet.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* signature (default) */
+:root {
+  --bg: #070707;
+  --text: #f0ede6;
+  --muted: rgba(240,237,230,0.50);
+  --border: rgba(240,237,230,0.09);
+  --primary: #c3c0ff;
+  --accent: #ffb695;
+  --green: #34d399;
+  /* The site's own font token names. Kept so CSS lifted from primnox.github.io
+     works verbatim; --font-display / --font-sans / --font-mono alias these. */
+  --display: 'Syne', system-ui, sans-serif;
+  --body: 'DM Sans', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --hover: rgba(255,255,255,0.018);
+  --surface: rgba(255,255,255,0.04);
+  --surface-brd: rgba(255,255,255,0.08);
+  --ring: rgba(255,255,255,0.10);
+  --nav-bg: rgba(7,7,7,0.85);
+  --scroll: rgba(240,237,230,0.12);
+  --cursor-ring: rgba(240,237,230,0.50);
+  --sel-fg: #0d0099;
+  --you: rgba(240,237,230,0.55);
+  --shadow-op: 0.4;
+  --p-faint: rgba(195,192,255,0.06);
+  --p-fill: rgba(195,192,255,0.07);
+  --p-soft: rgba(195,192,255,0.08);
+  --p-line: rgba(195,192,255,0.28);
+  --p-line-2: rgba(195,192,255,0.35);
+  --p-line-3: rgba(195,192,255,0.40);
+  --a-fill: rgba(255,182,149,0.05);
+  --a-pill: rgba(255,182,149,0.22);
+  --a-line: rgba(255,182,149,0.18);
+  --a-text: rgba(255,182,149,0.85);
+  --g-line: rgba(52,211,153,0.30);
+}
+
+/* void */
+[data-theme="void"] {
+  --bg: #000000;
+  --text: #ffffff;
+  --muted: rgba(255,255,255,0.5);
+  --border: rgba(255,255,255,0.1);
+  --primary: #ffffff;
+  --accent: #ff4f2b;
+  --green: #00e08a;
+  --hover: rgba(255,255,255,0.035);
+  --surface: rgba(255,255,255,0.06);
+  --surface-brd: rgba(255,255,255,0.12);
+  --ring: rgba(255,255,255,0.16);
+  --nav-bg: rgba(0,0,0,0.88);
+  --scroll: rgba(255,255,255,0.13);
+  --cursor-ring: rgba(255,255,255,0.5);
+  --sel-fg: #000000;
+  --you: rgba(255,255,255,0.54);
+  --shadow-op: 0.6;
+  --p-faint: rgba(255,255,255,0.08);
+  --p-fill: rgba(255,255,255,0.09);
+  --p-soft: rgba(255,255,255,0.12);
+  --p-line: rgba(255,255,255,0.3);
+  --p-line-2: rgba(255,255,255,0.42);
+  --p-line-3: rgba(255,255,255,0.50);
+  --a-fill: rgba(255,79,43,0.06);
+  --a-pill: rgba(255,79,43,0.26);
+  --a-line: rgba(255,79,43,0.21);
+  --a-text: rgba(255,79,43,0.9);
+  --g-line: rgba(0,224,138,0.34);
+}
+
+/* carbon */
+[data-theme="carbon"] {
+  --bg: #0e1014;
+  --text: #e3e7ee;
+  --muted: rgba(227,231,238,0.5);
+  --border: rgba(227,231,238,0.1);
+  --primary: #5fd8ff;
+  --accent: #ffcc66;
+  --green: #2dd4a7;
+  --hover: rgba(255,255,255,0.024);
+  --surface: rgba(255,255,255,0.05);
+  --surface-brd: rgba(255,255,255,0.09);
+  --ring: rgba(255,255,255,0.12);
+  --nav-bg: rgba(14,16,20,0.85);
+  --scroll: rgba(227,231,238,0.13);
+  --cursor-ring: rgba(227,231,238,0.5);
+  --sel-fg: #0e1014;
+  --you: rgba(227,231,238,0.54);
+  --shadow-op: 0.42;
+  --p-faint: rgba(95,216,255,0.08);
+  --p-fill: rgba(95,216,255,0.09);
+  --p-soft: rgba(95,216,255,0.12);
+  --p-line: rgba(95,216,255,0.3);
+  --p-line-2: rgba(95,216,255,0.42);
+  --p-line-3: rgba(95,216,255,0.50);
+  --a-fill: rgba(255,204,102,0.06);
+  --a-pill: rgba(255,204,102,0.26);
+  --a-line: rgba(255,204,102,0.21);
+  --a-text: rgba(255,204,102,0.9);
+  --g-line: rgba(45,212,167,0.34);
+}
+
+/* midnight */
+[data-theme="midnight"] {
+  --bg: #060a1a;
+  --text: #e7eaf7;
+  --muted: rgba(231,234,247,0.5);
+  --border: rgba(231,234,247,0.1);
+  --primary: #6ea8ff;
+  --accent: #ff7ab8;
+  --green: #4ade80;
+  --hover: rgba(255,255,255,0.024);
+  --surface: rgba(255,255,255,0.05);
+  --surface-brd: rgba(255,255,255,0.09);
+  --ring: rgba(255,255,255,0.12);
+  --nav-bg: rgba(6,10,26,0.86);
+  --scroll: rgba(231,234,247,0.13);
+  --cursor-ring: rgba(231,234,247,0.5);
+  --sel-fg: #060a1a;
+  --you: rgba(231,234,247,0.54);
+  --shadow-op: 0.46;
+  --p-faint: rgba(110,168,255,0.08);
+  --p-fill: rgba(110,168,255,0.09);
+  --p-soft: rgba(110,168,255,0.12);
+  --p-line: rgba(110,168,255,0.3);
+  --p-line-2: rgba(110,168,255,0.42);
+  --p-line-3: rgba(110,168,255,0.50);
+  --a-fill: rgba(255,122,184,0.06);
+  --a-pill: rgba(255,122,184,0.26);
+  --a-line: rgba(255,122,184,0.21);
+  --a-text: rgba(255,122,184,0.9);
+  --g-line: rgba(74,222,128,0.34);
+}
+
+/* ember */
+[data-theme="ember"] {
+  --bg: #140f0b;
+  --text: #f6ece0;
+  --muted: rgba(246,236,224,0.5);
+  --border: rgba(246,236,224,0.1);
+  --primary: #f5a524;
+  --accent: #ff6b5e;
+  --green: #b5c26a;
+  --hover: rgba(255,240,225,0.028);
+  --surface: rgba(255,240,225,0.05);
+  --surface-brd: rgba(255,240,225,0.09);
+  --ring: rgba(255,240,225,0.12);
+  --nav-bg: rgba(20,15,11,0.86);
+  --scroll: rgba(246,236,224,0.13);
+  --cursor-ring: rgba(246,236,224,0.5);
+  --sel-fg: #140f0b;
+  --you: rgba(246,236,224,0.54);
+  --shadow-op: 0.4;
+  --p-faint: rgba(245,165,36,0.08);
+  --p-fill: rgba(245,165,36,0.09);
+  --p-soft: rgba(245,165,36,0.12);
+  --p-line: rgba(245,165,36,0.3);
+  --p-line-2: rgba(245,165,36,0.42);
+  --p-line-3: rgba(245,165,36,0.50);
+  --a-fill: rgba(255,107,94,0.06);
+  --a-pill: rgba(255,107,94,0.26);
+  --a-line: rgba(255,107,94,0.21);
+  --a-text: rgba(255,107,94,0.9);
+  --g-line: rgba(181,194,106,0.34);
+}
+
+/* phosphor */
+[data-theme="phosphor"] {
+  --bg: #040a06;
+  --text: #d4e8d6;
+  --muted: rgba(212,232,214,0.5);
+  --border: rgba(212,232,214,0.1);
+  --primary: #4ade80;
+  --accent: #d9f99d;
+  --green: #4ade80;
+  --hover: rgba(180,255,200,0.03);
+  --surface: rgba(180,255,200,0.055);
+  --surface-brd: rgba(180,255,200,0.09);
+  --ring: rgba(180,255,200,0.12);
+  --nav-bg: rgba(4,10,6,0.87);
+  --scroll: rgba(212,232,214,0.13);
+  --cursor-ring: rgba(212,232,214,0.5);
+  --sel-fg: #040a06;
+  --you: rgba(212,232,214,0.54);
+  --shadow-op: 0.5;
+  --p-faint: rgba(74,222,128,0.08);
+  --p-fill: rgba(74,222,128,0.09);
+  --p-soft: rgba(74,222,128,0.12);
+  --p-line: rgba(74,222,128,0.3);
+  --p-line-2: rgba(74,222,128,0.42);
+  --p-line-3: rgba(74,222,128,0.50);
+  --a-fill: rgba(217,249,157,0.06);
+  --a-pill: rgba(217,249,157,0.26);
+  --a-line: rgba(217,249,157,0.21);
+  --a-text: rgba(217,249,157,0.9);
+  --g-line: rgba(74,222,128,0.34);
+}
+
+/* paper */
+[data-theme="paper"] {
+  --bg: #f6f4ef;
+  --text: #100f0e;
+  --muted: rgba(16,15,14,0.58);
+  --border: rgba(16,15,14,0.13);
+  --primary: #4b3fbf;
+  --accent: #b8501f;
+  --green: #0d8a5f;
+  --hover: rgba(16,15,14,0.035);
+  --surface: rgba(16,15,14,0.035);
+  --surface-brd: rgba(16,15,14,0.13);
+  --ring: rgba(16,15,14,0.17);
+  --nav-bg: rgba(246,244,239,0.85);
+  --scroll: rgba(16,15,14,0.2);
+  --cursor-ring: rgba(16,15,14,0.45);
+  --sel-fg: #f6f4ef;
+  --you: rgba(16,15,14,0.52);
+  --shadow-op: 0.14;
+  --p-faint: rgba(75,63,191,0.08);
+  --p-fill: rgba(75,63,191,0.07);
+  --p-soft: rgba(75,63,191,0.12);
+  --p-line: rgba(75,63,191,0.32);
+  --p-line-2: rgba(75,63,191,0.42);
+  --p-line-3: rgba(75,63,191,0.50);
+  --a-fill: rgba(184,80,31,0.07);
+  --a-pill: rgba(184,80,31,0.3);
+  --a-line: rgba(184,80,31,0.26);
+  --a-text: rgba(184,80,31,0.95);
+  --g-line: rgba(13,138,95,0.34);
+}
+
+/* clinical */
+[data-theme="clinical"] {
+  --bg: #ffffff;
+  --text: #0a0a0a;
+  --muted: rgba(10,10,10,0.58);
+  --border: rgba(10,10,10,0.13);
+  --primary: #1447e6;
+  --accent: #d81b4a;
+  --green: #047857;
+  --hover: rgba(10,10,10,0.028);
+  --surface: rgba(10,10,10,0.03);
+  --surface-brd: rgba(10,10,10,0.11);
+  --ring: rgba(10,10,10,0.14);
+  --nav-bg: rgba(255,255,255,0.85);
+  --scroll: rgba(10,10,10,0.2);
+  --cursor-ring: rgba(10,10,10,0.45);
+  --sel-fg: #ffffff;
+  --you: rgba(10,10,10,0.52);
+  --shadow-op: 0.12;
+  --p-faint: rgba(20,71,230,0.08);
+  --p-fill: rgba(20,71,230,0.07);
+  --p-soft: rgba(20,71,230,0.12);
+  --p-line: rgba(20,71,230,0.32);
+  --p-line-2: rgba(20,71,230,0.42);
+  --p-line-3: rgba(20,71,230,0.50);
+  --a-fill: rgba(216,27,74,0.07);
+  --a-pill: rgba(216,27,74,0.3);
+  --a-line: rgba(216,27,74,0.26);
+  --a-text: rgba(216,27,74,0.95);
+  --g-line: rgba(4,120,87,0.34);
+}
+
+/* sand */
+[data-theme="sand"] {
+  --bg: #ece5d8;
+  --text: #241d13;
+  --muted: rgba(36,29,19,0.58);
+  --border: rgba(36,29,19,0.13);
+  --primary: #1c6b47;
+  --accent: #b0451a;
+  --green: #1c6b47;
+  --hover: rgba(36,29,19,0.042);
+  --surface: rgba(36,29,19,0.04);
+  --surface-brd: rgba(36,29,19,0.15);
+  --ring: rgba(36,29,19,0.19);
+  --nav-bg: rgba(236,229,216,0.86);
+  --scroll: rgba(36,29,19,0.2);
+  --cursor-ring: rgba(36,29,19,0.45);
+  --sel-fg: #ece5d8;
+  --you: rgba(36,29,19,0.52);
+  --shadow-op: 0.15;
+  --p-faint: rgba(28,107,71,0.08);
+  --p-fill: rgba(28,107,71,0.07);
+  --p-soft: rgba(28,107,71,0.12);
+  --p-line: rgba(28,107,71,0.32);
+  --p-line-2: rgba(28,107,71,0.42);
+  --p-line-3: rgba(28,107,71,0.50);
+  --a-fill: rgba(176,69,26,0.07);
+  --a-pill: rgba(176,69,26,0.3);
+  --a-line: rgba(176,69,26,0.26);
+  --a-text: rgba(176,69,26,0.95);
+  --g-line: rgba(28,107,71,0.34);
+}
+
+/* mono */
+[data-theme="mono"] {
+  --bg: #f2f1ee;
+  --text: #121212;
+  --muted: rgba(18,18,18,0.58);
+  --border: rgba(18,18,18,0.13);
+  --primary: #121212;
+  --accent: #3f3f3f;
+  --green: #2f6f4f;
+  --hover: rgba(18,18,18,0.035);
+  --surface: rgba(18,18,18,0.035);
+  --surface-brd: rgba(18,18,18,0.13);
+  --ring: rgba(18,18,18,0.17);
+  --nav-bg: rgba(242,241,238,0.86);
+  --scroll: rgba(18,18,18,0.2);
+  --cursor-ring: rgba(18,18,18,0.45);
+  --sel-fg: #f2f1ee;
+  --you: rgba(18,18,18,0.52);
+  --shadow-op: 0.16;
+  --p-faint: rgba(18,18,18,0.08);
+  --p-fill: rgba(18,18,18,0.07);
+  --p-soft: rgba(18,18,18,0.12);
+  --p-line: rgba(18,18,18,0.32);
+  --p-line-2: rgba(18,18,18,0.42);
+  --p-line-3: rgba(18,18,18,0.50);
+  --a-fill: rgba(63,63,63,0.07);
+  --a-pill: rgba(63,63,63,0.3);
+  --a-line: rgba(63,63,63,0.26);
+  --a-text: rgba(63,63,63,0.95);
+  --g-line: rgba(47,111,79,0.34);
+}
+
+/* ─── Material-3 bridge ───────────────────────────────────────────────────────
+   The app's tailwind.config.js maps every Tailwind colour to a --color-* token.
+   Rather than redefine all of them per theme (10 x 40 values), derive them from
+   the website tokens above. Elevation steps use color-mix to blend the text
+   colour into the background — the same thing the website does with its
+   translucent --surface overlays, and it inverts correctly on light themes
+   because the text colour inverts with them.
+   ──────────────────────────────────────────────────────────────────────────── */
+:root {
+  --color-surface:                   var(--bg);
+  --color-surface-dim:               color-mix(in srgb, var(--text) 3%,  var(--bg));
+  --color-surface-bright:            color-mix(in srgb, var(--text) 14%, var(--bg));
+  --color-surface-container-lowest:  color-mix(in srgb, var(--text) 1.5%, var(--bg));
+  --color-surface-container-low:     color-mix(in srgb, var(--text) 4%,  var(--bg));
+  --color-surface-container:         color-mix(in srgb, var(--text) 6%,  var(--bg));
+  --color-surface-container-high:    color-mix(in srgb, var(--text) 9%,  var(--bg));
+  --color-surface-container-highest: color-mix(in srgb, var(--text) 12%, var(--bg));
+
+  --color-on-surface:          var(--text);
+  --color-on-surface-variant:  var(--muted);
+  --color-inverse-surface:     var(--text);
+  --color-inverse-on-surface:  var(--bg);
+  --color-outline:             color-mix(in srgb, var(--text) 45%, var(--bg));
+  --color-outline-variant:     color-mix(in srgb, var(--text) 20%, var(--bg));
+
+  --color-surface-tint:            var(--primary);
+  --color-primary:                 var(--primary);
+  --color-on-primary:              var(--sel-fg);
+  --color-primary-container:       color-mix(in srgb, var(--primary) 55%, var(--bg));
+  --color-on-primary-container:    color-mix(in srgb, var(--primary) 25%, var(--text));
+  --color-inverse-primary:         color-mix(in srgb, var(--primary) 70%, var(--bg));
+  --color-primary-fixed:           color-mix(in srgb, var(--primary) 30%, var(--text));
+  --color-primary-fixed-dim:       var(--primary);
+  --color-on-primary-fixed:        var(--sel-fg);
+  --color-on-primary-fixed-variant: color-mix(in srgb, var(--primary) 60%, var(--sel-fg));
+
+  --color-secondary:               var(--muted);
+  --color-on-secondary:            var(--bg);
+  --color-secondary-container:     color-mix(in srgb, var(--text) 18%, var(--bg));
+  --color-on-secondary-container:  var(--text);
+  --color-secondary-fixed:         color-mix(in srgb, var(--text) 85%, var(--bg));
+  --color-secondary-fixed-dim:     var(--muted);
+  --color-on-secondary-fixed:      var(--bg);
+  --color-on-secondary-fixed-variant: color-mix(in srgb, var(--text) 30%, var(--bg));
+
+  --color-tertiary:                var(--accent);
+  --color-on-tertiary:             var(--bg);
+  --color-tertiary-container:      color-mix(in srgb, var(--accent) 55%, var(--bg));
+  --color-on-tertiary-container:   color-mix(in srgb, var(--accent) 25%, var(--text));
+  --color-tertiary-fixed:          color-mix(in srgb, var(--accent) 30%, var(--text));
+  --color-tertiary-fixed-dim:      var(--accent);
+  --color-on-tertiary-fixed:       var(--bg);
+  --color-on-tertiary-fixed-variant: color-mix(in srgb, var(--accent) 60%, var(--bg));
+
+  /* Body dot-matrix. Was a hardcoded #ffffff0a, i.e. invisible on light themes. */
+  --dot-matrix: color-mix(in srgb, var(--text) 5%, transparent);
+
+  /* Semantic accents. Success and warning FOLLOW the palette: a fixed emerald
+     green sitting inside `ember` or `sand` reads as a foreign element, and the
+     site already ships a per-theme --green and --accent for exactly this.
+     Error deliberately does not follow — see below. */
+  --color-success: var(--green);
+  --color-warn:    var(--accent);
+
+  /* Error stays red in every theme — a themed error colour that reads as
+     "normal" defeats the point of an error colour. */
+  --color-error:                #ff6b6b;
+  --color-on-error:             #2b0000;
+  --color-error-container:      #93000a;
+  --color-on-error-container:   #ffdad6;
+}

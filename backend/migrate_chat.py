@@ -3,9 +3,15 @@ import json
 import os
 import uuid
 import datetime
+from pathlib import Path
 
-JSON_FILE = 'C:/Users/aniketh/Projects/Primnox/backend/chat_sessions.json'
-DB_FILE = 'C:/Users/aniketh/Projects/Primnox/backend/chat.db'
+# Resolve paths relative to this file. These were absolute paths on the
+# original author's Windows machine, which leaked a username and broke the
+# script for everyone else.
+_BACKEND_DIR = Path(__file__).resolve().parent
+
+JSON_FILE = str(_BACKEND_DIR / "chat_sessions.json")
+DB_FILE = str(_BACKEND_DIR / "chat.db")
 
 def get_current_time():
     return datetime.datetime.now().isoformat()

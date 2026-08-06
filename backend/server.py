@@ -1559,14 +1559,25 @@ async def get_conversations():
 # cloud-free heuristic. Folder names are never shipped to a cloud provider.
 
 _SCAN_IGNORE_DIRS = {
+    # Windows
     'AppData', 'Application Data', 'Local Settings', 'Cookies',
     'Recent', 'SendTo', 'Start Menu', 'NetHood', 'PrintHood',
-    'Templates', 'node_modules', 'venv', '.venv', '.git',
-    'dist', 'build', '__pycache__', '.cache', '.cargo',
-    '.rustup', '.npm', '.vscode', 'Downloads', 'Music',
-    'Pictures', 'Videos', 'Documents', 'Desktop', 'Public',
-    'Saved Games', 'Favorites', 'Contacts', 'Searches', 'Links',
-    'OneDrive'
+    'Templates', 'Saved Games', 'Favorites', 'Contacts', 'Searches',
+    'Links', 'OneDrive',
+    # Cross-platform user folders and build junk
+    'node_modules', 'venv', '.venv', '.git', 'dist', 'build',
+    '__pycache__', '.cache', '.cargo', '.rustup', '.npm', '.vscode',
+    'Downloads', 'Music', 'Pictures', 'Videos', 'Documents', 'Desktop',
+    'Public',
+    # macOS. `Library` alone holds hundreds of thousands of files, and
+    # Library/CloudStorage is network-backed — walking it made the onboarding
+    # scan hang indefinitely (measured: no response after 90 s), which trapped
+    # the user on a step that has no forward button. `Library` is not hidden, so
+    # the `startswith('.')` filter never excluded it.
+    'Library', 'Applications', 'Movies', 'Pictures Library',
+    'Creative Cloud Files', 'Dropbox', 'Google Drive', 'iCloud Drive',
+    # Linux
+    '.local', '.config', 'snap', '.steam',
 }
 
 _SCAN_EXT_SKILL = {
@@ -1643,14 +1654,28 @@ def _read_signal_files(proj_path, per_file=1500, max_total=4000):
     return "  ".join(snippets)
 
 
+# Wall-clock budgets for the onboarding scan.
+#
+# Measured 2026-08-06: this endpoint never returned — 90 s with no response.
+# It walks the whole home directory to depth 4 and only stops early once it has
+# found 30 projects (which may never happen), then makes a think_local() call
+# with a 90 s timeout even when no local engine is running. The onboarding step
+# that calls it has no forward button, so the user was trapped on it forever.
+# Both phases are now bounded; a partial profile beats an infinite spinner.
+_SCAN_WALK_BUDGET_S = 5.0
+_SCAN_TOTAL_BUDGET_S = 20.0
+
+
 def _onboarding_scan_sync():
     import os
     import json
     import getpass
     import re as _re
+    import time as _time
     from pathlib import Path
     from brain import think_local
 
+    _scan_started = _time.monotonic()
     projects = []
     project_paths = {}
     skills = set()
@@ -1694,6 +1719,12 @@ def _onboarding_scan_sync():
                     code_folders.setdefault(os.path.basename(root), root)
             if len(projects) > 30:
                 break
+            # Hard time budget — a home directory can be arbitrarily large, and
+            # "found 30 projects" is not a bound that is guaranteed to be hit.
+            if _time.monotonic() - _scan_started > _SCAN_WALK_BUDGET_S:
+                log.info(f"Onboarding walk hit {_SCAN_WALK_BUDGET_S}s budget; "
+                         f"continuing with {len(projects)} projects found so far.")
+                break
     except Exception as e:
         log.warning(f"Onboarding scanner walk error: {e}")
 
@@ -1729,7 +1760,13 @@ def _onboarding_scan_sync():
             '"communication_style": ["2 style words"], '
             '"knowledge_areas": ["3 areas of expertise"]}'
         )
-        raw = think_local(prompt, timeout=90)
+        # Only spend what is left of the total budget, and skip the call entirely
+        # if there is no meaningful time left. The heuristic fallback below is
+        # already good enough to onboard with.
+        _remaining = _SCAN_TOTAL_BUDGET_S - (_time.monotonic() - _scan_started)
+        raw = think_local(prompt, timeout=int(_remaining)) if _remaining >= 5 else None
+        if not raw and _remaining < 5:
+            log.info("Onboarding scan skipped local-LLM profiling — out of time budget.")
         if raw:
             try:
                 txt = raw.strip()
@@ -2387,6 +2424,13 @@ async def research_search(q: str = ""):
     return {"results": structured, "query": q, "summary": summary}
 
 if __name__ == "__main__":
+    # Install crash capture before anything else can fail, so an exception
+    # during startup lands in the log instead of a stderr nobody reads.
+    from logger import install_crash_handlers, capture_stdlib_logging, log_environment
+    install_crash_handlers()
+    capture_stdlib_logging()
+    log_environment()
+
     loop_type = "asyncio"
     try:
         import uvloop

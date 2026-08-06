@@ -1,63 +1,90 @@
-export const FlowNode = ({ label, sub, c }: { label: string; sub?: string; c: string }) => (
-  <div className={`flex flex-col items-center px-2 py-1 rounded-md border text-center shrink-0 ${c}`}>
+/**
+ * Privacy data-flow diagrams.
+ *
+ * Colour here is meaning, not decoration — which is why this is the one place
+ * that keeps a multi-colour palette instead of collapsing to a single token:
+ *
+ *   neutral  you / an unremarkable hop
+ *   safe     stays on this machine
+ *   shield   Primnox is actively scrubbing or restoring names
+ *   warn     data is leaving as-is
+ *
+ * Those four tones are defined in styles/tailwind.css and are built from the
+ * theme's own tokens. The previous version used slate/emerald/pink/blue/amber
+ * literals, so every node stayed dark on the four light themes.
+ */
+
+type Tone = 'neutral' | 'safe' | 'shield' | 'warn';
+
+export const FlowNode = ({ label, sub, tone = 'neutral' }: {
+  label: string; sub?: string; tone?: Tone;
+}) => (
+  <div className={`px-node px-tone-${tone}`}>
     <span className="font-bold text-[9px] leading-tight whitespace-nowrap">{label}</span>
-    {sub && <span className="text-[7px] opacity-50 leading-tight mt-0.5 whitespace-nowrap">{sub}</span>}
+    {sub && <span className="text-[7px] opacity-60 leading-tight mt-0.5 whitespace-nowrap">{sub}</span>}
   </div>
 );
 
-export const FlowArrow = ({ c }: { c: string }) => (
-  <span className={`text-sm leading-none ${c}`}>→</span>
+export const FlowArrow = ({ tone = 'neutral' }: { tone?: Tone }) => (
+  <span className={`text-sm leading-none px-ink-${tone}`}>→</span>
 );
 
-export const FlowLocal = ({ light = false }: { light?: boolean }) => (
-  <div className="flex flex-col items-center gap-1.5 py-1.5">
+const Caption = ({ tone, children }: { tone: Tone; children: React.ReactNode }) => (
+  <span className={`text-[8px] font-mono tracking-widest uppercase px-ink-${tone}`}>{children}</span>
+);
+
+const Rail = ({ children }: { children: React.ReactNode }) => (
+  <div className="flex flex-col items-center gap-1.5 py-1.5">{children}</div>
+);
+
+/** Local / hybrid: the prompt never leaves the device. */
+export const FlowLocal = () => (
+  <Rail>
     <div className="flex items-center gap-1 flex-wrap justify-center">
-      <FlowNode label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
-      <FlowArrow c={light ? 'text-emerald-700' : 'text-emerald-800'} />
-      <FlowNode label="Primnox" sub="brain.py" c="border-emerald-800 bg-emerald-950 text-emerald-300" />
-      <FlowArrow c={light ? 'text-emerald-700' : 'text-emerald-800'} />
-      <FlowNode label="Local Model" sub="on-device" c="border-emerald-600 bg-emerald-950 text-emerald-300" />
-      <FlowArrow c={light ? 'text-emerald-700' : 'text-emerald-800'} />
-      <FlowNode label="Response" sub="raw" c="border-emerald-800 bg-emerald-950 text-emerald-300" />
+      <FlowNode label="You" />
+      <FlowArrow tone="safe" />
+      <FlowNode label="Primnox" sub="brain.py" tone="safe" />
+      <FlowArrow tone="safe" />
+      <FlowNode label="Local Model" sub="on-device" tone="safe" />
+      <FlowArrow tone="safe" />
+      <FlowNode label="Response" sub="raw" tone="safe" />
     </div>
-    <span className={`text-[8px] ${light ? 'text-emerald-600' : 'text-emerald-700'} font-mono tracking-widest uppercase`}>
-      nothing leaves your machine
-    </span>
-  </div>
+    <Caption tone="safe">nothing leaves your machine</Caption>
+  </Rail>
 );
 
-export const FlowCloud = ({ light = false }: { light?: boolean }) => (
-  <div className="flex flex-col items-center gap-1.5 py-1.5">
+/** Cloud + Mirror: names are stripped before the hop out and restored after.
+ *  The cloud node is neutral rather than alarming — that is the whole point of
+ *  the mirror: by the time data reaches it, it carries no real identifiers. */
+export const FlowCloud = () => (
+  <Rail>
     <div className="flex items-center gap-1 flex-wrap justify-center">
-      <FlowNode label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
-      <FlowArrow c="text-slate-600" />
-      <FlowNode label="Privacy Mirror" sub="DeBERTa NER" c="border-pink-800 bg-pink-950 text-pink-300" />
-      <FlowArrow c={light ? 'text-blue-700' : 'text-blue-800'} />
-      <FlowNode label="Cloud API" sub="Groq / OpenAI" c="border-blue-800 bg-blue-950 text-blue-300" />
-      <FlowArrow c={light ? 'text-pink-700' : 'text-pink-800'} />
-      <FlowNode label="Rehydrate" sub={light ? 'names restored' : 'names back'} c="border-pink-800 bg-pink-950 text-pink-300" />
-      <FlowArrow c="text-slate-600" />
-      <FlowNode label="You" sub="real names" c="border-slate-700 bg-slate-900 text-slate-300" />
+      <FlowNode label="You" />
+      <FlowArrow />
+      <FlowNode label="Privacy Mirror" sub="DeBERTa NER" tone="shield" />
+      <FlowArrow tone="shield" />
+      <FlowNode label="Cloud API" sub="Groq / OpenAI" />
+      <FlowArrow tone="shield" />
+      <FlowNode label="Rehydrate" sub="names back" tone="shield" />
+      <FlowArrow />
+      <FlowNode label="You" sub="real names" />
     </div>
-    <span className={`text-[8px] ${light ? 'text-pink-700' : 'text-pink-800'} font-mono tracking-widest uppercase`}>
-      cloud only {light ? 'ever ' : ''}sees §NAME_1§ — not your real name
-    </span>
-  </div>
+    <Caption tone="shield">cloud only sees §NAME_1§ — not your real name</Caption>
+  </Rail>
 );
 
+/** Cloud Raw: no scrubbing. The cloud hop is the thing to notice. */
 export const FlowRaw = () => (
-  <div className="flex flex-col items-center gap-1.5 py-1.5">
+  <Rail>
     <div className="flex items-center gap-1 flex-wrap justify-center">
-      <FlowNode label="You" c="border-slate-700 bg-slate-900 text-slate-300" />
-      <FlowArrow c="text-slate-700" />
-      <FlowNode label="Primnox" sub="brain.py" c="border-slate-700 bg-slate-900 text-slate-400" />
-      <FlowArrow c="text-slate-600" />
-      <FlowNode label="Cloud API" sub="Groq / OpenAI" c="border-slate-600 bg-slate-900 text-slate-300" />
-      <FlowArrow c="text-slate-700" />
-      <FlowNode label="You" sub="response" c="border-slate-700 bg-slate-900 text-slate-300" />
+      <FlowNode label="You" />
+      <FlowArrow />
+      <FlowNode label="Primnox" sub="brain.py" />
+      <FlowArrow tone="warn" />
+      <FlowNode label="Cloud API" sub="Groq / OpenAI" tone="warn" />
+      <FlowArrow tone="warn" />
+      <FlowNode label="You" sub="response" />
     </div>
-    <span className="text-[8px] text-amber-700 font-mono tracking-widest uppercase">
-      your data reaches the cloud as-is
-    </span>
-  </div>
+    <Caption tone="warn">your data reaches the cloud as-is</Caption>
+  </Rail>
 );

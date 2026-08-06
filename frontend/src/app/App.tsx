@@ -10,6 +10,7 @@ import { CommandPalette } from './components/CommandPalette';
 
 // Components
 import { Layout } from './components/Layout';
+import { TitleBar } from './components/TitleBar';
 import { SummariesExpanded, SummariesSidebarHidden, SummariesEmptyState, SummariesIconSidebar } from './components/SummaryViews';
 import { NotesIconSidebar } from './components/NotesView';
 import { IslandSettings } from './components/SettingsView';
@@ -97,6 +98,20 @@ export default function App() {
   const isIslandMode = new URLSearchParams(window.location.search).get('primnox_island') === '1';
 
   const [currentScreen, setCurrentScreen] = useState<ScreenId>('summaries_expanded');
+  // Sidebar width is a user preference, not a property of the destination. It
+  // used to be derived from currentScreen, so only Chat and Dashboard kept the
+  // labelled sidebar and every other nav item silently collapsed it to icons.
+  const [sidebarState, setSidebarState] = useState<SidebarState>(() => {
+    try {
+      const stored = localStorage.getItem('primnox.sidebar');
+      if (stored === 'expanded' || stored === 'icon' || stored === 'hidden') return stored;
+    } catch { /* private mode */ }
+    return 'expanded';
+  });
+  const changeSidebarState = useCallback((s: SidebarState) => {
+    setSidebarState(s);
+    try { localStorage.setItem('primnox.sidebar', s); } catch { /* private mode */ }
+  }, []);
   const [appMode, setAppMode] = useState<AppMode>('notes');
   const [status, setStatus] = useState<AiStatus>('idle');
   const [isIslandVisible, setIsIslandVisible] = useState(true);
@@ -170,7 +185,7 @@ export default function App() {
   }, []);
 
   // System State (Local overrides)
-  const [operatorAlias, setOperatorAlias] = useState('ANIKETH_P_01');
+  const [operatorAlias, setOperatorAlias] = useState('Operator');
   const [aiCodename, setAiCodename] = useState('PRIMNOX');
   const [activeModel, setActiveModel] = useState('Groq_Llama_3');
   const [apiKey, setApiKey] = useState('');
@@ -238,16 +253,6 @@ export default function App() {
 
   const renderScreen = () => {
     let targetScreen = currentScreen;
-
-    if (settings && settings.onboarding_completed === false) {
-      return <OnboardingView
-        onComplete={() => setCurrentScreen('summaries_expanded')}
-        activity={activity}
-        updateSettings={updateSettings}
-        settings={settings}
-        scanEnvironment={scanEnvironment}
-      />;
-    }
 
     switch (targetScreen) {
       case 'summaries_expanded':
@@ -362,8 +367,30 @@ export default function App() {
 
   const headerActions = (<div />);
 
+  // Onboarding is a full-screen takeover. It used to be returned from
+  // renderScreen(), which renders as Layout's children — so the sidebar rail,
+  // the page header ("DASHBOARD") and the Island pill all showed through around
+  // a first-run screen that is supposed to own the window. TitleBar is kept so
+  // the window controls stay reachable during setup.
+  if (!isIslandMode && settings && settings.onboarding_completed === false) {
+    return (
+      <div className="h-screen w-full flex flex-col bg-surface text-on-surface overflow-hidden">
+        <TitleBar />
+        <div className="flex-1 overflow-y-auto">
+          <OnboardingView
+            onComplete={() => setCurrentScreen('summaries_expanded')}
+            activity={activity}
+            updateSettings={updateSettings}
+            settings={settings}
+            scanEnvironment={scanEnvironment}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`${isIslandMode ? 'bg-transparent' : 'bg-black text-on-surface selection:bg-primary/30 selection:text-white'} h-screen w-full relative`}>
+    <div className={`${isIslandMode ? 'bg-transparent' : 'bg-surface text-on-surface selection:bg-primary/30 selection:text-on-surface'} h-screen w-full relative`}>
       <CommandPalette
         isOpen={cmdPaletteOpen}
         onClose={() => setCmdPaletteOpen(false)}
@@ -374,14 +401,15 @@ export default function App() {
       />
       {/* Disconnect Banner — hidden in island-pill mode */}
       {connectionLost && !isIslandMode && (
-        <div className="fixed top-0 left-0 right-0 z-[300] bg-red-500/90 backdrop-blur-sm text-white text-center py-3 px-6 flex items-center justify-center gap-4 shadow-lg">
-          <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+        <div className="fixed top-0 left-0 right-0 z-[300] bg-error/90 backdrop-blur-sm text-on-surface text-center py-3 px-6 flex items-center justify-center gap-4 shadow-lg">
+          <div className="w-2 h-2 rounded-full bg-on-surface animate-pulse" />
           <span className="font-mono text-xs uppercase tracking-widest font-bold">Connection Lost — Backend Unreachable</span>
-          <button onClick={manualReconnect} className="ml-4 px-4 py-1 bg-white/20 hover:bg-white/30 rounded text-xs font-bold transition-colors">Reconnect</button>
+          <button onClick={manualReconnect} className="ml-4 px-4 py-1 bg-on-surface/20 hover:bg-on-surface/30 rounded text-xs font-bold transition-colors">Reconnect</button>
         </div>
       )}
       <Layout 
-        sidebarState={currentScreen === 'chat_expanded_sidebar' || currentScreen === 'summaries_expanded' ? 'expanded' : currentScreen === 'summaries_sidebar_hidden' ? 'hidden' : 'icon'} 
+        sidebarState={sidebarState}
+        onSidebarStateChange={changeSidebarState}
         onNavigate={setCurrentScreen}
         activeLink={getActiveLink()}
         isIslandVisible={isIslandVisible}
@@ -392,8 +420,13 @@ export default function App() {
           currentScreen === 'archive' ? 'Data_Vault' :
           currentScreen === 'knowledge' ? 'Knowledge_Nexus' :
           currentScreen === 'graph_view' ? 'Knowledge_Graph' :
-          currentScreen.includes('summaries') ? 'Neural_Nodes' : 
+          // Titles must match the sidebar label for the same screen. `summaries`
+          // is Dashboard; it read `Neural_Nodes`, which is the Notes view, so
+          // clicking Dashboard highlighted Dashboard but headed the page Notes.
+          currentScreen.includes('summaries') ? 'Dashboard' :
           currentScreen === 'research_workspace' ? 'Deep_Research' :
+          currentScreen === 'calendar' ? 'Calendar' :
+          currentScreen === 'island_settings' ? 'Configure' :
           currentScreen === 'meetings' ? 'Recordings' :
           appMode === 'research' ? 'Deep_Research' :
           appMode === 'chat' ? 'Synapse_Stream' : 'Neural_Nodes'
@@ -405,6 +438,8 @@ export default function App() {
           currentScreen === 'graph_view' ? 'VISUALIZE_CONNECTIONS' :
           currentScreen.includes('summaries') ? 'SYNTHETIC_PROCESSING' :
           currentScreen === 'research_workspace' ? 'WEB_SEARCH_ENGINE' :
+          currentScreen === 'calendar' ? 'SCHEDULE_GRID' :
+          currentScreen === 'island_settings' ? 'SYSTEM_CORE' :
           currentScreen === 'meetings' ? 'MANUAL_REVIEW' :
           appMode === 'research' ? 'KNOWLEDGE_SYNTHESIS' :
           appMode === 'chat' ? 'NEURAL_INTERFACE' : 'WORKSPACE_v2'

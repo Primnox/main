@@ -1,6 +1,6 @@
-import { useState, ReactNode, useEffect, useRef } from 'react';
+import { useState, ReactNode, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Terminal, MessageSquare, FileText, Database, History, Settings, ChevronRight, Network, LayoutDashboard, Globe, BookOpen, Calendar, Mic } from 'lucide-react';
+import { MessageSquare, FileText, Database, History, Settings, ChevronRight, Network, LayoutDashboard, Globe, BookOpen, Calendar, Mic } from 'lucide-react';
 import { DynamicIsland } from './DynamicIsland';
 import { TitleBar } from './TitleBar';
 
@@ -30,7 +30,7 @@ const IconButton = ({ icon: Icon, active, onClick, label }: { icon: any, active?
     onClick={onClick}
     className={`flex flex-col items-center gap-1 group transition-all duration-300 ${active ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
   >
-    <div className={`p-2 rounded ${active ? 'bg-primary/10' : 'hover:bg-white/5'}`}>
+    <div className={`p-2 rounded ${active ? 'bg-primary/10' : 'hover:bg-on-surface/5'}`}>
       <Icon size={18} />
     </div>
     {label && <span className="text-[10px] font-mono uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all duration-300">{label}</span>}
@@ -42,8 +42,8 @@ const SidebarLink = ({ icon: Icon, label, active, onClick }: { icon: any, label:
     onClick={onClick}
     className={`flex items-center gap-4 px-6 py-3 font-mono text-[10px] uppercase tracking-widest transition-all duration-300 cursor-pointer group
       ${active 
-        ? 'bg-primary/10 text-white border-l-2 border-primary' 
-        : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
+        ? 'bg-primary/10 text-on-surface border-l-2 border-primary' 
+        : 'text-on-surface-variant hover:text-on-surface hover:bg-on-surface/5'}`}
   >
     <Icon size={18} className={active ? 'fill-current' : ''} />
     <span>{label}</span>
@@ -53,6 +53,7 @@ const SidebarLink = ({ icon: Icon, label, active, onClick }: { icon: any, label:
 export const Layout = ({
   children,
   sidebarState,
+  onSidebarStateChange,
   onNavigate,
   activeLink,
   title = "",
@@ -87,6 +88,7 @@ export const Layout = ({
 }: {
   children: ReactNode,
   sidebarState: SidebarState,
+  onSidebarStateChange?: (s: SidebarState) => void,
   onNavigate: (id: ScreenId) => void,
   activeLink: string,
   title?: string,
@@ -119,20 +121,18 @@ export const Layout = ({
   isIslandMode?: boolean,
   onRestoreWindow?: () => void,
 }) => {
+  // The sidebar width is the user's preference and belongs to one owner (App,
+  // which persists it). This used to keep a private copy that stopped following
+  // the prop after the first manual toggle, so the same click produced different
+  // results depending on whether the toggle had ever been touched.
   const [localSidebar, setLocalSidebar] = useState<SidebarState>(sidebarState);
-  // Once the user manually toggles the sidebar, stop syncing from parent prop.
-  // This prevents navigation from collapsing/expanding a sidebar the user set.
-  const userControlled = useRef(false);
 
-  useEffect(() => {
-    if (!userControlled.current) {
-      setLocalSidebar(sidebarState);
-    }
-  }, [sidebarState]);
+  useEffect(() => { setLocalSidebar(sidebarState); }, [sidebarState]);
 
   const handleSidebarToggle = () => {
-    userControlled.current = true;
-    setLocalSidebar(s => s === 'expanded' ? 'icon' : 'expanded');
+    const next: SidebarState = localSidebar === 'expanded' ? 'icon' : 'expanded';
+    setLocalSidebar(next);
+    onSidebarStateChange?.(next);
   };
 
   // ── Island-pill mode: render ONLY the Dynamic Island ──────────────────────
@@ -171,7 +171,7 @@ export const Layout = ({
   }
 
   return (
-    <div className={`flex flex-col w-full h-screen bg-black text-white font-sans overflow-hidden`}>
+    <div className={`flex flex-col w-full h-screen bg-surface text-on-surface font-sans overflow-hidden`}>
       <TitleBar />
       <AnimatePresence mode="wait">
           {isIslandVisible && (
@@ -211,9 +211,9 @@ export const Layout = ({
                   initial={{ opacity: 0, x: 20, scale: 0.9 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   exit={{ opacity: 0, x: 20, scale: 0.9 }}
-                  className={`px-6 py-4 rounded-xl border backdrop-blur-2xl bg-zinc-950/80 shadow-2xl font-mono text-[10px] uppercase tracking-widest font-bold
-                    ${toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 
-                      toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' : 
+                  className={`px-6 py-4 rounded-xl border backdrop-blur-2xl bg-[var(--nav-bg)] shadow-2xl font-mono text-[10px] uppercase tracking-widest font-bold
+                    ${toast.type === 'success' ? 'bg-success/10 border-success/20 text-success/80' : 
+                      toast.type === 'error' ? 'bg-error/10 border-error/20 text-error/80' : 
                       'bg-primary/10 border-primary/20 text-primary'}`}
                 >
                   {toast.message}
@@ -226,25 +226,48 @@ export const Layout = ({
           <div className="flex-1 flex overflow-hidden">
             {!isZenMode && (
               <aside 
-                className={`flex flex-col backdrop-blur-2xl bg-zinc-950/80 border-r border-white/5 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] relative z-20 shrink-0
+                className={`flex flex-col backdrop-blur-2xl bg-[var(--nav-bg)] border-r border-on-surface/5 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] relative z-20 shrink-0
                   ${localSidebar === 'expanded' ? 'w-[260px]' : localSidebar === 'icon' ? 'w-20' : 'w-0 border-r-0 opacity-0'}`}
               >
                 {/* Logo Area */}
                 <div 
-                  className={`h-20 flex items-center border-b border-white/5 transition-all
+                  className={`h-20 flex items-center border-b border-on-surface/5 transition-all
                     ${localSidebar === 'icon' ? 'justify-center px-0' : 'px-8 justify-between'}`}
                 >
+                  {/* Brand mark mirrors the site's nav-logo: a pulsing dot and
+                      wide-tracked uppercase wordmark, no boxed icon. */}
                   <div className="flex items-center gap-3 cursor-pointer group" onClick={onLogoClick}>
-                    <div className="w-8 h-8 rounded-full border border-primary/30 flex items-center justify-center bg-primary/10 text-primary group-hover:scale-105 group-hover:bg-primary/20 transition-all shadow-[0_0_15px_rgba(79,70,229,0.2)]">
-                      <Terminal size={14} />
-                    </div>
+                    <span className="w-[7px] h-[7px] rounded-full bg-on-surface shrink-0 transition-transform group-hover:scale-125" />
                     {localSidebar === 'expanded' && (
-                      <div className="flex flex-col">
-                        <span className="font-bold text-white tracking-tighter uppercase">{aiName}</span>
-                      </div>
+                      <span className="font-display font-bold text-[13px] uppercase tracking-[0.18em] text-on-surface">
+                        {aiName}
+                      </span>
                     )}
                   </div>
+                  {/* Collapse control lives beside the wordmark. It used to sit at
+                      the bottom of the rail, which fell below the fold on short
+                      windows — collapsing the sidebar could leave no visible way
+                      to bring it back. */}
+                  {localSidebar === 'expanded' && (
+                    <button
+                      onClick={handleSidebarToggle}
+                      title="Collapse sidebar"
+                      className="p-1.5 rounded text-on-surface/55 hover:text-on-surface hover:bg-on-surface/5 transition-all duration-300 shrink-0"
+                    >
+                      <ChevronRight size={16} className="rotate-180" />
+                    </button>
+                  )}
                 </div>
+
+                {localSidebar === 'icon' && (
+                  <button
+                    onClick={handleSidebarToggle}
+                    title="Expand sidebar"
+                    className="mx-auto mt-3 p-2 rounded text-on-surface/55 hover:text-on-surface hover:bg-on-surface/5 transition-all duration-300"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                )}
 
                 <nav className="flex-1 flex flex-col gap-1.5 px-4 mt-6">
                   {localSidebar === 'expanded' ? (
@@ -278,25 +301,20 @@ export const Layout = ({
                   )}
                 </nav>
 
-                <div className="p-6 mt-auto">
-                  <button
-                    onClick={handleSidebarToggle}
-                    className={`w-full p-3 rounded flex items-center gap-3 text-white/20 hover:text-white transition-all duration-300 overflow-hidden whitespace-nowrap
-                      ${localSidebar === 'icon' ? 'justify-center' : ''}`}
-                  >
-                    <ChevronRight size={18} className={`transition-transform duration-500 ${localSidebar === 'expanded' ? 'rotate-180' : ''}`} />
-                    {localSidebar === 'expanded' && <span className="font-mono text-[10px] uppercase tracking-widest text-white/40">Collapse_UI</span>}
-                  </button>
-                </div>
               </aside>
             )}
 
-            <main className="flex-1 flex flex-col relative overflow-hidden bg-black">
+            <main className="flex-1 flex flex-col relative overflow-hidden bg-surface">
               {!isZenMode && (
-                <header className="h-20 border-b border-white/5 flex items-center px-12 justify-between backdrop-blur-2xl bg-zinc-950/80 relative z-30">
-                  <div className="flex flex-col text-left">
-                    <h2 className="text-white font-bold tracking-tighter text-lg italic lowercase">{title}</h2>
-                    <p className="text-white/20 font-mono text-[10px] uppercase tracking-widest font-bold">{subtitle}</p>
+                // Background was a hardcoded bg-surface that survived the token
+                // migration — now the themed nav surface.
+                <header className="h-20 border-b border-on-surface/5 flex items-center px-12 justify-between backdrop-blur-2xl relative z-30"
+                        style={{ background: 'var(--nav-bg)' }}>
+                  {/* Page header in the site's idiom: a mono section index above
+                      big uppercase Syne, replacing the lowercase italic. */}
+                  <div className="flex flex-col text-left gap-1">
+                    {subtitle && <span className="px-eyebrow">{subtitle}</span>}
+                    <h2 className="px-display px-display-sm text-on-surface">{title}</h2>
                   </div>
                   <div className="flex items-center gap-6">
                     {actions && (

@@ -7,7 +7,13 @@ from chat_manager import get_all_sessions, get_session_messages
 
 log = get_logger("emotion_agent")
 
-SETTINGS_DIR = Path(os.getenv("APPDATA", "")) / "primnox_extension"
+# Use the shared resolver rather than reading APPDATA directly: off Windows
+# APPDATA is unset, and Path("") / "primnox_extension" yields a *relative* path
+# resolved against the cwd, so settings written by settings_manager were never
+# found here.
+from settings_manager import get_appdata_dir
+
+SETTINGS_DIR = get_appdata_dir()
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 
 def load_settings():

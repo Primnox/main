@@ -1,7 +1,27 @@
+/**
+ * Settings — rebuilt in the website's design language.
+ *
+ * The previous version was a single 1,625-line component: every control styled
+ * inline, `${API_BASE}` written out at 19 call sites, and a floating
+ * `max-h-[calc(100vh-4rem)]` panel that was taller than the region it lived in,
+ * which pushed the first tab behind the header where it could not be clicked.
+ *
+ * This is a full-height page, not a floating card, so it cannot mis-size itself
+ * again. Controls come from ./settings/primitives; the backend origin comes from
+ * ./settings/api. Every setting the old screen exposed is still here.
+ */
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { User, Terminal, Shield, Cpu, Wifi, WifiOff, RefreshCw, DownloadCloud, Brain, Zap, Calendar, Plus, Trash2, Link, Cloud, Key, Copy, Eye, EyeOff, AlertTriangle, CheckCircle, HardDrive } from 'lucide-react';
+import {
+  User, Shield, Cpu, Calendar, Cloud, Plus, Trash2, RefreshCw,
+  Check, AlertTriangle, Copy, Eye, EyeOff, HardDrive, Brain,
+} from 'lucide-react';
 import { FlowLocal, FlowCloud, FlowRaw } from './FlowDiagram';
+import { useTheme } from '../hooks/useTheme';
+import { getJson, postJson, apiUrl } from './settings/api';
+import {
+  Section, Row, Toggle, Field, SecretField, Select, Slider, Button, Choice, Status,
+} from './settings/primitives';
 
 type ScreenId =
   | 'summaries_expanded'
@@ -22,6 +42,16 @@ type ScreenId =
 
 const CLOUD_MODELS = ['Groq_Llama_3', 'OpenAI_GPT_4o', 'Anthropic_Claude_3', 'Gemini_Flash'];
 
+const CLOUD_MODEL_OPTIONS = [
+  { value: 'Groq_Llama_3',       label: 'Groq — Llama 3.3 70B (HyperSpeed)' },
+  { value: 'OpenAI_GPT_4o',      label: 'OpenAI — GPT-4o' },
+  { value: 'Anthropic_Claude_3', label: 'Anthropic — Claude 3' },
+  { value: 'Gemini_Flash',       label: 'Google — Gemini Flash' },
+];
+
+/** The stored settings do not carry an "architecture" field — it is implied by
+ *  which model is active, whether a cloud key exists, and whether the mirror is
+ *  on. This reconstructs it so the selector shows the real current state. */
 const deriveArch = (
   model: string,
   mirror: boolean,
@@ -32,219 +62,215 @@ const deriveArch = (
   return mirror ? 'cloud_shield' : 'cloud_raw';
 };
 
-export const IslandSettings = ({ 
-  onNavigate,
-  operatorAlias,
-  setOperatorAlias,
-  aiCodename,
-  setAiCodename,
-  activeModel,
-  setActiveModel,
-  apiKey,
-  setApiKey,
-  openaiApiKey,
-  setOpenaiApiKey,
-  anthropicApiKey,
-  setAnthropicApiKey,
-  vadSensitivity,
-  setVadSensitivity,
-  wakeWord,
-  setWakeWord,
-  wakeWordEnabled,
-  setWakeWordEnabled,
-  dynamicIslandEnabled,
-  setDynamicIslandEnabled,
-  privacyMirrorEnabled,
-  setPrivacyMirrorEnabled,
-  ollamaModel,
-  setOllamaModel,
-  ollamaBaseUrl,
-  setOllamaBaseUrl,
-  llamacppBaseUrl,
-  setLlamacppBaseUrl,
-  llamacppModel,
-  setLlamacppModel,
-  geminiApiKey,
-  setGeminiApiKey,
-  calendarProviders,
-  setCalendarProviders,
-  meetingRetentionDays,
-  setMeetingRetentionDays,
-  onSync
+const TABS = [
+  { id: 'System_Core', icon: Cpu },
+  { id: 'Identity',    icon: User },
+  { id: 'Security',    icon: Shield },
+  { id: 'Calendar',    icon: Calendar },
+  { id: 'Backup',      icon: Cloud },
+] as const;
+
+type TabId = typeof TABS[number]['id'];
+
+export const IslandSettings = ({
+  operatorAlias, setOperatorAlias,
+  aiCodename, setAiCodename,
+  activeModel, setActiveModel,
+  apiKey, setApiKey,
+  openaiApiKey, setOpenaiApiKey,
+  anthropicApiKey, setAnthropicApiKey,
+  vadSensitivity, setVadSensitivity,
+  wakeWord, setWakeWord,
+  wakeWordEnabled, setWakeWordEnabled,
+  dynamicIslandEnabled, setDynamicIslandEnabled,
+  privacyMirrorEnabled, setPrivacyMirrorEnabled,
+  ollamaModel, setOllamaModel,
+  ollamaBaseUrl, setOllamaBaseUrl,
+  llamacppBaseUrl, setLlamacppBaseUrl,
+  llamacppModel, setLlamacppModel,
+  geminiApiKey, setGeminiApiKey,
+  calendarProviders, setCalendarProviders,
+  meetingRetentionDays, setMeetingRetentionDays,
+  onSync,
 }: {
   onNavigate: (id: ScreenId) => void,
-  operatorAlias: string,
-  setOperatorAlias: (v: string) => void,
-  aiCodename: string,
-  setAiCodename: (v: string) => void,
-  activeModel: string,
-  setActiveModel: (v: string) => void,
-  apiKey: string,
-  setApiKey: (v: string) => void,
-  openaiApiKey: string,
-  setOpenaiApiKey: (v: string) => void,
-  anthropicApiKey: string,
-  setAnthropicApiKey: (v: string) => void,
-  vadSensitivity: number,
-  setVadSensitivity: (v: number) => void,
-  wakeWord: string,
-  setWakeWord: (v: string) => void,
-  wakeWordEnabled: boolean,
-  setWakeWordEnabled: (v: boolean) => void,
-  dynamicIslandEnabled: boolean,
-  setDynamicIslandEnabled: (v: boolean) => void,
-  privacyMirrorEnabled: boolean,
-  setPrivacyMirrorEnabled: (v: boolean) => void,
-  ollamaModel: string,
-  setOllamaModel: (v: string) => void,
-  ollamaBaseUrl: string,
-  setOllamaBaseUrl: (v: string) => void,
-  llamacppBaseUrl: string,
-  setLlamacppBaseUrl: (v: string) => void,
-  llamacppModel: string,
-  setLlamacppModel: (v: string) => void,
-  geminiApiKey: string,
-  setGeminiApiKey: (v: string) => void,
-  calendarProviders: any[],
-  setCalendarProviders: (v: any[]) => void,
-  meetingRetentionDays: number,
-  setMeetingRetentionDays: (v: number) => void,
+  operatorAlias: string, setOperatorAlias: (v: string) => void,
+  aiCodename: string, setAiCodename: (v: string) => void,
+  activeModel: string, setActiveModel: (v: string) => void,
+  apiKey: string, setApiKey: (v: string) => void,
+  openaiApiKey: string, setOpenaiApiKey: (v: string) => void,
+  anthropicApiKey: string, setAnthropicApiKey: (v: string) => void,
+  vadSensitivity: number, setVadSensitivity: (v: number) => void,
+  wakeWord: string, setWakeWord: (v: string) => void,
+  wakeWordEnabled: boolean, setWakeWordEnabled: (v: boolean) => void,
+  dynamicIslandEnabled: boolean, setDynamicIslandEnabled: (v: boolean) => void,
+  privacyMirrorEnabled: boolean, setPrivacyMirrorEnabled: (v: boolean) => void,
+  ollamaModel: string, setOllamaModel: (v: string) => void,
+  ollamaBaseUrl: string, setOllamaBaseUrl: (v: string) => void,
+  llamacppBaseUrl: string, setLlamacppBaseUrl: (v: string) => void,
+  llamacppModel: string, setLlamacppModel: (v: string) => void,
+  geminiApiKey: string, setGeminiApiKey: (v: string) => void,
+  calendarProviders: any[], setCalendarProviders: (v: any[]) => void,
+  meetingRetentionDays: number, setMeetingRetentionDays: (v: number) => void,
   onSync: () => void
 }) => {
-  const [activeTab, setActiveTab] = useState<'System_Core' | 'Identity' | 'Security' | 'Calendar' | 'Backup'>('System_Core');
-  const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
-  const [checkingOllama, setCheckingOllama] = useState(false);
-  const [backupStatus, setBackupStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
-  const [profile, setProfile] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<TabId>('System_Core');
+  const { theme, setTheme, themes } = useTheme();
 
-  // ── Cloud backup state ────────────────────────────────────────────────────────
-  const [cloudBackupInfo, setCloudBackupInfo]         = useState<any>(null);
-  const [cloudBackupList, setCloudBackupList]         = useState<any[]>([]);
-  const [cloudBackupOp, setCloudBackupOp]             = useState<'idle'|'running'|'done'|'error'>('idle');
-  const [cloudOpMsg, setCloudOpMsg]                   = useState('');
-  const [showSetup, setShowSetup]                     = useState(false);
-  const [mnemonic, setMnemonic]                       = useState('');
-  const [showMnemonic, setShowMnemonic]               = useState(false);
-  const [mnemonicGenLoading, setMnemonicGenLoading]   = useState(false);
-  const [providerType, setProviderType]               = useState<'s3'|'gdrive'|'dropbox'|'https'>('s3');
-  const [backupInterval, setBackupInterval]           = useState(24);
-  const [s3Cfg, setS3Cfg] = useState({ bucket: '', endpoint_url: '', region: 'us-east-1', access_key: '', secret_key: '' });
-  const [httpsCfg, setHttpsCfg]                       = useState({ url: '', auth_header: '' });
-  const [restoreFile, setRestoreFile]                 = useState('');
-  const [restoreMnemonic, setRestoreMnemonic]         = useState('');
-  const [showRestoreMnemonic, setShowRestoreMnemonic] = useState(false);
-  // Import a .prx backup straight from disk (no cloud provider required)
-  const [importFile, setImportFile]                   = useState<File | null>(null);
-  const [importMnemonic, setImportMnemonic]           = useState('');
-  const [showImportMnemonic, setShowImportMnemonic]   = useState(false);
-  const [importOp, setImportOp]                       = useState<'idle'|'running'|'done'|'error'>('idle');
-  const [importMsg, setImportMsg]                     = useState('');
-
-  // ── PII model status ──────────────────────────────────────────────────────────
-  const [piiModelStatus, setPiiModelStatus] = useState<'loading'|'ready'|'failed'|'unavailable'|null>(null);
-
-  // ── Architecture mode ─────────────────────────────────────────────────────
-  const [archMode, setArchMode] = useState<'local' | 'hybrid' | 'cloud_shield' | 'cloud_raw'>(
-    () => deriveArch(activeModel, privacyMirrorEnabled, apiKey)
-  );
+  // ── Engine / architecture ───────────────────────────────────────────────
+  const [archMode, setArchMode] = useState(() => deriveArch(activeModel, privacyMirrorEnabled, apiKey));
   const [localEngine, setLocalEngine] = useState<'ollama' | 'llamacpp'>(
     activeModel === 'LlamaCpp_Local' ? 'llamacpp' : 'ollama'
   );
   const [cloudModel, setCloudModel] = useState(
     () => CLOUD_MODELS.includes(activeModel) ? activeModel : 'Groq_Llama_3'
   );
+  const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
+  const [checkingOllama, setCheckingOllama] = useState(false);
 
-  // Re-sync when the parent finishes its async settings load — the lazy
+  // Re-sync once the parent finishes its async settings load — the lazy
   // initialisers above may have run while activeModel was still the default.
   useEffect(() => {
     setArchMode(deriveArch(activeModel, privacyMirrorEnabled, apiKey));
     setLocalEngine(activeModel === 'LlamaCpp_Local' ? 'llamacpp' : 'ollama');
     if (CLOUD_MODELS.includes(activeModel)) setCloudModel(activeModel);
   }, [activeModel, privacyMirrorEnabled, apiKey]);
-  useEffect(() => {
-    if (activeTab !== 'Security') return;
-    fetch('http://localhost:4009/api/status', { signal: AbortSignal.timeout(4000) })
-      .then(r => r.json())
-      .then(d => setPiiModelStatus(d.pii_model_status ?? null))
-      .catch(() => setPiiModelStatus(null));
-  }, [activeTab]);
 
-  // ── Local Vault state ─────────────────────────────────────────────────────────
-  const [vaultStatus, setVaultStatus] = useState<{enabled: boolean, locked: boolean} | null>(null);
+  const checkOllama = async () => {
+    setCheckingOllama(true);
+    // A non-2xx (503 while the backend boots) must resolve to "not running",
+    // otherwise the indicator sticks on "checking" forever.
+    const d = await getJson<{ running: boolean, models: string[] }>('/api/ollama/status');
+    setOllamaStatus(d ?? { running: false, models: [] });
+    setCheckingOllama(false);
+  };
+  useEffect(() => { if (activeModel === 'Ollama_Local') checkOllama(); }, [activeModel]);
+
+  // ── Security tab state ──────────────────────────────────────────────────
+  const [piiModelStatus, setPiiModelStatus] = useState<string | null>(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [vaultStatus, setVaultStatus] = useState<{ enabled: boolean, locked: boolean } | null>(null);
   const [vaultMnemonic, setVaultMnemonic] = useState('');
   const [vaultMnemonicGenerated, setVaultMnemonicGenerated] = useState('');
-  const [vaultOp, setVaultOp] = useState<'idle'|'running'|'done'|'error'>('idle');
+  const [vaultOp, setVaultOp] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [vaultOpMsg, setVaultOpMsg] = useState('');
   const [vaultPhrase, setVaultPhrase] = useState<string | null>(null);
   const [showPhrase, setShowPhrase] = useState(false);
 
   useEffect(() => {
     if (activeTab !== 'Security') return;
-    fetch('http://localhost:4009/api/vault/status')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setVaultStatus(d); })
-      .catch(() => {});
+    getJson<any>('/api/status', 4000).then(d => setPiiModelStatus(d?.pii_model_status ?? null));
+    getJson<any>('/api/vault/status').then(d => { if (d) setVaultStatus(d); });
   }, [activeTab]);
 
-  useEffect(() => {
-    fetch('http://localhost:4009/api/profile')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => d && setProfile(d))
-      .catch(() => {});
-  }, []);
+  useEffect(() => { getJson<any>('/api/profile').then(d => d && setProfile(d)); }, []);
 
-  // Load cloud backup status + list whenever the Backup tab is opened
+  const enableVault = async () => {
+    setVaultOp('running'); setVaultOpMsg(''); setVaultMnemonicGenerated('');
+    const d = await postJson<any>('/api/vault/setup');
+    if (d) {
+      setVaultOp('done'); setVaultOpMsg('Vault enabled.');
+      setVaultMnemonicGenerated(d.mnemonic);
+      setVaultStatus({ enabled: true, locked: false });
+    } else { setVaultOp('error'); setVaultOpMsg('Failed to enable vault'); }
+  };
+
+  const unlockVault = async () => {
+    if (!vaultMnemonic.trim()) return;
+    setVaultOp('running'); setVaultOpMsg('');
+    const d = await postJson<any>('/api/vault/unlock', { mnemonic: vaultMnemonic.trim() });
+    if (d) {
+      setVaultOp('done'); setVaultOpMsg('Vault unlocked.');
+      setVaultStatus({ enabled: true, locked: false });
+      setVaultMnemonic('');
+      setTimeout(() => setVaultOp('idle'), 4000);
+    } else { setVaultOp('error'); setVaultOpMsg('Unlock failed'); }
+  };
+
+  const disableVault = async () => {
+    setVaultOp('running'); setVaultOpMsg('');
+    const d = await postJson<any>('/api/vault/disable');
+    if (d) {
+      setVaultOp('done'); setVaultOpMsg('Vault disabled and fully decrypted.');
+      setVaultStatus({ enabled: false, locked: false });
+      setVaultMnemonicGenerated(''); setVaultPhrase(null); setShowPhrase(false);
+    } else { setVaultOp('error'); setVaultOpMsg('Failed to disable vault'); }
+    setTimeout(() => { setVaultOp('idle'); setVaultOpMsg(''); }, 4000);
+  };
+
+  /** The phrase is behind a one-shot token so it is never sitting on a plain
+   *  GET that anything on localhost could read. */
+  const fetchVaultPhrase = async () => {
+    const tok = await postJson<{ token: string }>('/api/vault/phrase-token');
+    if (!tok?.token) {
+      setVaultOpMsg('Could not issue phrase token — vault may be locked.');
+      return;
+    }
+    try {
+      const res = await fetch(apiUrl('/api/vault/phrase'), { headers: { 'X-Vault-Token': tok.token } });
+      if (!res.ok) throw new Error('not found');
+      const data = await res.json();
+      setVaultPhrase(data.phrase); setShowPhrase(true);
+    } catch {
+      setVaultPhrase(null);
+      setVaultOpMsg('Recovery phrase not available. Re-enable the vault to generate a new one.');
+    }
+  };
+
+  // ── Calendar tab state ──────────────────────────────────────────────────
+  const [showAddCal, setShowAddCal] = useState(false);
+  const [calType, setCalType] = useState<'ical' | 'google' | 'outlook' | 'notion'>('ical');
+  const [calUrl, setCalUrl] = useState('');
+  const [calName, setCalName] = useState('');
+  const [calColor, setCalColor] = useState('#6366f1');
+
+  const handleAddCalendar = () => {
+    if (!calUrl.trim() && calType === 'ical') return;
+    const provider: any = { type: calType, name: calName || calType, color: calColor };
+    if (calType === 'ical') provider.url = calUrl.trim();
+    setCalendarProviders([...calendarProviders, provider]);
+    setCalUrl(''); setCalName(''); setCalColor('#6366f1'); setShowAddCal(false);
+  };
+
+  // ── Backup tab state ────────────────────────────────────────────────────
+  const [backupStatus, setBackupStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [cloudBackupInfo, setCloudBackupInfo] = useState<any>(null);
+  const [cloudBackupList, setCloudBackupList] = useState<any[]>([]);
+  const [cloudBackupOp, setCloudBackupOp] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [cloudOpMsg, setCloudOpMsg] = useState('');
+  const [showSetup, setShowSetup] = useState(false);
+  const [mnemonic, setMnemonic] = useState('');
+  const [showMnemonic, setShowMnemonic] = useState(false);
+  const [mnemonicGenLoading, setMnemonicGenLoading] = useState(false);
+  const [providerType, setProviderType] = useState<'s3' | 'gdrive' | 'dropbox' | 'https'>('s3');
+  const [backupInterval, setBackupInterval] = useState(24);
+  const [s3Cfg, setS3Cfg] = useState({ bucket: '', endpoint_url: '', region: 'us-east-1', access_key: '', secret_key: '' });
+  const [httpsCfg, setHttpsCfg] = useState({ url: '', auth_header: '' });
+  const [restoreFile, setRestoreFile] = useState('');
+  const [restoreMnemonic, setRestoreMnemonic] = useState('');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importMnemonic, setImportMnemonic] = useState('');
+  const [importOp, setImportOp] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [importMsg, setImportMsg] = useState('');
+
   useEffect(() => {
     if (activeTab !== 'Backup') return;
-    fetch('http://localhost:4009/api/backup/status')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setCloudBackupInfo(d); })
-      .catch(() => {});
-    fetch('http://localhost:4009/api/backup/list')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.backups) setCloudBackupList(d.backups); })
-      .catch(() => {});
+    getJson<any>('/api/backup/status').then(d => { if (d) setCloudBackupInfo(d); });
+    getJson<any>('/api/backup/list').then(d => { if (d?.backups) setCloudBackupList(d.backups); });
   }, [activeTab]);
 
   const triggerBackup = async () => {
     setBackupStatus('running');
-    try {
-      const res = await fetch('http://localhost:4009/api/backup', { method: 'POST' });
-      if (res.ok) setBackupStatus('done');
-      else setBackupStatus('error');
-    } catch {
-      setBackupStatus('error');
-    }
+    const d = await postJson('/api/backup');
+    setBackupStatus(d ? 'done' : 'error');
     setTimeout(() => setBackupStatus('idle'), 4000);
   };
 
-  const checkOllama = async () => {
-    setCheckingOllama(true);
-    try {
-      const res = await fetch('http://localhost:4009/api/ollama/status');
-      if (res.ok) {
-        setOllamaStatus(await res.json());
-      } else {
-        // Non-2xx (e.g. 503 during backend startup) — treat as not running so the
-        // icon doesn't stay in the spinning "checking..." state indefinitely.
-        setOllamaStatus({ running: false, models: [] });
-      }
-    } catch (_) { setOllamaStatus({ running: false, models: [] }); }
-    setCheckingOllama(false);
-  };
-
-  useEffect(() => {
-    if (activeModel === 'Ollama_Local') checkOllama();
-  }, [activeModel]);
-
   const generateMnemonic = async () => {
     setMnemonicGenLoading(true);
-    try {
-      const r = await fetch('http://localhost:4009/api/backup/generate-mnemonic', { method: 'POST' });
-      const d = await r.json();
-      if (r.ok) { setMnemonic(d.mnemonic); setShowMnemonic(true); }
-      else setCloudOpMsg(d.detail || 'Failed to generate phrase');
-    } catch { setCloudOpMsg('Backend unavailable'); }
+    const d = await postJson<any>('/api/backup/generate-mnemonic');
+    if (d?.mnemonic) { setMnemonic(d.mnemonic); setShowMnemonic(true); }
+    else setCloudOpMsg('Failed to generate phrase');
     setMnemonicGenLoading(false);
   };
 
@@ -252,54 +278,39 @@ export const IslandSettings = ({
     if (!mnemonic.trim()) return;
     const cfg = providerType === 's3' ? s3Cfg : providerType === 'https' ? httpsCfg : {};
     setCloudBackupOp('running'); setCloudOpMsg('');
-    try {
-      const r = await fetch('http://localhost:4009/api/backup/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mnemonic: mnemonic.trim(), provider: providerType, provider_config: cfg, interval_hours: backupInterval }),
-      });
-      const d = await r.json();
-      if (r.ok) {
-        setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Backup configured');
-        setShowSetup(false);
-        try {
-          const st = await fetch('http://localhost:4009/api/backup/status').then(x => x.json());
-          setCloudBackupInfo(st);
-        } catch { /* status refresh is best-effort */ }
-      } else {
-        setCloudBackupOp('error'); setCloudOpMsg(d.detail || 'Setup failed');
-      }
-    } catch { setCloudBackupOp('error'); setCloudOpMsg('Backend unavailable'); }
+    const d = await postJson<any>('/api/backup/setup', {
+      mnemonic: mnemonic.trim(), provider: providerType,
+      provider_config: cfg, interval_hours: backupInterval,
+    });
+    if (d) {
+      setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Backup configured');
+      setShowSetup(false);
+      const st = await getJson<any>('/api/backup/status');   // best-effort refresh
+      if (st) setCloudBackupInfo(st);
+    } else { setCloudBackupOp('error'); setCloudOpMsg('Setup failed'); }
     setTimeout(() => setCloudBackupOp('idle'), 4000);
   };
 
   const runCloudBackupNow = async () => {
     setCloudBackupOp('running'); setCloudOpMsg('');
-    try {
-      const r = await fetch('http://localhost:4009/api/backup/now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      const d = await r.json();
-      if (r.ok) { setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Backup started'); }
-      else { setCloudBackupOp('error'); setCloudOpMsg(d.detail || 'Backup failed'); }
-    } catch { setCloudBackupOp('error'); setCloudOpMsg('Backend unavailable'); }
+    const d = await postJson<any>('/api/backup/now', {});
+    if (d) { setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Backup started'); }
+    else { setCloudBackupOp('error'); setCloudOpMsg('Backup failed'); }
     setTimeout(() => { setCloudBackupOp('idle'); setCloudOpMsg(''); }, 5000);
   };
 
   const runCloudRestore = async () => {
     if (!restoreFile || !restoreMnemonic.trim()) return;
     setCloudBackupOp('running'); setCloudOpMsg('Restoring…');
-    try {
-      const r = await fetch('http://localhost:4009/api/backup/restore', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: restoreFile, mnemonic: restoreMnemonic.trim() }),
-      });
-      const d = await r.json();
-      if (r.ok) { setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Restore complete — restart Primnox'); }
-      else { setCloudBackupOp('error'); setCloudOpMsg(d.detail || 'Restore failed'); }
-    } catch { setCloudBackupOp('error'); setCloudOpMsg('Backend unavailable'); }
+    const d = await postJson<any>('/api/backup/restore', {
+      filename: restoreFile, mnemonic: restoreMnemonic.trim(),
+    }, 60000);
+    if (d) { setCloudBackupOp('done'); setCloudOpMsg(d.message || 'Restore complete — restart Primnox'); }
+    else { setCloudBackupOp('error'); setCloudOpMsg('Restore failed'); }
     setTimeout(() => { setCloudBackupOp('idle'); setCloudOpMsg(''); }, 6000);
   };
 
+  /** Multipart, so it does not go through postJson. */
   const runImport = async () => {
     if (!importFile || !importMnemonic.trim()) return;
     setImportOp('running'); setImportMsg('Decrypting & restoring…');
@@ -307,1272 +318,603 @@ export const IslandSettings = ({
       const fd = new FormData();
       fd.append('file', importFile);
       fd.append('mnemonic', importMnemonic.trim());
-      const r = await fetch('http://localhost:4009/api/backup/import', { method: 'POST', body: fd });
+      const r = await fetch(apiUrl('/api/backup/import'), { method: 'POST', body: fd });
       const d = await r.json();
       if (r.ok) { setImportOp('done'); setImportMsg(d.message || 'Import complete — restart Primnox'); }
       else { setImportOp('error'); setImportMsg(d.detail || 'Import failed'); }
     } catch { setImportOp('error'); setImportMsg('Backend unavailable'); }
-    setTimeout(() => { if (importOp !== 'done') { setImportOp('idle'); setImportMsg(''); } }, 8000);
   };
 
   const disableCloudBackup = async () => {
-    await fetch('http://localhost:4009/api/backup/disable', { method: 'POST' });
+    await postJson('/api/backup/disable');
     setCloudBackupInfo(null); setShowSetup(false); setMnemonic('');
   };
 
-  const enableVault = async () => {
-    setVaultOp('running'); setVaultOpMsg(''); setVaultMnemonicGenerated('');
-    try {
-      const res = await fetch('http://localhost:4009/api/vault/setup', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        setVaultOp('done');
-        setVaultOpMsg('Vault enabled!');
-        setVaultMnemonicGenerated(data.mnemonic);
-        setVaultStatus({ enabled: true, locked: false });
-      } else {
-        setVaultOp('error'); setVaultOpMsg(data.detail || 'Failed');
-      }
-    } catch { setVaultOp('error'); setVaultOpMsg('Backend unavailable'); }
+  const purgeData = async () => {
+    await postJson('/api/cleanup');
   };
 
-  const unlockVault = async () => {
-    if (!vaultMnemonic.trim()) return;
-    setVaultOp('running'); setVaultOpMsg('');
-    try {
-      const res = await fetch('http://localhost:4009/api/vault/unlock', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mnemonic: vaultMnemonic.trim() })
-      });
-      if (res.ok) {
-        setVaultOp('done'); setVaultOpMsg('Vault unlocked!');
-        setVaultStatus({ enabled: true, locked: false });
-        setVaultMnemonic('');
-      } else {
-        const data = await res.json();
-        setVaultOp('error'); setVaultOpMsg(data.detail || 'Unlock failed');
-      }
-    } catch { setVaultOp('error'); setVaultOpMsg('Backend unavailable'); }
-    setTimeout(() => { if (vaultOp !== 'error') setVaultOp('idle'); }, 4000);
-  };
-
-  const disableVault = async () => {
-    setVaultOp('running'); setVaultOpMsg('');
-    try {
-      const res = await fetch('http://localhost:4009/api/vault/disable', { method: 'POST' });
-      if (res.ok) {
-        setVaultOp('done'); setVaultOpMsg('Vault disabled and fully decrypted.');
-        setVaultStatus({ enabled: false, locked: false });
-        setVaultMnemonicGenerated('');
-        setVaultPhrase(null); setShowPhrase(false);
-      } else {
-        const data = await res.json();
-        setVaultOp('error'); setVaultOpMsg(data.detail || 'Failed');
-      }
-    } catch { setVaultOp('error'); setVaultOpMsg('Backend unavailable'); }
-    setTimeout(() => { setVaultOp('idle'); setVaultOpMsg(''); }, 4000);
-  };
-
-  const fetchVaultPhrase = async () => {
-    try {
-      const tokenRes = await fetch('http://localhost:4009/api/vault/phrase-token', { method: 'POST' });
-      if (!tokenRes.ok) {
-        const err = await tokenRes.json().catch(() => ({}));
-        setVaultOpMsg(err.detail || 'Could not issue phrase token — vault may be locked.');
-        return;
-      }
-      const { token } = await tokenRes.json();
-      const res = await fetch('http://localhost:4009/api/vault/phrase', { headers: { 'X-Vault-Token': token } });
-      if (!res.ok) throw new Error('Not found');
-      const data = await res.json();
-      setVaultPhrase(data.phrase);
-      setShowPhrase(true);
-    } catch {
-      setVaultPhrase(null);
-      setVaultOpMsg('Recovery phrase not available. Re-enable the vault to generate a new one.');
-    }
-  };
-
-  const tabs = [
-    { id: 'System_Core', label: 'System_Core', icon: Cpu },
-    { id: 'Identity', label: 'Identity', icon: User },
-    { id: 'Security', label: 'Security', icon: Shield },
-    { id: 'Calendar', label: 'Calendar', icon: Calendar },
-    { id: 'Backup', label: 'Backup', icon: Cloud },
-  ] as const;
-
-  // ── Calendar add-form state ──────────────────────────────────────────────
-  const [showAddCal, setShowAddCal] = useState(false);
-  const [calType,    setCalType]    = useState<'ical' | 'google' | 'outlook' | 'notion'>('ical');
-  const [calUrl,     setCalUrl]     = useState('');
-  const [calName,    setCalName]    = useState('');
-  const [calColor,   setCalColor]   = useState('#6366f1');
-
-  const handleAddCalendar = () => {
-    if (!calUrl.trim() && calType === 'ical') return;
-    const newProvider: any = { type: calType, name: calName || calType, color: calColor };
-    if (calType === 'ical') newProvider.url = calUrl.trim();
-    setCalendarProviders([...calendarProviders, newProvider]);
-    setCalUrl(''); setCalName(''); setCalColor('#6366f1'); setShowAddCal(false);
-  };
-
+  // ── Render ──────────────────────────────────────────────────────────────
   return (
-    <div className="h-full flex items-start justify-center p-4 md:p-6 lg:p-8 text-left overflow-y-auto">
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-4xl w-full max-h-[calc(100vh-4rem)] glass-panel rounded-lg shadow-2xl border border-white/10 flex flex-col md:flex-row bg-[#050505]/80 backdrop-blur-3xl overflow-hidden"
-      >
-        {/* Sidebar Tabs */}
-        <div className="w-full md:w-60 shrink-0 border-r border-white/5 bg-zinc-950 p-6 space-y-2 flex flex-col justify-between">
-          <div className="space-y-2">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button 
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`w-full text-left px-5 py-4 rounded-xl font-mono text-[11px] uppercase tracking-[0.3em] font-bold transition-all duration-300 ease-out active:scale-95 flex items-center gap-3 border
-                    ${isActive 
-                      ? 'bg-primary/10 text-primary border-primary/20 shadow-lg shadow-primary/5' 
-                      : 'text-white/25 border-transparent hover:text-white hover:bg-white/5'}`}
-                >
-                  <Icon size={14} />
-                  {tab.label}
-                </button>
-              );
-            })}
+    <div className="h-full flex overflow-hidden bg-surface text-on-surface">
+
+      {/* Tab rail — mono labels and a hairline divider, matching the app sidebar */}
+      <div className="w-[210px] shrink-0 border-r border-on-surface/10 flex flex-col overflow-y-auto">
+        <nav className="flex-1 py-8">
+          {TABS.map(({ id, icon: Icon }) => {
+            const active = activeTab === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`w-full flex items-center gap-3 px-7 py-3.5 font-mono text-[10px] uppercase tracking-[0.14em] transition-all duration-300 border-l-2 ${
+                  active
+                    ? 'border-primary text-on-surface bg-[var(--p-faint)]'
+                    : 'border-transparent text-on-surface/60 hover:text-on-surface hover:bg-[var(--hover)]'
+                }`}
+              >
+                <Icon size={14} className="shrink-0" />
+                {id}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="p-6 border-t border-on-surface/10">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-[6px] h-[6px] rounded-full bg-[var(--green)] animate-pulse shrink-0" />
+            <Status tone="good">Kernel_Stable</Status>
           </div>
-          
-          <div className="pt-4">
-            <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 backdrop-blur-sm">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]" />
-                <span className="font-mono text-[10px] text-emerald-400 uppercase font-bold tracking-widest">Kernel_Stable</span>
-              </div>
-              <p className="text-[10px] text-emerald-400/40 font-mono tracking-tighter uppercase whitespace-nowrap leading-none">Active Engine: {activeModel}</p>
-            </div>
-          </div>
+          <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-on-surface/58 break-all leading-relaxed">
+            {activeModel}
+          </p>
         </div>
+      </div>
 
-        {/* Content Panel */}
-        <div className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6 flex flex-col justify-between">
-          <div className="space-y-6">
-            <header className="space-y-1 border-b border-white/5 pb-5">
-              <h2 className="font-bold lowercase italic tracking-wide text-2xl text-white">Machine_Cognition_Settings</h2>
-              <p className="text-white/30 font-light text-sm">Calibrate the neural interface and operative parameters.</p>
-            </header>
+      {/* Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            className="max-w-[760px] px-12 py-10"
+          >
+            {/* ── SYSTEM CORE ─────────────────────────────────────────── */}
+            {activeTab === 'System_Core' && (
+              <>
+                <Section index="01" title="Appearance">
+                  <Row label="Theme" hint="Ported from primnox.github.io — the app and the site share one palette set." stack>
+                    <div className="grid grid-cols-5 gap-2.5 mt-1">
+                      {themes.map(t => (
+                        <button
+                          key={t.id}
+                          onClick={() => setTheme(t.id)}
+                          title={t.label}
+                          className={`group relative p-2 border transition-all ${
+                            theme === t.id
+                              ? 'border-[var(--p-line-2)] bg-[var(--p-fill)]'
+                              : 'border-on-surface/10 hover:border-on-surface/30'
+                          }`}
+                        >
+                          {/* Swatches read the palette's real values, so a retuned
+                              theme updates its own preview. */}
+                          <span className="flex h-6 rounded-sm overflow-hidden mb-1.5">
+                            {t.swatch.map((c, i) => (
+                              <span key={i} className="flex-1" style={{ background: c }} />
+                            ))}
+                          </span>
+                          <span className={`block font-mono text-[8px] uppercase tracking-[0.1em] text-center ${
+                            theme === t.id ? 'text-primary' : 'text-on-surface/45'
+                          }`}>{t.label}</span>
+                          {theme === t.id && (
+                            <Check size={10} className="absolute top-1 right-1 text-primary" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </Row>
+                </Section>
 
-            {/* Render Tab Contents */}
-            <div className="min-h-[220px]">
-              {activeTab === 'System_Core' && (
-                <motion.section 
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="space-y-6"
-                >
-                  {/* ── Privacy Architecture Selector ── */}
-                  <div className="space-y-4">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Privacy_Architecture</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* Local */}
-                      <button onClick={() => { setArchMode('local'); setActiveModel(localEngine === 'llamacpp' ? 'LlamaCpp_Local' : 'Ollama_Local'); }}
-                        className={`p-3 rounded-xl border text-left transition-all ${archMode === 'local' ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-white/5 bg-black/30 hover:border-white/10'}`}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <HardDrive size={12} className={archMode === 'local' ? 'text-emerald-400' : 'text-white/25'} />
-                          <span className={`font-mono text-[10px] font-bold uppercase tracking-widest ${archMode === 'local' ? 'text-emerald-400' : 'text-white/35'}`}>Local</span>
-                        </div>
-                        <p className="text-[9px] text-white/25 leading-relaxed">Nothing leaves your machine. Ollama or llama.cpp only.</p>
-                      </button>
-
-                      {/* Hybrid */}
-                      <button onClick={() => { setArchMode('hybrid'); setActiveModel(localEngine === 'llamacpp' ? 'LlamaCpp_Local' : 'Ollama_Local'); }}
-                        className={`p-3 rounded-xl border text-left transition-all ${archMode === 'hybrid' ? 'border-orange-500/50 bg-orange-500/10' : 'border-white/5 bg-black/30 hover:border-white/10'}`}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <Zap size={12} className={archMode === 'hybrid' ? 'text-orange-400' : 'text-white/25'} />
-                          <span className={`font-mono text-[10px] font-bold uppercase tracking-widest ${archMode === 'hybrid' ? 'text-orange-400' : 'text-white/35'}`}>Hybrid</span>
-                        </div>
-                        <p className="text-[9px] text-white/25 leading-relaxed">Local model for chat. Cloud transcription for voice.</p>
-                      </button>
-
-                      {/* Cloud + Mirror */}
-                      <button onClick={() => { setArchMode('cloud_shield'); setActiveModel(cloudModel); setPrivacyMirrorEnabled(true); }}
-                        className={`p-3 rounded-xl border text-left transition-all ${archMode === 'cloud_shield' ? 'border-blue-500/50 bg-blue-500/10' : 'border-white/5 bg-black/30 hover:border-white/10'}`}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <Shield size={12} className={archMode === 'cloud_shield' ? 'text-blue-400' : 'text-white/25'} />
-                          <span className={`font-mono text-[10px] font-bold uppercase tracking-widest ${archMode === 'cloud_shield' ? 'text-blue-400' : 'text-white/35'}`}>Cloud + Mirror</span>
-                        </div>
-                        <p className="text-[9px] text-white/25 leading-relaxed">Cloud model with PII scrubbed before it leaves this machine.</p>
-                      </button>
-
-                      {/* Cloud Raw */}
-                      <button onClick={() => { setArchMode('cloud_raw'); setActiveModel(cloudModel); setPrivacyMirrorEnabled(false); }}
-                        className={`p-3 rounded-xl border text-left transition-all ${archMode === 'cloud_raw' ? 'border-slate-500/50 bg-slate-500/10' : 'border-white/5 bg-black/30 hover:border-white/10'}`}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <Cloud size={12} className={archMode === 'cloud_raw' ? 'text-slate-300' : 'text-white/25'} />
-                          <span className={`font-mono text-[10px] font-bold uppercase tracking-widest ${archMode === 'cloud_raw' ? 'text-slate-300' : 'text-white/35'}`}>Cloud Raw</span>
-                        </div>
-                        <p className="text-[9px] text-white/25 leading-relaxed">Cloud model, no scrubbing. Data reaches provider as-is.</p>
-                      </button>
+                <Section index="02" title="Intelligence">
+                  <Row label="Privacy architecture" hint="Where your text is processed, and what leaves this machine." stack>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <Choice
+                        selected={archMode === 'local'}
+                        onClick={() => { setArchMode('local'); setActiveModel(localEngine === 'llamacpp' ? 'LlamaCpp_Local' : 'Ollama_Local'); }}
+                        icon={<HardDrive size={12} />}
+                        title="Local"
+                        hint="Nothing leaves your machine. Ollama or llama.cpp only."
+                      />
+                      <Choice
+                        selected={archMode === 'hybrid'}
+                        onClick={() => { setArchMode('hybrid'); setActiveModel(localEngine === 'llamacpp' ? 'LlamaCpp_Local' : 'Ollama_Local'); }}
+                        icon={<Cpu size={12} />}
+                        title="Hybrid"
+                        hint="Local model for chat. Cloud transcription for voice."
+                      />
+                      <Choice
+                        selected={archMode === 'cloud_shield'}
+                        onClick={() => { setArchMode('cloud_shield'); setActiveModel(cloudModel); setPrivacyMirrorEnabled(true); }}
+                        icon={<Shield size={12} />}
+                        title="Cloud + Mirror"
+                        hint="Cloud model with PII scrubbed before it leaves this machine."
+                      />
+                      <Choice
+                        selected={archMode === 'cloud_raw'}
+                        onClick={() => { setArchMode('cloud_raw'); setActiveModel(cloudModel); setPrivacyMirrorEnabled(false); }}
+                        icon={<Cloud size={12} />}
+                        title="Cloud Raw"
+                        hint="Cloud model, no scrubbing. Data reaches the provider as-is."
+                      />
                     </div>
 
-                    {/* ── Local / Hybrid expanded panel ── */}
-                    {(archMode === 'local' || archMode === 'hybrid') && (
-                      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
-                        className={`rounded-xl border p-5 space-y-4 ${archMode === 'hybrid' ? 'border-orange-500/20 bg-orange-500/5' : 'border-emerald-500/20 bg-emerald-500/5'}`}>
-                        <FlowLocal />
+                    {/* What the chosen route actually does with your text. */}
+                    <div className="mt-5 p-5 border border-on-surface/10 bg-[var(--hover)]">
+                      {archMode === 'local' || archMode === 'hybrid'
+                        ? <FlowLocal />
+                        : archMode === 'cloud_shield' ? <FlowCloud /> : <FlowRaw />}
+                    </div>
+                  </Row>
 
-                        {/* Engine toggle */}
+                  {(archMode === 'local' || archMode === 'hybrid') && (
+                    <>
+                      <Row label="Local engine" hint="Which local runtime serves the model.">
                         <div className="flex gap-2">
-                          <button onClick={() => { setLocalEngine('ollama'); setActiveModel('Ollama_Local'); }}
-                            className={`flex-1 py-2 rounded-lg font-mono text-[9px] uppercase tracking-widest font-bold border transition-all
-                              ${localEngine === 'ollama' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-white/5 text-white/30 hover:text-white/50'}`}>
-                            Ollama
-                          </button>
-                          <button onClick={() => { setLocalEngine('llamacpp'); setActiveModel('LlamaCpp_Local'); }}
-                            className={`flex-1 py-2 rounded-lg font-mono text-[9px] uppercase tracking-widest font-bold border transition-all
-                              ${localEngine === 'llamacpp' ? 'border-violet-500/40 bg-violet-500/10 text-violet-400' : 'border-white/5 text-white/30 hover:text-white/50'}`}>
-                            llama.cpp
-                          </button>
+                          <Button
+                            variant={localEngine === 'ollama' ? 'solid' : 'ghost'}
+                            onClick={() => { setLocalEngine('ollama'); setActiveModel('Ollama_Local'); }}
+                          >Ollama</Button>
+                          <Button
+                            variant={localEngine === 'llamacpp' ? 'solid' : 'ghost'}
+                            onClick={() => { setLocalEngine('llamacpp'); setActiveModel('LlamaCpp_Local'); }}
+                          >llama.cpp</Button>
                         </div>
+                      </Row>
 
-                        {/* Ollama config */}
-                        {localEngine === 'ollama' && (
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                {checkingOllama ? <RefreshCw size={12} className="text-white/30 animate-spin" /> :
-                                 ollamaStatus?.running ? <Wifi size={12} className="text-emerald-400" /> : <WifiOff size={12} className="text-red-400" />}
-                                <span className="font-mono text-[9px] uppercase tracking-widest text-white/40">
-                                  {checkingOllama ? 'Checking…' : ollamaStatus?.running ? `Running — ${ollamaStatus.models.length} model(s)` : 'Not detected'}
-                                </span>
-                              </div>
-                              <button onClick={checkOllama} className="text-[9px] font-mono text-white/25 hover:text-emerald-400 transition-colors uppercase tracking-widest">Refresh</button>
+                      {localEngine === 'ollama' ? (
+                        <>
+                          <Row label="Ollama URL" stack>
+                            <Field value={ollamaBaseUrl} onChange={setOllamaBaseUrl} mono placeholder="http://localhost:11434" />
+                          </Row>
+                          <Row label="Ollama model" stack>
+                            <Field value={ollamaModel} onChange={setOllamaModel} mono placeholder="llama3.2" />
+                          </Row>
+                          <Row label="Engine status" hint="Checks whether the Ollama daemon is reachable.">
+                            <div className="flex items-center gap-3">
+                              {ollamaStatus && (
+                                <Status tone={ollamaStatus.running ? 'good' : 'bad'}>
+                                  {ollamaStatus.running
+                                    ? `Online · ${ollamaStatus.models.length} models`
+                                    : 'Offline'}
+                                </Status>
+                              )}
+                              <Button onClick={checkOllama} disabled={checkingOllama}>
+                                <RefreshCw size={11} className={`inline mr-2 ${checkingOllama ? 'animate-spin' : ''}`} />
+                                {checkingOllama ? 'Checking' : 'Check'}
+                              </Button>
                             </div>
-                            {!ollamaStatus?.running && (
-                              <p className="text-[9px] text-amber-400/70 font-mono">Run <span className="text-amber-300 bg-white/5 px-1 rounded">ollama serve</span> then refresh. Pull a model: <span className="text-amber-300 bg-white/5 px-1 rounded">ollama pull llama3.2</span></p>
-                            )}
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1.5">
-                                <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">URL</label>
-                                <input value={ollamaBaseUrl} onChange={e => setOllamaBaseUrl(e.target.value)}
-                                  className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80"
-                                  placeholder="http://localhost:11434" />
-                              </div>
-                              <div className="space-y-1.5">
-                                <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">Model</label>
-                                {ollamaStatus?.running && ollamaStatus.models.length > 0 ? (
-                                  <select value={ollamaModel} onChange={e => setOllamaModel(e.target.value)}
-                                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80 appearance-none">
-                                    {ollamaStatus.models.map(m => <option key={m}>{m}</option>)}
-                                  </select>
-                                ) : (
-                                  <input value={ollamaModel} onChange={e => setOllamaModel(e.target.value)}
-                                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80"
-                                    placeholder="llama3.2" />
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* llama.cpp config */}
-                        {localEngine === 'llamacpp' && (
-                          <div className="space-y-3">
-                            <p className="text-[9px] text-amber-400/70 font-mono">Start: <span className="text-amber-300 bg-white/5 px-1 rounded">./llama-server -m model.gguf --port 8080</span></p>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1.5">
-                                <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">URL</label>
-                                <input value={llamacppBaseUrl} onChange={e => setLlamacppBaseUrl(e.target.value)}
-                                  className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-violet-500/40 text-white/80"
-                                  placeholder="http://localhost:8080" />
-                              </div>
-                              <div className="space-y-1.5">
-                                <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">Model <span className="opacity-40">(optional)</span></label>
-                                <input value={llamacppModel} onChange={e => setLlamacppModel(e.target.value)}
-                                  className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-violet-500/40 text-white/80"
-                                  placeholder="leave blank for default" />
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {archMode === 'hybrid' && (
-                          <p className="text-[9px] text-orange-400/60 font-mono border-t border-orange-500/10 pt-3">
-                            Voice transcription uses Groq Whisper when available — add your Groq key in the{' '}
-                            <button type="button" className="text-orange-400 underline" onClick={() => setActiveTab('Security')}>Security tab</button>.
-                          </p>
-                        )}
-                      </motion.div>
-                    )}
-
-                    {/* ── Cloud + Mirror / Cloud Raw expanded panel ── */}
-                    {(archMode === 'cloud_shield' || archMode === 'cloud_raw') && (
-                      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
-                        className={`rounded-xl border p-5 space-y-4 ${archMode === 'cloud_shield' ? 'border-blue-500/20 bg-blue-500/5' : 'border-slate-500/20 bg-slate-500/5'}`}>
-                        {archMode === 'cloud_shield' ? <FlowCloud /> : <FlowRaw />}
-
-                        <div className="space-y-1.5">
-                          <label className="font-mono text-[9px] text-white/25 uppercase tracking-widest">Cloud_Model</label>
-                          <select value={cloudModel} onChange={e => { setCloudModel(e.target.value); setActiveModel(e.target.value); }}
-                            className="w-full bg-black/60 border border-white/10 rounded-lg py-2.5 px-3 font-mono text-[11px] outline-none focus:border-blue-500/40 text-white/80 appearance-none">
-                            <option value="Groq_Llama_3">Groq — Llama 3.3 70B (HyperSpeed)</option>
-                            <option value="OpenAI_GPT_4o">OpenAI — GPT-4o (Max Reasoning)</option>
-                            <option value="Anthropic_Claude_3">Anthropic — Claude 3.5 Sonnet</option>
-                            <option value="Gemini_Flash">Google — Gemini Flash 2.0</option>
-                          </select>
-                        </div>
-
-                        {archMode === 'cloud_shield' ? (
-                          <p className="text-[9px] text-blue-400/50 font-mono">
-                            Privacy Mirror is <span className="text-emerald-400">active</span> — DeBERTa NER scrubs PII from every request before it leaves this machine.
-                          </p>
-                        ) : (
-                          <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
-                            <AlertTriangle size={11} className="text-amber-400 shrink-0 mt-0.5" />
-                            <p className="text-[9px] text-amber-400/70 font-mono">Privacy Mirror is off. Your messages reach the cloud provider exactly as typed — names, emails, and other PII included.</p>
-                          </div>
-                        )}
-                      </motion.div>
-                    )}
-                  </div>
-
-                  {/* VAD Sensitivity Slider */}
-                  <div className="space-y-4">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">VAD_Sensitivity</label>
-                    <div className="flex items-center gap-4 bg-black/40 border border-white/5 p-4 rounded-xl">
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="1" 
-                        step="0.05"
-                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-primary" 
-                        value={vadSensitivity}
-                        onChange={(e) => setVadSensitivity(parseFloat(e.target.value))}
-                      />
-                      <span className="font-mono text-xs text-primary font-bold min-w-[36px] text-right">{(vadSensitivity * 100).toFixed(0)}%</span>
-                    </div>
-                  </div>
-
-                  {/* Wake Word Config */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-black/40 border border-white/5 p-4 rounded-xl">
-                    <div className="space-y-4">
-                      <label className="block font-mono text-[10px] text-white/25 uppercase tracking-[0.3em] font-bold">Wake_Word</label>
-                      <input 
-                        className="w-full bg-zinc-950 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all" 
-                        value={wakeWord}
-                        onChange={(e) => setWakeWord(e.target.value)}
-                        placeholder="Wake word phrase..."
-                      />
-                    </div>
-                    <div className="space-y-4 flex flex-col justify-between">
-                      <label className="block font-mono text-[10px] text-white/25 uppercase tracking-[0.3em] font-bold">Wake_Word_Detection</label>
-                      <div className="flex items-center h-full pb-1">
-                        <button
-                          type="button"
-                          onClick={() => setWakeWordEnabled(!wakeWordEnabled)}
-                          className={`w-full py-3 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold border transition-all active:scale-95 cursor-pointer
-                            ${wakeWordEnabled 
-                              ? 'bg-primary/10 border-primary/20 text-primary hover:bg-primary/20' 
-                              : 'bg-white/5 border-transparent text-white/40 hover:text-white/60'}`}
-                        >
-                          {wakeWordEnabled ? "Enabled" : "Disabled"}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Dynamic Island toggle (#13) */}
-                  <div className="bg-black/40 border border-white/5 p-4 rounded-xl flex items-center justify-between gap-6">
-                    <div className="space-y-1 min-w-0">
-                      <label className="block font-mono text-[10px] text-white/25 uppercase tracking-[0.3em] font-bold">Dynamic_Island</label>
-                      <p className="text-[11px] text-white/30 font-light">Floating pill overlay when minimized. Off = normal minimize to taskbar.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const v = !dynamicIslandEnabled;
-                        setDynamicIslandEnabled(v);
-                        (window as any).electron?.ipcRenderer?.send('island:set-enabled', v);
-                      }}
-                      className={`shrink-0 w-32 py-3 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold border transition-all active:scale-95 cursor-pointer
-                        ${dynamicIslandEnabled
-                          ? 'bg-primary/10 border-primary/20 text-primary hover:bg-primary/20'
-                          : 'bg-white/5 border-transparent text-white/40 hover:text-white/60'}`}
-                    >
-                      {dynamicIslandEnabled ? "Enabled" : "Disabled"}
-                    </button>
-                  </div>
-                </motion.section>
-              )}
-
-              {activeTab === 'Identity' && (
-                <motion.section 
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="grid grid-cols-1 md:grid-cols-2 gap-12"
-                >
-                  <div className="space-y-4">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Operative_Alias</label>
-                    <div className="relative group">
-                      <User size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-primary transition-colors" />
-                      <input 
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5" 
-                        value={operatorAlias}
-                        onChange={(e) => setOperatorAlias(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Neural_ID</label>
-                    <div className="relative group">
-                      <Terminal size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-primary transition-colors" />
-                      <input 
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5" 
-                        value={aiCodename}
-                        onChange={(e) => setAiCodename(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </motion.section>
-              )}
-
-              {activeTab === 'Security' && (
-                <motion.section
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="space-y-6"
-                >
-                  <div className="space-y-4">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Groq_API_Key</label>
-                    <div className="relative group">
-                      <div className="absolute left-5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-white/10 font-bold">HEX</div>
-                      <input
-                        type="password"
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder="Groq API key..."
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">OpenAI_API_Key</label>
-                    <div className="relative group">
-                      <div className="absolute left-5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-white/10 font-bold">HEX</div>
-                      <input
-                        type="password"
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5"
-                        value={openaiApiKey}
-                        onChange={(e) => setOpenaiApiKey(e.target.value)}
-                        placeholder="OpenAI API key..."
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Anthropic_API_Key</label>
-                    <div className="relative group">
-                      <div className="absolute left-5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-white/10 font-bold">HEX</div>
-                      <input
-                        type="password"
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5"
-                        value={anthropicApiKey}
-                        onChange={(e) => setAnthropicApiKey(e.target.value)}
-                        placeholder="Anthropic API key..."
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Gemini_API_Key</label>
-                    <div className="relative group">
-                      <div className="absolute left-5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-white/10 font-bold">HEX</div>
-                      <input
-                        type="password"
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-4 pl-14 pr-6 font-mono text-xs focus:ring-1 focus:ring-primary outline-none transition-all placeholder-white/5"
-                        value={geminiApiKey}
-                        onChange={(e) => setGeminiApiKey(e.target.value)}
-                        placeholder="Google AI Studio API key..."
-                      />
-                    </div>
-                  </div>
-
-                  {/* Privacy Shield (PII scrubber) */}
-                  <div className="space-y-4 pt-2 border-t border-white/5">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Privacy_Shield</label>
-                        <p className="text-xs text-white/40 font-light mt-1">
-                          Scrubs PII from context before it reaches the AI. Uses a local DeBERTa model — no data leaves your machine.
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setPrivacyMirrorEnabled(!privacyMirrorEnabled)}
-                        className={`relative shrink-0 w-10 h-5 rounded-full border transition-all duration-200 ${
-                          privacyMirrorEnabled
-                            ? 'bg-emerald-500/20 border-emerald-500/40'
-                            : 'bg-white/5 border-white/10'
-                        }`}
-                      >
-                        <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all duration-200 ${
-                          privacyMirrorEnabled
-                            ? 'left-5 bg-emerald-400'
-                            : 'left-0.5 bg-white/20'
-                        }`} />
-                      </button>
-                    </div>
-
-                    {/* Model status row */}
-                    {privacyMirrorEnabled && (
-                      <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-xs font-mono ${
-                        piiModelStatus === 'ready'
-                          ? 'bg-emerald-500/8 border-emerald-500/20 text-emerald-400/70'
-                          : piiModelStatus === 'loading'
-                          ? 'bg-amber-500/8 border-amber-500/20 text-amber-400/70'
-                          : piiModelStatus === 'failed'
-                          ? 'bg-red-500/10 border-red-500/25 text-red-400/80'
-                          : 'bg-white/5 border-white/10 text-white/30'
-                      }`}>
-                        <Shield size={11} className="shrink-0" />
-                        {piiModelStatus === 'ready'    && 'Model loaded — shield active'}
-                        {piiModelStatus === 'loading'  && 'Model loading in background…'}
-                        {piiModelStatus === 'failed'   && 'Model failed to load — disable Privacy Shield or check your internet connection and restart'}
-                        {piiModelStatus === 'unavailable' && 'Status unavailable — is the backend running?'}
-                        {piiModelStatus === null        && 'Checking model status…'}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Local Encryption Vault */}
-                  <div className="space-y-4 pt-2 border-t border-white/5">
-                    <div className="flex items-center justify-between">
-                      <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Local_Encryption_Vault</label>
-                      {vaultStatus?.enabled && (
-                        <div className={`px-2 py-1 rounded text-[9px] font-mono uppercase tracking-widest ${vaultStatus.locked ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
-                          {vaultStatus.locked ? 'LOCKED' : 'UNLOCKED'}
-                        </div>
+                          </Row>
+                        </>
+                      ) : (
+                        <>
+                          <Row label="llama.cpp URL" stack>
+                            <Field value={llamacppBaseUrl} onChange={setLlamacppBaseUrl} mono placeholder="http://localhost:8080" />
+                          </Row>
+                          <Row label="llama.cpp model" hint="Optional — only needed if the server hosts more than one." stack>
+                            <Field value={llamacppModel} onChange={setLlamacppModel} mono placeholder="(optional)" />
+                          </Row>
+                        </>
                       )}
+                    </>
+                  )}
+
+                  {(archMode === 'cloud_shield' || archMode === 'cloud_raw') && (
+                    <Row label="Cloud model" hint="Keys are set under Security." stack>
+                      <Select
+                        value={cloudModel}
+                        onChange={(v) => { setCloudModel(v); setActiveModel(v); }}
+                        options={CLOUD_MODEL_OPTIONS}
+                      />
+                    </Row>
+                  )}
+                </Section>
+
+                <Section index="03" title="Voice">
+                  <Row label="VAD sensitivity" hint="How readily the microphone treats sound as speech.">
+                    <Slider value={vadSensitivity} onChange={setVadSensitivity} min={0} max={100} format={(v) => `${v}%`} />
+                  </Row>
+                  <Row label="Wake word" hint="Spoken phrase that starts a voice command." stack>
+                    <Field value={wakeWord} onChange={setWakeWord} placeholder="hey primnox" mono />
+                  </Row>
+                  <Row label="Wake word detection" hint="Listen continuously for the wake word.">
+                    <Toggle checked={wakeWordEnabled} onChange={setWakeWordEnabled} label="Wake word detection" />
+                  </Row>
+                </Section>
+
+                <Section index="04" title="Interface">
+                  <Row label="Dynamic Island" hint="Floating pill overlay when minimised. Off = normal minimise to taskbar.">
+                    <Toggle checked={dynamicIslandEnabled} onChange={setDynamicIslandEnabled} label="Dynamic Island" />
+                  </Row>
+                </Section>
+              </>
+            )}
+
+            {/* ── IDENTITY ────────────────────────────────────────────── */}
+            {activeTab === 'Identity' && (
+              <Section index="01" title="Identity">
+                <Row label="Operative alias" hint="What Primnox calls you." stack>
+                  <Field value={operatorAlias} onChange={setOperatorAlias} placeholder="Your name" />
+                </Row>
+                <Row label="Neural ID" hint="What you call Primnox. Used in the interface and in its own replies." stack>
+                  <Field value={aiCodename} onChange={setAiCodename} placeholder="Primnox" />
+                </Row>
+                {profile && (
+                  <>
+                    <Row label="Current vibe" hint="Inferred by the profiler from recent activity — read-only.">
+                      <span className="font-mono text-[11px] text-on-surface/55">{profile.vibe || profile.current_vibe || '—'}</span>
+                    </Row>
+                    <Row label="Occupation" hint="Inferred by the profiler — read-only.">
+                      <span className="font-mono text-[11px] text-on-surface/55">{profile.occupation || '—'}</span>
+                    </Row>
+                  </>
+                )}
+              </Section>
+            )}
+
+            {/* ── SECURITY ────────────────────────────────────────────── */}
+            {activeTab === 'Security' && (
+              <>
+                <Section index="01" title="API Keys">
+                  <Row label="Groq" stack><SecretField value={apiKey} onChange={setApiKey} placeholder="Groq API key" /></Row>
+                  <Row label="OpenAI" stack><SecretField value={openaiApiKey} onChange={setOpenaiApiKey} placeholder="OpenAI API key" /></Row>
+                  <Row label="Anthropic" stack><SecretField value={anthropicApiKey} onChange={setAnthropicApiKey} placeholder="Anthropic API key" /></Row>
+                  <Row label="Gemini" stack><SecretField value={geminiApiKey} onChange={setGeminiApiKey} placeholder="Google AI Studio API key" /></Row>
+                </Section>
+
+                <Section index="02" title="Privacy Shield">
+                  <Row label="Privacy Mirror" hint="Scrubs PII from every request before it leaves this machine.">
+                    <Toggle checked={privacyMirrorEnabled} onChange={setPrivacyMirrorEnabled} label="Privacy Mirror" />
+                  </Row>
+                  <Row label="Scrubber model" hint="DeBERTa NER. Loads in the background; regex patterns cover the gap.">
+                    <Status tone={
+                      piiModelStatus === 'ready' ? 'good'
+                      : piiModelStatus === 'loading' ? 'warn'
+                      : piiModelStatus ? 'bad' : 'muted'
+                    }>
+                      {piiModelStatus || 'unknown'}
+                    </Status>
+                  </Row>
+                </Section>
+
+                <Section index="03" title="Local Encryption Vault">
+                  <Row
+                    label="Vault"
+                    hint={vaultStatus?.enabled
+                      ? 'Local data is encrypted at rest with a key derived from your recovery phrase.'
+                      : 'Encrypt local data at rest. You will be given a 12-word recovery phrase.'}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Status tone={vaultStatus?.enabled ? (vaultStatus.locked ? 'warn' : 'good') : 'muted'}>
+                        {vaultStatus?.enabled ? (vaultStatus.locked ? 'Locked' : 'Unlocked') : 'Disabled'}
+                      </Status>
+                      {!vaultStatus?.enabled
+                        ? <Button variant="solid" onClick={enableVault} disabled={vaultOp === 'running'}>Enable</Button>
+                        : <Button variant="danger" onClick={disableVault} disabled={vaultOp === 'running'}>Disable</Button>}
                     </div>
-                    <p className="text-xs text-white/50 font-light">
-                      Encrypts your SQLite databases at rest using AES-GCM and a 12-word seed phrase.
-                    </p>
+                  </Row>
 
-                    {!vaultStatus?.enabled && (
-                      <div className="space-y-4">
-                        <button
-                          onClick={enableVault}
-                          disabled={vaultOp === 'running'}
-                          className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-xl py-3 text-xs font-mono uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
-                        >
-                          <Shield size={14} /> Enable Local Vault
-                        </button>
-                        {vaultMnemonicGenerated && (
-                          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-3">
-                            <div className="flex items-center gap-2 text-emerald-400">
-                              <AlertTriangle size={14} />
-                              <span className="text-xs font-bold uppercase tracking-wider">Save This Recovery Phrase</span>
-                            </div>
-                            <p className="text-xs text-white/70">
-                              This is the only key that can decrypt your local database. If you lose it, you lose your data.
-                            </p>
-                            <div className="p-3 bg-black/60 rounded border border-emerald-500/20 font-mono text-sm text-white select-all text-center tracking-wide leading-relaxed">
-                              {vaultMnemonicGenerated}
-                            </div>
-                          </div>
-                        )}
+                  {vaultStatus?.enabled && vaultStatus.locked && (
+                    <Row label="Unlock with recovery phrase" stack>
+                      <div className="flex gap-3 items-end">
+                        <Field value={vaultMnemonic} onChange={setVaultMnemonic} mono placeholder="12 words, space separated" />
+                        <Button variant="solid" onClick={unlockVault} disabled={vaultOp === 'running'}>Unlock</Button>
                       </div>
-                    )}
+                    </Row>
+                  )}
 
-                    {vaultStatus?.enabled && vaultStatus?.locked && (
-                      <div className="space-y-3 p-4 bg-red-500/5 border border-red-500/10 rounded-xl">
-                        <p className="text-xs text-white/70">Enter your 12-word recovery phrase to unlock your database.</p>
-                        <div className="relative group">
-                          <input
-                            type="text"
-                            value={vaultMnemonic}
-                            onChange={(e) => setVaultMnemonic(e.target.value)}
-                            placeholder="Enter 12-word phrase..."
-                            className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all placeholder-white/20 text-white"
-                          />
-                        </div>
-                        <button
-                          onClick={unlockVault}
-                          disabled={!vaultMnemonic.trim() || vaultOp === 'running'}
-                          className="w-full bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 rounded-xl py-3 text-xs font-mono uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
-                        >
-                          {vaultOp === 'running' ? 'Unlocking...' : 'Unlock Vault'}
-                        </button>
-                      </div>
-                    )}
-
-                    {vaultStatus?.enabled && !vaultStatus?.locked && (
-                      <div className="p-4 bg-white/5 border border-white/10 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <CheckCircle size={16} className="text-emerald-400" />
-                            <span className="text-xs text-white/70">Vault is active and decrypted for this session.</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={disableVault}
-                              disabled={vaultOp === 'running'}
-                              className="text-xs text-red-400 hover:text-red-300 font-mono tracking-widest uppercase transition-colors"
-                            >
-                              Disable Vault
-                            </button>
-                            <button
-                              onClick={fetchVaultPhrase}
-                              className="ml-2 px-3 py-1 text-[10px] font-mono uppercase tracking-widest border border-amber-500/30 text-amber-400 rounded hover:bg-amber-500/10 transition-colors"
-                            >
-                              Show Recovery Phrase
-                            </button>
-                          </div>
-                        </div>
+                  {vaultStatus?.enabled && !vaultStatus.locked && (
+                    <Row label="Recovery phrase" hint="Shown once through a single-use token. Store it offline.">
+                      <div className="flex items-center gap-3">
                         {showPhrase && vaultPhrase && (
-                          <div className="mt-3 p-3 rounded-lg bg-amber-950/30 border border-amber-500/20">
-                            <p className="text-[9px] uppercase tracking-widest text-amber-400/60 mb-2">Recovery Phrase — keep this safe</p>
-                            <p className="font-mono text-xs text-amber-200 leading-relaxed select-all break-words">{vaultPhrase}</p>
-                            <button
-                              onClick={() => setShowPhrase(false)}
-                              className="mt-2 text-[9px] text-white/30 hover:text-white/60 underline transition-colors"
-                            >Hide</button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {vaultOpMsg && (
-                      <p className={`text-[10px] font-mono tracking-wider ${vaultOp === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>
-                        {vaultOpMsg}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Data Backup + Retention */}
-                  <div className="space-y-4 pt-2 border-t border-white/5">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Data_Management</label>
-
-                    {/* Backup row */}
-                    <div className="flex items-center gap-4 p-4 bg-black/30 border border-white/5 rounded-xl">
-                      <div className="flex-1">
-                        <p className="text-xs text-white/60 font-light">Backup memories, notes, and chat to a local zip file. Auto-backups run every 6 hours.</p>
-                      </div>
-                      <button
-                        onClick={triggerBackup}
-                        disabled={backupStatus === 'running'}
-                        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95 shrink-0 ${
-                          backupStatus === 'done' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                          backupStatus === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                          'bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-black'
-                        }`}
-                      >
-                        <DownloadCloud size={14} />
-                        {backupStatus === 'running' ? 'Backing up...' : backupStatus === 'done' ? 'Done ✓' : backupStatus === 'error' ? 'Failed ✗' : 'Backup Now'}
-                      </button>
-                    </div>
-
-                    {/* Retention / Cleanup */}
-                    <div className="space-y-3 p-4 bg-black/30 border border-white/5 rounded-xl">
-                      <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest mb-3">Data_Retention</p>
-
-                      {/* Memory note */}
-                      <div className="flex items-start gap-3 p-3 rounded-lg bg-white/[0.03] border border-white/[0.05]">
-                        <Brain size={13} className="text-indigo-400/50 mt-0.5 shrink-0" />
-                        <div>
-                          <p className="text-[11px] text-white/50">Memories older than 7 days are automatically compressed into weekly summaries.</p>
-                          <p className="text-[10px] text-white/25 mt-0.5 font-mono">Edit or delete individual memories in Data_Vault.</p>
-                        </div>
-                      </div>
-
-                      {/* Meeting recordings auto-delete */}
-                      <div className="flex items-center justify-between gap-4 pt-1">
-                        <div>
-                          <p className="text-xs text-white/60 font-light">Meeting recordings auto-delete</p>
-                          <p className="font-mono text-[9px] text-white/20 mt-0.5">Delete folders older than N days (0 = keep forever)</p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <input
-                            type="number" min="0" max="365"
-                            value={meetingRetentionDays}
-                            onChange={e => setMeetingRetentionDays(Number(e.target.value))}
-                            className="w-16 bg-black/60 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white text-center outline-none focus:border-primary/40 font-mono"
-                          />
-                          <span className="font-mono text-[9px] text-white/25">days</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-2 border-t border-white/[0.04]">
-                        <button
-                          onClick={() => { onNavigate('meetings' as any); }}
-                          className="flex items-center gap-1.5 text-[10px] font-mono text-white/30 hover:text-white/60 transition-colors"
-                        >
-                          <span>View Recordings →</span>
-                        </button>
-                        <button
-                          onClick={async () => {
-                            try {
-                              const r = await fetch('http://localhost:4009/api/cleanup', { method: 'POST' });
-                              const d = await r.json();
-                              const parts = [
-                                d.memories_compressed > 0 ? `compressed: ${d.memories_compressed}` : null,
-                                `meetings: ${d.meetings_deleted}`,
-                              ].filter(Boolean).join(' · ');
-                              alert(`Cleanup done${parts ? ` — ${parts}` : ' — nothing to do'}`);
-                            } catch { alert('Cleanup failed — is backend running?'); }
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 rounded-xl font-mono text-[10px] uppercase tracking-widest bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all active:scale-95"
-                        >
-                          <RefreshCw size={11} /> Run Cleanup Now
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* User Profile */}
-                  {profile && (profile.mood || profile.onboarding_profile?.occupation) && (
-                    <div className="space-y-3 pt-2 border-t border-white/5">
-                      <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">Neural_Profile</label>
-                      <div className="grid grid-cols-2 gap-3">
-                        {profile.mood && (
-                          <div className="p-4 bg-violet-500/5 border border-violet-500/20 rounded-xl flex items-start gap-3">
-                            <Brain size={14} className="text-violet-400 mt-0.5 shrink-0" />
-                            <div>
-                              <p className="font-mono text-[9px] text-white/30 uppercase tracking-widest mb-1">Current_Vibe</p>
-                              <p className="text-sm font-bold text-violet-300">{profile.mood}</p>
-                            </div>
-                          </div>
-                        )}
-                        {profile.onboarding_profile?.occupation && (
-                          <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl flex items-start gap-3">
-                            <Zap size={14} className="text-primary mt-0.5 shrink-0" />
-                            <div>
-                              <p className="font-mono text-[9px] text-white/30 uppercase tracking-widest mb-1">Occupation</p>
-                              <p className="text-sm font-bold text-primary/80">{profile.onboarding_profile.occupation}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      {profile.onboarding_profile?.recommended_notes_style && (
-                        <p className="text-[10px] text-white/30 font-mono italic px-1">
-                          Notes style: {profile.onboarding_profile.recommended_notes_style}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </motion.section>
-              )}
-
-              {activeTab === 'Calendar' && (
-                <motion.section
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="space-y-6"
-                >
-                  {/* Hint */}
-                  <div className="p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-xl text-[10px] font-mono text-indigo-300/60 leading-relaxed">
-                    <p className="mb-1 font-bold text-indigo-300/80 uppercase tracking-widest">How to get your iCal URL</p>
-                    <p><span className="text-white/40">Google:</span> Calendar settings → your calendar → <em>Secret address in iCal format</em></p>
-                    <p><span className="text-white/40">Outlook:</span> Calendar → Shared calendars → <em>Publish a calendar</em> → copy ICS link</p>
-                    <p><span className="text-white/40">ProtonCalendar:</span> Calendar settings → <em>Other calendars</em> → copy link</p>
-                    <p><span className="text-white/40">Apple iCloud:</span> iCloud.com → Calendar → share icon → copy URL</p>
-                  </div>
-
-                  {/* Connected calendars list */}
-                  <div className="space-y-3">
-                    <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">
-                      Connected_Calendars {calendarProviders.length > 0 && <span className="text-primary">({calendarProviders.length})</span>}
-                    </label>
-                    {calendarProviders.length === 0 ? (
-                      <p className="text-[11px] text-white/20 font-mono italic pl-1">No calendars connected yet.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {calendarProviders.map((p, i) => (
-                          <div key={i} className="flex items-center gap-3 px-4 py-3 bg-black/30 border border-white/5 rounded-xl group">
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: p.color || '#6366f1' }} />
-                            <div className="flex-1 min-w-0">
-                              <span className="text-xs font-medium text-white/70 truncate block">{p.name || p.type}</span>
-                              {p.url && <span className="font-mono text-[9px] text-white/20 truncate block">{p.url}</span>}
-                            </div>
-                            <span className="font-mono text-[9px] text-white/20 uppercase shrink-0">{p.type}</span>
-                            <button
-                              onClick={() => setCalendarProviders(calendarProviders.filter((_, j) => j !== i))}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400/60 hover:text-red-400 p-1 rounded"
-                              title="Remove"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Add calendar form */}
-                  {!showAddCal ? (
-                    <button
-                      onClick={() => setShowAddCal(true)}
-                      className="flex items-center gap-2 px-5 py-3 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-black transition-all active:scale-95"
-                    >
-                      <Plus size={13} /> Add_Calendar
-                    </button>
-                  ) : (
-                    <div className="space-y-4 p-5 bg-black/30 border border-white/10 rounded-xl">
-                      {/* Type selector */}
-                      <div className="space-y-2">
-                        <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Provider_Type</label>
-                        <div className="flex gap-2 flex-wrap">
-                          {(['ical', 'google', 'outlook', 'notion'] as const).map(t => (
-                            <button
-                              key={t}
-                              onClick={() => setCalType(t)}
-                              className={`px-3 py-1.5 rounded-lg font-mono text-[9px] uppercase tracking-widest font-bold border transition-all ${
-                                calType === t
-                                  ? 'bg-primary/20 text-primary border-primary/30'
-                                  : 'text-white/20 border-white/10 hover:text-white/50'
-                              }`}
-                            >
-                              {t === 'ical' ? 'iCal URL' : t === 'google' ? 'Google' : t === 'outlook' ? 'Outlook' : 'Notion'}
-                            </button>
-                          ))}
-                        </div>
-                        {calType !== 'ical' && (
-                          <p className="text-[9px] text-amber-400/60 font-mono italic mt-1">
-                            {calType === 'google' && 'Requires google-api-python-client. Use iCal URL for quick setup.'}
-                            {calType === 'outlook' && 'Requires msal. Use iCal URL from Outlook for quick setup.'}
-                            {calType === 'notion' && 'Requires Notion integration token + database ID.'}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* iCal URL field */}
-                      {calType === 'ical' && (
-                        <div className="space-y-2">
-                          <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">iCal_URL</label>
-                          <div className="relative">
-                            <Link size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10" />
-                            <input
-                              type="url"
-                              value={calUrl}
-                              onChange={e => setCalUrl(e.target.value)}
-                              placeholder="https://calendar.google.com/calendar/ical/..."
-                              className="w-full bg-black/60 border border-white/10 rounded-xl py-3 pl-10 pr-4 font-mono text-[11px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Name + color */}
-                      <div className="flex gap-3">
-                        <div className="flex-1 space-y-2">
-                          <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Display_Name</label>
-                          <input
-                            type="text"
-                            value={calName}
-                            onChange={e => setCalName(e.target.value)}
-                            placeholder="My Classes"
-                            className="w-full bg-black/60 border border-white/10 rounded-xl py-3 px-4 font-mono text-[11px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Color</label>
-                          <input
-                            type="color"
-                            value={calColor}
-                            onChange={e => setCalColor(e.target.value)}
-                            className="h-[46px] w-14 rounded-xl border border-white/10 bg-black/60 cursor-pointer p-1"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex gap-3 pt-1">
-                        <button
-                          onClick={handleAddCalendar}
-                          disabled={calType === 'ical' && !calUrl.trim()}
-                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-black transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
-                        >
-                          <Plus size={12} /> Add
-                        </button>
-                        <button
-                          onClick={() => { setShowAddCal(false); setCalUrl(''); setCalName(''); }}
-                          className="px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white/20 hover:text-white/50 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </motion.section>
-              )}
-
-              {activeTab === 'Backup' && (
-                <motion.section
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="space-y-6"
-                >
-                  {/* Status banner */}
-                  {cloudBackupInfo?.enabled ? (
-                    <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
-                      <CheckCircle size={14} className="text-emerald-400 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-mono text-[10px] text-emerald-300 uppercase tracking-widest font-bold">Cloud_Backup_Active</p>
-                        <p className="text-[10px] text-white/30 font-mono mt-0.5">
-                          Provider: <span className="text-white/50">{cloudBackupInfo.provider}</span>
-                          {cloudBackupInfo.last_sync && <> · Last sync: <span className="text-white/50">{new Date(cloudBackupInfo.last_sync).toLocaleString()}</span></>}
-                          {cloudBackupInfo.key_unlocked && <> · Key_Unlocked</>}
-                        </p>
-                      </div>
-                      <button
-                        onClick={disableCloudBackup}
-                        className="shrink-0 font-mono text-[9px] text-red-400/50 hover:text-red-400 uppercase tracking-widest transition-colors"
-                      >
-                        Disable
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/5 border border-amber-500/20">
-                      <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-mono text-[10px] text-amber-300 uppercase tracking-widest font-bold">Cloud_Backup_Not_Configured</p>
-                        <p className="text-[10px] text-white/30 mt-0.5">
-                          Your data is only saved locally. Set up cloud backup to protect against data loss.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Op message */}
-                  {cloudOpMsg && (
-                    <p className={`text-[11px] font-mono px-1 ${cloudBackupOp === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {cloudOpMsg}
-                    </p>
-                  )}
-
-                  {/* Backup Now + Test Connection (when configured) */}
-                  {cloudBackupInfo?.enabled && !showSetup && (
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <button
-                        onClick={runCloudBackupNow}
-                        disabled={cloudBackupOp === 'running'}
-                        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95 border ${
-                          cloudBackupOp === 'done'    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-                          cloudBackupOp === 'error'   ? 'bg-red-500/20 text-red-400 border-red-500/30' :
-                          cloudBackupOp === 'running' ? 'bg-white/5 text-white/30 border-white/10' :
-                          'bg-primary/10 text-primary border-primary/20 hover:bg-primary hover:text-black'
-                        }`}
-                      >
-                        <Cloud size={13} />
-                        {cloudBackupOp === 'running' ? 'Uploading…' : cloudBackupOp === 'done' ? 'Done ✓' : 'Backup_Now'}
-                      </button>
-                      <button
-                        onClick={() => setShowSetup(true)}
-                        className="px-4 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white/25 hover:text-white/60 border border-white/5 hover:border-white/20 transition-all"
-                      >
-                        Reconfigure
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Setup panel */}
-                  {(!cloudBackupInfo?.enabled || showSetup) && (
-                    <div className="space-y-5 p-5 bg-black/30 border border-white/10 rounded-xl">
-                      <p className="font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">
-                        {showSetup ? 'Reconfigure_Backup' : 'Setup_Cloud_Backup'}
-                      </p>
-
-                      {/* Mnemonic */}
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Seed_Phrase (12 words)</label>
-                          <a
-                            href="https://seed.primnox.com"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-mono text-[9px] text-primary/60 hover:text-primary transition-colors uppercase tracking-widest"
-                          >
-                            Get phrase at seed.primnox.com ↗
-                          </a>
-                        </div>
-                        <div className="relative">
-                          <Key size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 pointer-events-none" />
-                          <input
-                            type={showMnemonic ? 'text' : 'password'}
-                            value={mnemonic}
-                            onChange={e => setMnemonic(e.target.value)}
-                            placeholder="word1 word2 word3 … word12"
-                            className="w-full bg-black/60 border border-white/10 rounded-xl py-3 pl-10 pr-20 font-mono text-[11px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
-                          />
-                          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                            <button type="button" onClick={() => setShowMnemonic(v => !v)} className="text-white/20 hover:text-white/60 transition-colors">
-                              {showMnemonic ? <EyeOff size={13} /> : <Eye size={13} />}
-                            </button>
-                            {mnemonic && (
-                              <button type="button" onClick={() => navigator.clipboard.writeText(mnemonic)} className="text-white/20 hover:text-primary transition-colors" title="Copy">
-                                <Copy size={13} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
                           <button
-                            type="button"
-                            onClick={generateMnemonic}
-                            disabled={mnemonicGenLoading}
-                            className="flex items-center gap-2 px-4 py-2 rounded-xl font-mono text-[9px] uppercase tracking-widest bg-white/5 text-white/30 border border-white/10 hover:text-white/60 hover:bg-white/10 transition-all active:scale-95 disabled:opacity-40"
+                            onClick={() => navigator.clipboard?.writeText(vaultPhrase)}
+                            className="font-mono text-[11px] text-on-surface/70 hover:text-primary transition-colors flex items-center gap-2"
                           >
-                            <RefreshCw size={11} className={mnemonicGenLoading ? 'animate-spin' : ''} />
-                            Generate New Phrase
+                            {vaultPhrase} <Copy size={11} />
                           </button>
-                          <p className="text-[9px] text-white/20 font-mono italic">
-                            Write it down — it cannot be recovered.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Provider selector */}
-                      <div className="space-y-3">
-                        <label className="font-mono text-[9px] text-white/20 uppercase tracking-widest">Storage_Provider</label>
-                        <div className="flex gap-2 flex-wrap">
-                          {(['s3', 'gdrive', 'dropbox', 'https'] as const).map(t => (
-                            <button key={t} type="button" onClick={() => setProviderType(t)}
-                              className={`px-3 py-1.5 rounded-lg font-mono text-[9px] uppercase tracking-widest font-bold border transition-all ${
-                                providerType === t ? 'bg-primary/20 text-primary border-primary/30' : 'text-white/20 border-white/10 hover:text-white/50'
-                              }`}
-                            >
-                              {t === 's3' ? 'S3 / B2 / R2' : t === 'gdrive' ? 'Google Drive' : t === 'dropbox' ? 'Dropbox' : 'Self-Hosted'}
-                            </button>
-                          ))}
-                        </div>
-                        {(providerType === 'gdrive' || providerType === 'dropbox') && (
-                          <p className="text-[9px] text-amber-400/60 font-mono italic">
-                            {providerType === 'gdrive' ? 'Requires google-api-python-client. Use OAuth token from Google Cloud Console.' : 'Requires Dropbox SDK. Coming soon — use S3 or self-hosted for now.'}
-                          </p>
                         )}
+                        <Button onClick={showPhrase ? () => setShowPhrase(false) : fetchVaultPhrase}>
+                          {showPhrase ? <><EyeOff size={11} className="inline mr-2" />Hide</> : <><Eye size={11} className="inline mr-2" />Reveal</>}
+                        </Button>
                       </div>
+                    </Row>
+                  )}
 
-                      {/* S3 config */}
+                  {vaultMnemonicGenerated && (
+                    <div className="mt-4 p-5 border border-[var(--a-line)] bg-[var(--a-fill)]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle size={13} className="text-[var(--accent)]" />
+                        <Status tone="warn">Write this down — it is shown once</Status>
+                      </div>
+                      <p className="font-mono text-[12px] leading-relaxed text-on-surface break-words">{vaultMnemonicGenerated}</p>
+                    </div>
+                  )}
+
+                  {vaultOpMsg && (
+                    <div className="mt-3"><Status tone={vaultOp === 'error' ? 'bad' : 'good'}>{vaultOpMsg}</Status></div>
+                  )}
+                </Section>
+
+                <Section index="04" title="Data Management">
+                  <Row label="Meeting retention" hint="Recordings and transcripts older than this are removed by the cleanup pass.">
+                    <Slider
+                      value={meetingRetentionDays}
+                      onChange={setMeetingRetentionDays}
+                      min={1} max={365}
+                      format={(v) => `${v}d`}
+                    />
+                  </Row>
+                  <Row label="Run cleanup now" hint="Applies retention rules and compresses old memories immediately.">
+                    <Button onClick={purgeData}><Brain size={11} className="inline mr-2" />Run</Button>
+                  </Row>
+                </Section>
+              </>
+            )}
+
+            {/* ── CALENDAR ────────────────────────────────────────────── */}
+            {activeTab === 'Calendar' && (
+              <Section index="01" title="Calendar Sources">
+                {calendarProviders.length === 0 && !showAddCal && (
+                  <p className="py-6 text-[12px] text-on-surface/60 leading-[1.7]">
+                    No calendars connected. Add an iCal URL, or connect Google, Outlook or Notion.
+                  </p>
+                )}
+
+                {calendarProviders.map((p, i) => (
+                  <Row key={i} label={p.name || p.type} hint={p.url || p.type}>
+                    <div className="flex items-center gap-3">
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{ background: p.color || 'var(--primary)' }} />
+                      <button
+                        onClick={() => setCalendarProviders(calendarProviders.filter((_, j) => j !== i))}
+                        aria-label={`Remove ${p.name || p.type}`}
+                        className="p-2 text-on-surface/55 hover:text-error transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </Row>
+                ))}
+
+                {showAddCal ? (
+                  <div className="py-6 space-y-5 border-b border-on-surface/10">
+                    <Row label="Provider type" stack>
+                      <Select
+                        value={calType}
+                        onChange={(v) => setCalType(v as any)}
+                        options={[
+                          { value: 'ical', label: 'iCal URL' },
+                          { value: 'google', label: 'Google Calendar' },
+                          { value: 'outlook', label: 'Outlook' },
+                          { value: 'notion', label: 'Notion' },
+                        ]}
+                      />
+                    </Row>
+                    {calType === 'ical' && (
+                      <Row label="iCal URL" stack>
+                        <Field value={calUrl} onChange={setCalUrl} mono placeholder="https://…/basic.ics" />
+                      </Row>
+                    )}
+                    <Row label="Display name" stack>
+                      <Field value={calName} onChange={setCalName} placeholder="Work" />
+                    </Row>
+                    <Row label="Colour" stack>
+                      <input
+                        type="color"
+                        value={calColor}
+                        onChange={(e) => setCalColor(e.target.value)}
+                        className="w-16 h-9 bg-transparent border border-on-surface/20 cursor-pointer"
+                      />
+                    </Row>
+                    <div className="flex gap-3">
+                      <Button variant="solid" onClick={handleAddCalendar}>Add calendar</Button>
+                      <Button onClick={() => setShowAddCal(false)}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pt-6">
+                    <Button onClick={() => setShowAddCal(true)}>
+                      <Plus size={11} className="inline mr-2" />Add calendar
+                    </Button>
+                  </div>
+                )}
+              </Section>
+            )}
+
+            {/* ── BACKUP ──────────────────────────────────────────────── */}
+            {activeTab === 'Backup' && (
+              <>
+                <Section index="01" title="Local Backup">
+                  <Row label="Back up now" hint="Writes an encrypted .prx snapshot to this machine.">
+                    <div className="flex items-center gap-3">
+                      {backupStatus !== 'idle' && (
+                        <Status tone={backupStatus === 'done' ? 'good' : backupStatus === 'error' ? 'bad' : 'muted'}>
+                          {backupStatus === 'running' ? 'Running' : backupStatus === 'done' ? 'Done' : 'Failed'}
+                        </Status>
+                      )}
+                      <Button variant="solid" onClick={triggerBackup} disabled={backupStatus === 'running'}>Back up</Button>
+                    </div>
+                  </Row>
+                </Section>
+
+                <Section index="02" title="Cloud Backup">
+                  <Row
+                    label="Status"
+                    hint={cloudBackupInfo?.enabled
+                      ? `Provider: ${cloudBackupInfo.provider || 'unknown'} · every ${cloudBackupInfo.interval_hours ?? '—'}h`
+                      : 'Not configured. Backups are encrypted locally before upload; the provider never sees plaintext.'}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Status tone={cloudBackupInfo?.enabled ? 'good' : 'muted'}>
+                        {cloudBackupInfo?.enabled ? 'Active' : 'Not configured'}
+                      </Status>
+                      {cloudBackupInfo?.enabled ? (
+                        <>
+                          <Button onClick={runCloudBackupNow} disabled={cloudBackupOp === 'running'}>Run now</Button>
+                          <Button variant="danger" onClick={disableCloudBackup}>Disable</Button>
+                        </>
+                      ) : (
+                        <Button variant="solid" onClick={() => setShowSetup(s => !s)}>
+                          {showSetup ? 'Cancel' : 'Configure'}
+                        </Button>
+                      )}
+                    </div>
+                  </Row>
+
+                  {showSetup && (
+                    <>
+                      <Row label="Recovery phrase" hint="12 words. Without it the backup cannot be decrypted — not even by you." stack>
+                        <div className="flex gap-3 items-end">
+                          <Field
+                            value={mnemonic}
+                            onChange={setMnemonic}
+                            mono
+                            type={showMnemonic ? 'text' : 'password'}
+                            placeholder="12 words, space separated"
+                          />
+                          <Button onClick={() => setShowMnemonic(s => !s)}>{showMnemonic ? 'Hide' : 'Show'}</Button>
+                          <Button variant="solid" onClick={generateMnemonic} disabled={mnemonicGenLoading}>
+                            {mnemonicGenLoading ? 'Generating' : 'Generate'}
+                          </Button>
+                        </div>
+                      </Row>
+
+                      <Row label="Storage provider" stack>
+                        <Select
+                          value={providerType}
+                          onChange={(v) => setProviderType(v as any)}
+                          options={[
+                            { value: 's3', label: 'S3-compatible (AWS, B2, R2, Wasabi, MinIO)' },
+                            { value: 'gdrive', label: 'Google Drive' },
+                            { value: 'dropbox', label: 'Dropbox' },
+                            { value: 'https', label: 'Custom HTTPS endpoint' },
+                          ]}
+                        />
+                      </Row>
+
                       {providerType === 's3' && (
-                        <div className="grid grid-cols-2 gap-3">
-                          {[
-                            { key: 'bucket',       label: 'Bucket Name',    placeholder: 'my-primnox-backup', pw: false },
-                            { key: 'endpoint_url', label: 'Endpoint URL',   placeholder: 'https://s3.wasabisys.com (blank for AWS)', pw: false },
-                            { key: 'region',       label: 'Region',         placeholder: 'us-east-1', pw: false },
-                            { key: 'access_key',   label: 'Access Key ID',  placeholder: 'AKIAIOSFODNN7EXAMPLE', pw: false },
-                            { key: 'secret_key',   label: 'Secret Key',     placeholder: '••••••••', pw: true },
-                          ].map(({ key, label, placeholder, pw }) => (
-                            <div key={key} className={`space-y-1 ${key === 'endpoint_url' || key === 'secret_key' ? 'col-span-2' : ''}`}>
-                              <label className="font-mono text-[8px] text-white/20 uppercase tracking-widest">{label}</label>
-                              <input
-                                type={pw ? 'password' : 'text'}
-                                value={(s3Cfg as any)[key]}
-                                onChange={e => setS3Cfg(c => ({ ...c, [key]: e.target.value }))}
-                                placeholder={placeholder}
-                                className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[10px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
-                              />
-                            </div>
-                          ))}
-                        </div>
+                        <>
+                          <Row label="Bucket" stack>
+                            <Field value={s3Cfg.bucket} onChange={(v) => setS3Cfg({ ...s3Cfg, bucket: v })} mono placeholder="primnox-backups" />
+                          </Row>
+                          <Row label="Endpoint URL" hint="Leave blank for AWS S3." stack>
+                            <Field value={s3Cfg.endpoint_url} onChange={(v) => setS3Cfg({ ...s3Cfg, endpoint_url: v })} mono placeholder="https://s3.us-west-000.backblazeb2.com" />
+                          </Row>
+                          <Row label="Region" stack>
+                            <Field value={s3Cfg.region} onChange={(v) => setS3Cfg({ ...s3Cfg, region: v })} mono placeholder="us-east-1" />
+                          </Row>
+                          <Row label="Access key" stack>
+                            <SecretField value={s3Cfg.access_key} onChange={(v) => setS3Cfg({ ...s3Cfg, access_key: v })} placeholder="Access key ID" />
+                          </Row>
+                          <Row label="Secret key" stack>
+                            <SecretField value={s3Cfg.secret_key} onChange={(v) => setS3Cfg({ ...s3Cfg, secret_key: v })} placeholder="Secret access key" />
+                          </Row>
+                        </>
                       )}
 
-                      {/* HTTPS config */}
                       {providerType === 'https' && (
-                        <div className="space-y-3">
-                          <div className="space-y-1">
-                            <label className="font-mono text-[8px] text-white/20 uppercase tracking-widest">Server URL</label>
-                            <input
-                              type="url" value={httpsCfg.url}
-                              onChange={e => setHttpsCfg(c => ({ ...c, url: e.target.value }))}
-                              placeholder="https://myserver.com/primnox-backup"
-                              className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[10px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="font-mono text-[8px] text-white/20 uppercase tracking-widest">Auth Header (optional)</label>
-                            <input
-                              type="password" value={httpsCfg.auth_header}
-                              onChange={e => setHttpsCfg(c => ({ ...c, auth_header: e.target.value }))}
-                              placeholder="Bearer your-token"
-                              className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[10px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
-                            />
-                          </div>
-                        </div>
+                        <>
+                          <Row label="Server URL" stack>
+                            <Field value={httpsCfg.url} onChange={(v) => setHttpsCfg({ ...httpsCfg, url: v })} mono placeholder="https://backup.example.com/upload" />
+                          </Row>
+                          <Row label="Auth header" hint="Optional. Sent verbatim as the Authorization header." stack>
+                            <SecretField value={httpsCfg.auth_header} onChange={(v) => setHttpsCfg({ ...httpsCfg, auth_header: v })} placeholder="Bearer …" />
+                          </Row>
+                        </>
                       )}
 
-                      <div className="space-y-1">
-                        <label className="font-mono text-[8px] text-white/20 uppercase tracking-widest">Backup Every (hours)</label>
-                        <input
-                          type="number" min={1} max={168} value={backupInterval}
-                          onChange={e => setBackupInterval(Math.max(1, parseInt(e.target.value) || 24))}
-                          className="w-24 bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[10px] focus:ring-1 focus:ring-primary outline-none"
+                      <Row label="Backup every" hint="Hours between automatic uploads.">
+                        <Slider value={backupInterval} onChange={setBackupInterval} min={1} max={168} format={(v) => `${v}h`} />
+                      </Row>
+
+                      <div className="pt-6">
+                        <Button variant="solid" onClick={setupCloudBackup} disabled={cloudBackupOp === 'running' || !mnemonic.trim()}>
+                          {cloudBackupOp === 'running' ? 'Configuring' : 'Enable cloud backup'}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+
+                  {cloudOpMsg && (
+                    <div className="pt-4"><Status tone={cloudBackupOp === 'error' ? 'bad' : 'good'}>{cloudOpMsg}</Status></div>
+                  )}
+                </Section>
+
+                <Section index="03" title="Restore">
+                  <Row label="Restore from cloud" hint="Pick a snapshot and supply its recovery phrase." stack>
+                    {cloudBackupList.length > 0 ? (
+                      <div className="space-y-4">
+                        <Select
+                          value={restoreFile}
+                          onChange={setRestoreFile}
+                          options={[
+                            { value: '', label: 'Select a backup…' },
+                            ...cloudBackupList.map((b: any) => ({
+                              value: b.filename || b.name,
+                              label: `${b.filename || b.name}${b.size ? ` · ${b.size}` : ''}`,
+                            })),
+                          ]}
                         />
+                        <div className="flex gap-3 items-end">
+                          <Field value={restoreMnemonic} onChange={setRestoreMnemonic} mono type="password" placeholder="12-word recovery phrase" />
+                          <Button variant="danger" onClick={runCloudRestore} disabled={!restoreFile || !restoreMnemonic.trim() || cloudBackupOp === 'running'}>
+                            Restore
+                          </Button>
+                        </div>
                       </div>
+                    ) : (
+                      <p className="text-[12px] text-on-surface/60">No cloud snapshots found.</p>
+                    )}
+                  </Row>
 
-                      <div className="flex gap-3 pt-1">
-                        <button
-                          type="button"
-                          onClick={setupCloudBackup}
-                          disabled={!mnemonic.trim() || cloudBackupOp === 'running' || providerType === 'gdrive' || providerType === 'dropbox'}
-                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-black transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
-                        >
-                          {cloudBackupOp === 'running' ? <RefreshCw size={12} className="animate-spin" /> : <HardDrive size={12} />}
-                          {cloudBackupOp === 'running' ? 'Saving…' : 'Save_Setup'}
-                        </button>
-                        {showSetup && (
-                          <button type="button" onClick={() => setShowSetup(false)}
-                            className="px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white/20 hover:text-white/50 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Backup list */}
-                  {cloudBackupInfo?.enabled && cloudBackupList.length > 0 && (
-                    <div className="space-y-3">
-                      <label className="block font-mono text-[10px] text-white/20 uppercase tracking-[0.5em] font-bold">
-                        Remote_Backups <span className="text-primary">({cloudBackupList.length})</span>
-                      </label>
-                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                        {cloudBackupList.map((b: any) => (
-                          <div key={b.name} className="flex items-center gap-3 px-4 py-3 bg-black/30 border border-white/5 rounded-xl group">
-                            <HardDrive size={12} className="text-white/20 shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <span className="font-mono text-[10px] text-white/60 truncate block">{b.name}</span>
-                              <span className="font-mono text-[9px] text-white/20">
-                                {b.timestamp ? new Date(b.timestamp).toLocaleString() : ''}
-                                {b.size ? ` · ${Math.ceil(b.size / 1024)} KB` : ''}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => { setRestoreFile(b.name); }}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity font-mono text-[9px] text-primary/60 hover:text-primary uppercase tracking-widest"
-                            >
-                              Restore
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Restore panel */}
-                  {cloudBackupInfo?.enabled && restoreFile && (
-                    <div className="space-y-4 p-5 bg-red-500/5 border border-red-500/20 rounded-xl">
-                      <p className="font-mono text-[10px] text-red-300 uppercase tracking-widest font-bold">Restore_From_Backup</p>
-                      <p className="text-[10px] text-white/30 font-mono">
-                        Restoring <span className="text-white/60">{restoreFile}</span> will overwrite current data. Enter your seed phrase to decrypt.
-                      </p>
-                      <div className="relative">
-                        <Key size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 pointer-events-none" />
-                        <input
-                          type={showRestoreMnemonic ? 'text' : 'password'}
-                          value={restoreMnemonic}
-                          onChange={e => setRestoreMnemonic(e.target.value)}
-                          placeholder="Enter your 12-word seed phrase…"
-                          className="w-full bg-black/60 border border-red-500/20 rounded-xl py-3 pl-10 pr-10 font-mono text-[11px] focus:ring-1 focus:ring-red-500 outline-none placeholder-white/10"
-                        />
-                        <button type="button" onClick={() => setShowRestoreMnemonic(v => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 hover:text-white/60 transition-colors">
-                          {showRestoreMnemonic ? <EyeOff size={13} /> : <Eye size={13} />}
-                        </button>
-                      </div>
-                      <div className="flex gap-3">
-                        <button
-                          type="button"
-                          onClick={runCloudRestore}
-                          disabled={!restoreMnemonic.trim() || cloudBackupOp === 'running'}
-                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
-                        >
-                          {cloudBackupOp === 'running' ? <RefreshCw size={12} className="animate-spin" /> : null}
-                          {cloudBackupOp === 'running' ? 'Restoring…' : 'Confirm_Restore'}
-                        </button>
-                        <button type="button" onClick={() => { setRestoreFile(''); setRestoreMnemonic(''); }}
-                          className="px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white/20 hover:text-white/50 transition-colors">
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Import a .prx backup from disk — works with no cloud provider configured */}
-                  <div className="space-y-4 p-5 bg-black/30 border border-white/10 rounded-xl">
-                    <p className="font-mono text-[10px] text-white/50 uppercase tracking-widest font-bold">Import_From_File</p>
-                    <p className="text-[10px] text-white/30 font-mono leading-5">
-                      Restore from a <span className="text-white/50">.prx</span> backup on disk — no cloud setup needed, just the file and your seed phrase. Overwrites current data.
-                    </p>
-                    <label className="flex items-center gap-3 px-4 py-3 bg-black/40 border border-white/10 rounded-xl cursor-pointer hover:border-primary/30 transition-colors">
-                      <DownloadCloud size={14} className="text-white/30 shrink-0" />
-                      <span className="font-mono text-[11px] text-white/60 truncate">
-                        {importFile ? importFile.name : 'Choose a .prx backup file…'}
-                      </span>
+                  <Row label="Import from file" hint="Restore directly from a .prx file — no provider needed." stack>
+                    <div className="space-y-4">
                       <input
                         type="file"
                         accept=".prx"
-                        className="hidden"
-                        onChange={e => { setImportFile(e.target.files?.[0] || null); setImportOp('idle'); setImportMsg(''); }}
+                        onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                        className="block w-full font-mono text-[11px] text-on-surface/55
+                          file:mr-4 file:py-2 file:px-5 file:border file:border-on-surface/20
+                          file:rounded-full file:bg-transparent file:text-on-surface
+                          file:font-mono file:text-[10px] file:uppercase file:tracking-[0.14em]
+                          hover:file:border-primary file:cursor-pointer cursor-pointer"
                       />
-                    </label>
-                    <div className="relative">
-                      <Key size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 pointer-events-none" />
-                      <input
-                        type={showImportMnemonic ? 'text' : 'password'}
-                        value={importMnemonic}
-                        onChange={e => setImportMnemonic(e.target.value)}
-                        placeholder="Enter the seed phrase for this backup…"
-                        className="w-full bg-black/60 border border-white/10 rounded-xl py-3 pl-10 pr-10 font-mono text-[11px] focus:ring-1 focus:ring-primary outline-none placeholder-white/10"
-                      />
-                      <button type="button" onClick={() => setShowImportMnemonic(v => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 hover:text-white/60 transition-colors">
-                        {showImportMnemonic ? <EyeOff size={13} /> : <Eye size={13} />}
-                      </button>
+                      <div className="flex gap-3 items-end">
+                        <Field value={importMnemonic} onChange={setImportMnemonic} mono type="password" placeholder="12-word recovery phrase" />
+                        <Button variant="danger" onClick={runImport} disabled={!importFile || !importMnemonic.trim() || importOp === 'running'}>
+                          Import
+                        </Button>
+                      </div>
+                      {importMsg && (
+                        <Status tone={importOp === 'error' ? 'bad' : importOp === 'done' ? 'good' : 'muted'}>{importMsg}</Status>
+                      )}
                     </div>
-                    {importMsg && (
-                      <p className={`text-[10px] font-mono ${importOp === 'error' ? 'text-red-400' : importOp === 'done' ? 'text-green-400' : 'text-white/40'}`}>
-                        {importMsg}
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      onClick={runImport}
-                      disabled={!importFile || !importMnemonic.trim() || importOp === 'running'}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-widest font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
-                    >
-                      {importOp === 'running' ? <RefreshCw size={12} className="animate-spin" /> : null}
-                      {importOp === 'running' ? 'Importing…' : importOp === 'done' ? 'Imported ✓' : 'Import_Backup'}
-                    </button>
-                  </div>
-                </motion.section>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-5 border-t border-white/5 pb-2">
-            <button 
-              type="button"
-              onClick={() => onNavigate('summaries_expanded')}
-              className="text-white/20 font-mono text-[11px] uppercase tracking-widest hover:text-white transition-colors font-bold"
-            >
-              Discard_Changes
-            </button>
-            <button 
-              type="button"
-              onClick={onSync}
-              className="bg-white text-black font-mono px-14 py-4 rounded-2xl uppercase text-[12px] font-bold tracking-[0.2em] hover:bg-primary hover:text-white transition-all shadow-3xl active:scale-90"
-            >
-              Synchronize_Kernel
-            </button>
-          </div>
+                  </Row>
+                </Section>
+              </>
+            )}
+          </motion.div>
         </div>
-      </motion.div>
+
+        {/* Save bar — pinned, so it is reachable from any scroll position */}
+        <div className="shrink-0 border-t border-on-surface/10 bg-[var(--nav-bg)] backdrop-blur-2xl px-12 py-5 flex items-center justify-between">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-on-surface/58">
+            Changes apply on synchronise
+          </span>
+          <Button variant="solid" onClick={onSync}>Synchronize_Kernel</Button>
+        </div>
+      </div>
     </div>
   );
 };

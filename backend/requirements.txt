@@ -36,6 +36,12 @@ pydub
 # ————— SCREEN + VISION ———————————————————
 # xdotool required on Linux (apt install xdotool)
 uiautomation; sys_platform == 'win32'
+# macOS counterpart to uiautomation: ApplicationServices provides the
+# Accessibility (AX) element walk, Quartz the window-region capture, Cocoa the
+# frontmost-app lookup. Requires Accessibility + Screen Recording permission.
+pyobjc-framework-Cocoa; sys_platform == 'darwin'
+pyobjc-framework-ApplicationServices; sys_platform == 'darwin'
+pyobjc-framework-Quartz; sys_platform == 'darwin'
 Pillow
 mss
 opencv-python
@@ -73,6 +79,7 @@ black
 isort
 comtypes; sys_platform == 'win32'
 edge-tts
+pygame                            # audio playback in voice.py (imported at module level)
 pyttsx3
 pyperclip
 keyboard

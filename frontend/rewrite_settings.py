@@ -1,6 +1,11 @@
+from pathlib import Path
+
+# Was an absolute path on the original author's Windows machine: it leaked a
+# username and the script could not run anywhere else.
+_FRONTEND_DIR = Path(__file__).resolve().parent
 import re
 
-file_path = 'C:/Users/aniketh/Projects/Primnox/frontend/src/app/components/SettingsView.tsx'
+file_path = str(_FRONTEND_DIR / 'src/app/components/SettingsView.tsx')
 with open(file_path, 'r', encoding='utf-8') as f:
     content = f.read()
 
@@ -12,7 +17,7 @@ export const IslandSettings = ({ onSync }: { onSync: () => void }) => {
   
   const [activeModel, setActiveModel] = useState(settings?.active_model || 'Groq_Llama_3');
   const [vadSensitivity, setVadSensitivity] = useState(settings?.vad_sensitivity || 0.5);
-  const [operatorAlias, setOperatorAlias] = useState(settings?.operator_alias || 'ANIKETH_P_01');
+  const [operatorAlias, setOperatorAlias] = useState(settings?.operator_alias || 'Operator');
   const [aiCodename, setAiCodename] = useState(settings?.ai_codename || 'PRIMNOX');
   const [apiKey, setApiKey] = useState(settings?.groq_api_key || '');
   const [openaiApiKey, setOpenaiApiKey] = useState(settings?.openai_api_key || '');

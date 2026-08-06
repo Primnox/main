@@ -25,13 +25,57 @@ log = get_logger("privacy")
 
 # ── Regex fallback ─────────────────────────────────────────────────────────────
 
+# Gazetteer backstop for place names the NER model does not detect.
+#
+# Measured 2026-08-06: the DeBERTa model reliably tags US locations
+# ("San Francisco" 0.999) but produces no span at all for Mumbai, Delhi,
+# Chennai or Tokyo, so those leaked verbatim at every confidence threshold.
+# That is the worst possible failure for this user base — the model's blind spot
+# is exactly the set of cities most likely to appear in their text.
+#
+# Deliberately excludes names that are also ordinary English words (Reading,
+# Nice, Mobile, Bath, Cork), which would over-redact normal prose. Requires an
+# exact capitalised match on a word boundary.
+_CITY_GAZETTEER = [
+    # India
+    "Mumbai", "Delhi", "New Delhi", "Bengaluru", "Bangalore", "Hyderabad",
+    "Chennai", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Surat", "Lucknow",
+    "Kanpur", "Nagpur", "Indore", "Bhopal", "Patna", "Vadodara", "Coimbatore",
+    "Kochi", "Visakhapatnam", "Bhubaneswar", "Chandigarh", "Guwahati", "Mysuru",
+    "Thiruvananthapuram", "Noida", "Gurugram", "Gurgaon",
+    # Rest of world
+    "Tokyo", "Osaka", "Kyoto", "Beijing", "Shanghai", "Shenzhen", "Guangzhou",
+    "Seoul", "Singapore", "Bangkok", "Jakarta", "Manila", "Hanoi", "Dubai",
+    "Abu Dhabi", "Doha", "Riyadh", "Karachi", "Lahore", "Islamabad", "Dhaka",
+    "Colombo", "Kathmandu", "Tehran", "Istanbul", "Cairo", "Nairobi", "Lagos",
+    "Johannesburg", "Cape Town", "Casablanca",
+    "Berlin", "Munich", "Hamburg", "Frankfurt", "Vienna", "Zurich", "Geneva",
+    "Amsterdam", "Rotterdam", "Brussels", "Copenhagen", "Stockholm", "Oslo",
+    "Helsinki", "Warsaw", "Prague", "Budapest", "Bucharest", "Athens",
+    "Lisbon", "Porto", "Madrid", "Barcelona", "Valencia", "Seville",
+    "Rome", "Milan", "Naples", "Turin", "Venice", "Florence",
+    "Paris", "Lyon", "Marseille", "Toulouse", "Bordeaux",
+    "London", "Manchester", "Birmingham", "Liverpool", "Leeds", "Glasgow",
+    "Edinburgh", "Bristol", "Belfast", "Dublin", "Cardiff",
+    "Moscow", "Kyiv", "Kiev", "Minsk", "Tbilisi",
+    "Toronto", "Vancouver", "Montreal", "Ottawa", "Calgary",
+    "Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide", "Auckland",
+    "Wellington", "Mexico City", "Guadalajara", "Bogota", "Lima", "Santiago",
+    "Buenos Aires", "Montevideo", "Sao Paulo", "Rio de Janeiro", "Brasilia",
+]
+
 _REGEX_PATTERNS: dict[str, str] = {
     "EMAIL":       r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
     "IPV4":        r'\b(?:\d{1,3}\.){3}\d{1,3}\b',
     "CREDIT_CARD": r'\b(?:\d{4}[-\s]?){3}\d{4}\b',
     "API_KEY":     r'(?:api_key|secret|password|token|key)["\']?\s*[:=]\s*["\']?([a-zA-Z0-9_\-\.]{16,})["\']?',
     "GENERIC_KEY": r'\b[a-zA-Z0-9]{32,}\b',
+    # Longest-first so "New Delhi" wins over "Delhi".
+    "CITY":        r'\b(?:' + '|'.join(
+                       re.escape(c) for c in sorted(_CITY_GAZETTEER, key=len, reverse=True)
+                   ) + r')\b',
 }
+
 
 def _regex_redact(text: str) -> str:
     if not text:
@@ -63,6 +107,41 @@ _load_lock = threading.Lock()
 # Entity types the model returns that we want to redact.
 # The model uses IOB2 tags: B-LABEL / I-LABEL  (begin / inside)
 # Full label list: https://huggingface.co/ai4privacy/deberta-v3-base-pii
+# Confidence gate for a model-detected entity.
+#
+# This was 0.80, chosen as if false positives and false negatives cost the same.
+# They do not. A false negative ships real PII to a third-party provider and is
+# unrecoverable. A false positive replaces a word with a placeholder that
+# ScrubSession.rehydrate() puts back before the user ever sees it — so the user
+# pays almost nothing for over-redaction.
+#
+# Measured at 0.80 (see bench_scrubber.py): "London" scored 0.777, "California"
+# 0.757 — both just under the gate, both leaked verbatim. See the sweep in the
+# research log for the leak/over-redaction trade-off behind this value.
+_NER_MIN_SCORE = 0.40
+
+# Labels that fire on bare integers and therefore need a much higher bar.
+#
+# Over-redaction is NOT free, despite rehydration: the placeholder is restored
+# before the user sees the answer, but the cloud model reasons on the scrubbed
+# text. Redacting "exit code 137" to §CREDITCARDCVV§ hides the one token the
+# model needed, and it answers worse.
+#
+# Measured 2026-08-06 — the separation is clean:
+#   real  "my cvv is 921 / pin is 4432"     -> 0.99+
+#   spurious  "exit code 137"  CVV          -> 0.638
+#             "scale replicas to 12"  AGE   -> 0.564
+#             "exit code 255"  BUILDINGNUM  -> 0.859
+_NER_MIN_SCORE_BY_LABEL: dict[str, float] = {
+    "CREDITCARDCVV": 0.90,
+    "PIN": 0.90,
+    "AGE": 0.90,
+    "HEIGHT": 0.90,
+    "AMOUNT": 0.90,
+    "BUILDINGNUMBER": 0.90,
+    "MASKEDNUMBER": 0.90,
+}
+
 _REDACT_LABELS = {
     "ACCOUNTNAME", "ACCOUNTNUMBER", "AGE", "AMOUNT",
     "BIC", "BITCOINADDRESS", "BUILDINGNUMBER",
@@ -173,48 +252,30 @@ _CHUNK_SIZE = 1500
 
 
 def _model_redact(text: str) -> str:
-    """Run DeBERTa PII detection and replace detected spans with labels."""
+    """Run DeBERTa PII detection and replace detected spans with labels.
+
+    Delegates span-finding to _detect_spans() rather than walking the pipeline
+    output directly. That matters: the SentencePiece tokenizer splits one entity
+    into several subword tokens ("A"/"nike"/"th" are three FIRSTNAME tokens with
+    contiguous offsets), and transformers does not reliably merge them back —
+    aggregation_strategy="simple" returned them unmerged on 5.14.1. Replacing
+    each token separately emitted "[FIRSTNAME][FIRSTNAME][FIRSTNAME]", which not
+    only reads badly but leaks the subword-token count of the value being
+    hidden. _detect_spans() already coalesces contiguous same-label spans,
+    applies the regex backstop, trims whitespace and honours _NEVER_SCRUB.
+    """
     if not text:
         return text
 
-    # Process in chunks to stay within model token limits
-    chunks: list[str] = []
-    for i in range(0, len(text), _CHUNK_SIZE):
-        chunk = text[i : i + _CHUNK_SIZE]
-        try:
-            entities = _pipeline(chunk)  # type: ignore[misc]
-        except Exception as exc:
-            log.warning(f"PII model inference error: {exc}")
-            chunks.append(_regex_redact(chunk))
-            continue
+    spans = _detect_spans(text)
+    if not spans:
+        return text
 
-        # Build redacted chunk by replacing spans from right to left
-        # (so offsets stay valid as we shorten the string)
-        filtered = [
-            e for e in entities
-            if e.get("entity_group", "").upper() in _REDACT_LABELS
-            and e.get("score", 0) >= 0.80
-        ]
-        filtered.sort(key=lambda e: e["start"], reverse=True)
-
-        # Snapshot leading chars from the original string before any mutation
-        span_prefixes = {
-            ent["start"]: " " if chunk[ent["start"]:ent["start"]+1] == " " else ""
-            for ent in filtered
-        }
-        chunk_chars = list(chunk)
-        for ent in filtered:
-            label = ent["entity_group"].upper()
-            start, end = ent["start"], ent["end"]
-            prefix = span_prefixes[start]
-            chunk_chars[start:end] = list(f"{prefix}[{label}]")
-
-        chunks.append("".join(chunk_chars))
-
-    redacted = "".join(chunks)
-    # Also catch anything the model might have missed (API keys, generic hashes)
-    redacted = _regex_redact(redacted)
-    return redacted
+    # Replace right-to-left so earlier offsets stay valid as the string shortens.
+    chars = list(text)
+    for sp in sorted(spans, key=lambda s: s["start"], reverse=True):
+        chars[sp["start"]:sp["end"]] = list(f"[{sp['label']}]")
+    return "".join(chars)
 
 
 def redact_text(text: str) -> str:
@@ -318,7 +379,9 @@ def _detect_spans(text: str) -> list[dict]:
                 log.warning(f"PII model inference error: {exc}")
                 continue
             for e in entities:
-                if e.get("entity_group", "").upper() in _REDACT_LABELS and e.get("score", 0) >= 0.80:
+                label = e.get("entity_group", "").upper()
+                gate = _NER_MIN_SCORE_BY_LABEL.get(label, _NER_MIN_SCORE)
+                if label in _REDACT_LABELS and e.get("score", 0) >= gate:
                     s, en = i + e["start"], i + e["end"]
                     spans.append({"start": s, "end": en, "label": e["entity_group"].upper(), "text": text[s:en]})
 

@@ -17,7 +17,7 @@
     {
       "name": "live-website",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "-p", "5510", "C:/Users/aniketh/Projects/primnox_web"],
+      "runtimeArgs": ["serve", "-p", "5510", "../primnox_web"],
       "port": 5510
     }
   ]

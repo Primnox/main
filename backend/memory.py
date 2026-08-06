@@ -359,11 +359,11 @@ def compress_old_memories(compress_after_days: int = 7) -> int:
 if __name__ == "__main__":
     print("Current memories:", get_memory())
     add_memory("This is a test memory for SQLite.", "work")
-    add_memory("Aniketh prefers to use FTS5 for fast searches.", "personal")
+    add_memory("The user prefers FTS5 for fast searches.", "personal")
     print("After add:", list_memories())
     
     print("\n--- Search Results ---")
-    results = search_memories("Aniketh FTS5")
+    results = search_memories("FTS5 searches")
     for r in results:
         print(f"Match: {r['text']}")
         

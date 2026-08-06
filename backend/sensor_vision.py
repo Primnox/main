@@ -3,6 +3,7 @@ from PIL import ImageGrab, Image
 import base64
 import requests
 import os
+import sys
 import hashlib
 import io
 from system_prompts import VISION_PROMPT
@@ -13,15 +14,28 @@ log = get_logger("vision")
 # Spatial Engine - lazy loaded on demand
 spatial = None
 
-# Optional dependency for active window cropping
-try:
-    import win32gui
-    import win32ui
-    import win32con
-    HAS_WIN32 = True
-except ImportError:
-    HAS_WIN32 = False
-    log.warning("win32 libraries not found, active window cropping disabled.")
+# Optional dependencies for active window cropping — win32 on Windows, Quartz on
+# macOS. Neither is required; without them capture falls back to the full screen.
+PLATFORM = sys.platform  # 'win32', 'darwin', 'linux'
+
+HAS_WIN32 = False
+HAS_QUARTZ = False
+
+if PLATFORM == 'win32':
+    try:
+        import win32gui
+        import win32ui
+        import win32con
+        HAS_WIN32 = True
+    except ImportError:
+        log.warning("win32 libraries not found, active window cropping disabled.")
+elif PLATFORM == 'darwin':
+    try:
+        import Quartz
+        from AppKit import NSWorkspace
+        HAS_QUARTZ = True
+    except ImportError:
+        log.warning("pyobjc not found, active window cropping disabled.")
 
 # Global state for debouncing
 last_frame_hash = None
@@ -48,19 +62,113 @@ def get_api_key(provider):
 def get_groq_api_key():
     return get_api_key("groq")
 
-def get_active_window_rect():
-    """Returns the (left, top, right, bottom) rect of the active window."""
-    if not HAS_WIN32:
-        return None
+def _get_active_window_rect_win():
     try:
         hwnd = win32gui.GetForegroundWindow()
         if hwnd:
-            rect = win32gui.GetWindowRect(hwnd)
-            log.debug(f"Active window rect: {rect}")
-            return rect
+            return win32gui.GetWindowRect(hwnd)
     except Exception as e:
         log.error(f"Failed to get active window rect: {e}")
     return None
+
+
+# Windows narrower or shorter than this are helper/utility panels, not the
+# content the user is looking at.
+_MIN_WINDOW_EDGE = 50
+
+
+def _get_active_window_rect_mac():
+    """Frontmost window rect in screen *points* via CGWindowList."""
+    try:
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        if app is None:
+            return None
+        pid = int(app.processIdentifier())
+
+        windows = Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListOptionOnScreenOnly
+            | Quartz.kCGWindowListExcludeDesktopElements,
+            Quartz.kCGNullWindowID,
+        ) or []
+
+        # The list is ordered front-to-back, so the first window owned by the
+        # frontmost app that a user could actually see is the one to crop to.
+        # Apps routinely own extra layer-0 windows that must be skipped:
+        # fully transparent helpers, off-screen strips, and tiny utility panels.
+        for w in windows:
+            if w.get('kCGWindowOwnerPID') != pid:
+                continue
+            if w.get('kCGWindowLayer', 0) != 0:
+                continue
+            if float(w.get('kCGWindowAlpha', 1.0)) <= 0.0:
+                continue
+
+            bounds = w.get('kCGWindowBounds')
+            if not bounds:
+                continue
+
+            width = int(bounds['Width'])
+            height = int(bounds['Height'])
+            if width < _MIN_WINDOW_EDGE or height < _MIN_WINDOW_EDGE:
+                continue
+
+            left = int(bounds['X'])
+            top = int(bounds['Y'])
+            right = left + width
+            bottom = top + height
+
+            # Reject windows lying entirely outside the main display.
+            display = Quartz.CGDisplayBounds(Quartz.CGMainDisplayID())
+            if bottom <= 0 or right <= 0:
+                continue
+            if top >= display.size.height or left >= display.size.width:
+                continue
+
+            return (left, top, right, bottom)
+    except Exception as e:
+        log.error(f"Failed to get active window rect: {e}")
+    return None
+
+
+def _mac_backing_scale(img_width: int) -> float:
+    """Pixels-per-point of the captured image.
+
+    ImageGrab returns a pixel buffer (2x on Retina) while CGWindowList reports
+    bounds in logical points, so the rect must be scaled before cropping.
+    """
+    try:
+        display_width = Quartz.CGDisplayBounds(Quartz.CGMainDisplayID()).size.width
+        if display_width <= 0:
+            return 1.0
+        scale = img_width / float(display_width)
+        # Guard against multi-monitor grabs, where the captured width spans more
+        # than the main display and the ratio is meaningless. Only trust values
+        # near the real backing scales macOS uses.
+        for candidate in (1.0, 2.0, 3.0):
+            if abs(scale - candidate) < 0.05:
+                return candidate
+        log.debug(f"Unexpected capture/display ratio {scale:.3f}; skipping crop.")
+        return 0.0
+    except Exception:
+        return 1.0
+
+
+def get_active_window_rect():
+    """Returns the (left, top, right, bottom) rect of the active window.
+
+    Windows returns device pixels; macOS returns logical points and the caller
+    must scale by the backing factor before cropping a captured image.
+    """
+    if PLATFORM == 'win32' and HAS_WIN32:
+        rect = _get_active_window_rect_win()
+    elif PLATFORM == 'darwin' and HAS_QUARTZ:
+        rect = _get_active_window_rect_mac()
+    else:
+        return None
+
+    if rect:
+        log.debug(f"Active window rect: {rect}")
+    return rect
 
 def take_screenshot(crop_active=True, scale_to=1280):
     """
@@ -80,6 +188,19 @@ def take_screenshot(crop_active=True, scale_to=1280):
         if rect:
             l, t, r, b = rect
             w, h = img.size
+
+            # macOS reports the rect in logical points but the capture is in
+            # device pixels (2x on Retina), so convert before clamping. A scale
+            # of 0 means the ratio was unrecognised — skip cropping rather than
+            # crop the wrong region.
+            if PLATFORM == 'darwin':
+                scale = _mac_backing_scale(w)
+                if scale <= 0:
+                    rect = None
+                else:
+                    l, t, r, b = (int(v * scale) for v in (l, t, r, b))
+
+        if rect:
             # Clamp to valid image bounds
             l = max(0, l)
             t = max(0, t)

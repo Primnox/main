@@ -8,6 +8,28 @@ log = get_logger("uia")
 
 PLATFORM = sys.platform  # 'win32', 'darwin', 'linux'
 
+# Keywords that mark a UI element as reporting an error state. Shared by every
+# platform backend so error detection behaves identically across OSes.
+_ERROR_KEYWORDS = ("error", "exception", "expected", "failed", "syntaxerror")
+
+# Walk limits — kept identical across platforms so the payload shape and cost
+# of a scan does not change depending on which OS the user is on.
+_MAX_DEPTH = 4
+_MAX_TEXTS = 50
+
+
+def _empty_scan(window_title: str = "Unknown") -> dict:
+    return {
+        "window_title": window_title,
+        "focused_text": "",
+        "visible_texts": [],
+        "errors": [],
+    }
+
+
+def _find_errors(texts) -> list:
+    return [t for t in texts if any(kw in t.lower() for kw in _ERROR_KEYWORDS)]
+
 
 def _get_foreground_win():
     """Windows: returns (window_title, process_name) using win32 APIs."""
@@ -26,8 +48,12 @@ def _get_foreground_win():
         return "Unknown", "Unknown"
 
 
-def _get_foreground_mac():
-    """macOS: returns (window_title, process_name) via osascript."""
+def _get_foreground_mac_osascript():
+    """macOS fallback: returns (window_title, process_name) via osascript.
+
+    Slow (spawns a process, ~100-300ms) and itself requires Accessibility
+    permission for the window title. Only used when the AX path is unavailable.
+    """
     try:
         script = (
             'tell application "System Events"\n'
@@ -54,6 +80,33 @@ def _get_foreground_mac():
     except Exception as e:
         log.error(f"macOS foreground window failed: {e}")
         return "Unknown", "Unknown"
+
+
+def _get_foreground_mac():
+    """macOS: returns (window_title, process_name).
+
+    Uses NSWorkspace for the frontmost app (no subprocess, sub-millisecond) and
+    the Accessibility API for its focused window title. Falls back to osascript
+    if pyobjc is missing.
+    """
+    try:
+        from AppKit import NSWorkspace
+    except ImportError:
+        return _get_foreground_mac_osascript()
+
+    try:
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        if app is None:
+            return "Unknown", "Unknown"
+
+        proc_name = str(app.localizedName() or "Unknown")
+        pid = int(app.processIdentifier())
+
+        title = _ax_window_title_for_pid(pid)
+        return (title or proc_name), proc_name
+    except Exception as e:
+        log.error(f"macOS foreground window failed: {e}")
+        return _get_foreground_mac_osascript()
 
 
 def _get_foreground_linux():
@@ -83,6 +136,163 @@ def _get_foreground_linux():
         return "Unknown", "Unknown"
 
 
+# ————— macOS Accessibility (AX) ————————————————————————————————————————
+# Counterpart to the Windows UIAutomation walk below. Attribute names are passed
+# as plain strings rather than imported constants: they are defined as strings by
+# the framework and the constant symbols move between pyobjc releases.
+
+_AX_FOCUSED_UI_ELEMENT = "AXFocusedUIElement"
+_AX_FOCUSED_WINDOW = "AXFocusedWindow"
+_AX_CHILDREN = "AXChildren"
+_AX_TITLE = "AXTitle"
+_AX_VALUE = "AXValue"
+_AX_DESCRIPTION = "AXDescription"
+
+# Per-call ceiling for AX messaging. Without this an unresponsive app blocks the
+# calling thread indefinitely and takes the scan (and the feed loop) down with it.
+_AX_TIMEOUT_SECONDS = 0.5
+
+
+def mac_accessibility_trusted() -> bool:
+    """True if this process holds macOS Accessibility permission.
+
+    Without it every AX read returns an API-disabled error and the scan can only
+    report the window title. The user grants it in
+    System Settings -> Privacy & Security -> Accessibility.
+    """
+    try:
+        from ApplicationServices import AXIsProcessTrusted
+        return bool(AXIsProcessTrusted())
+    except Exception:
+        return False
+
+
+def _ax_get(element, attribute):
+    """Read one AX attribute. Returns the value, or None on any failure."""
+    try:
+        from ApplicationServices import AXUIElementCopyAttributeValue
+        err, value = AXUIElementCopyAttributeValue(element, attribute, None)
+        if err != 0:  # kAXErrorSuccess
+            return None
+        return value
+    except Exception:
+        return None
+
+
+def _ax_app_element(pid: int):
+    """AX element for an application, with a messaging timeout applied."""
+    from ApplicationServices import (
+        AXUIElementCreateApplication,
+        AXUIElementSetMessagingTimeout,
+    )
+    element = AXUIElementCreateApplication(pid)
+    try:
+        AXUIElementSetMessagingTimeout(element, _AX_TIMEOUT_SECONDS)
+    except Exception:
+        pass  # older pyobjc without the binding — proceed without a timeout
+    return element
+
+
+def _ax_window_title_for_pid(pid: int) -> str:
+    """Focused window title for a pid, or '' if unreadable."""
+    try:
+        app = _ax_app_element(pid)
+        window = _ax_get(app, _AX_FOCUSED_WINDOW)
+        if window is None:
+            return ""
+        title = _ax_get(window, _AX_TITLE)
+        return str(title) if title else ""
+    except Exception:
+        return ""
+
+
+def _ax_text_of(element) -> str:
+    """Best available human-readable text for an element."""
+    for attr in (_AX_TITLE, _AX_VALUE, _AX_DESCRIPTION):
+        value = _ax_get(element, attr)
+        # AXValue is frequently a number, a bool, or a nested AXUIElement —
+        # only plain strings are useful as visible text.
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _deep_ax_scan_mac(window_title_hint: str) -> dict:
+    """macOS: deep Accessibility element walk. Mirrors _deep_uia_scan_win."""
+    try:
+        from AppKit import NSWorkspace
+    except ImportError:
+        log.warning(
+            "pyobjc not installed — macOS element scan disabled. "
+            "Install pyobjc-framework-Cocoa and pyobjc-framework-ApplicationServices."
+        )
+        return _empty_scan(window_title_hint)
+
+    if not mac_accessibility_trusted():
+        log.warning(
+            "macOS Accessibility permission not granted — element scan disabled. "
+            "Grant it in System Settings -> Privacy & Security -> Accessibility."
+        )
+        return _empty_scan(window_title_hint)
+
+    try:
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        if app is None:
+            return _empty_scan(window_title_hint)
+
+        pid = int(app.processIdentifier())
+        app_element = _ax_app_element(pid)
+
+        window = _ax_get(app_element, _AX_FOCUSED_WINDOW)
+        root = window if window is not None else app_element
+
+        window_title = _ax_get(root, _AX_TITLE) if window is not None else None
+        window_title = str(window_title) if window_title else window_title_hint
+
+        # Text of the currently focused control, matching the Windows
+        # GetValuePattern().Value read.
+        focused_text = ""
+        focused = _ax_get(app_element, _AX_FOCUSED_UI_ELEMENT)
+        if focused is not None:
+            value = _ax_get(focused, _AX_VALUE)
+            if isinstance(value, str):
+                focused_text = value
+
+        visible_texts: list[str] = []
+
+        def walk(element, depth=0):
+            if depth > _MAX_DEPTH or len(visible_texts) >= _MAX_TEXTS:
+                return
+            children = _ax_get(element, _AX_CHILDREN)
+            if not children:
+                return
+            for child in children:
+                if len(visible_texts) >= _MAX_TEXTS:
+                    return
+                try:
+                    text = _ax_text_of(child)
+                    if len(text) > 1:
+                        visible_texts.append(text)
+                    walk(child, depth + 1)
+                except Exception:
+                    continue
+
+        walk(root)
+
+        unique_texts = list(set(visible_texts))[:_MAX_TEXTS]
+        errors_found = _find_errors(unique_texts)
+        log.info(f"AX scan complete: {len(unique_texts)} elements, {len(errors_found)} errors.")
+        return {
+            "window_title": window_title,
+            "focused_text": focused_text,
+            "visible_texts": unique_texts,
+            "errors": errors_found,
+        }
+    except Exception as e:
+        log.error(f"AX scan failed: {e}")
+        return {"error": str(e)}
+
+
 def _deep_uia_scan_win(window_title_hint: str) -> dict:
     """Windows-only: deep UIAutomation element walk for error detection."""
     try:
@@ -102,12 +312,7 @@ def _deep_uia_scan_win(window_title_hint: str) -> dict:
                     pass
 
             if not active:
-                return {
-                    "window_title": window_title_hint,
-                    "focused_text": "",
-                    "visible_texts": [],
-                    "errors": [],
-                }
+                return _empty_scan(window_title_hint)
 
             # Climb to the window root
             window_control = active
@@ -134,7 +339,7 @@ def _deep_uia_scan_win(window_title_hint: str) -> dict:
             errors_found: list[str] = []
 
             def walk(ctrl, depth=0):
-                if depth > 4 or len(visible_texts) >= 50:
+                if depth > _MAX_DEPTH or len(visible_texts) >= _MAX_TEXTS:
                     return
                 try:
                     children = ctrl.GetChildren()
@@ -147,7 +352,7 @@ def _deep_uia_scan_win(window_title_hint: str) -> dict:
                             s = name.strip()
                             if len(s) > 1:
                                 visible_texts.append(s)
-                                if any(kw in s.lower() for kw in ["error", "exception", "expected", "failed", "syntaxerror"]):
+                                if any(kw in s.lower() for kw in _ERROR_KEYWORDS):
                                     errors_found.append(s)
                         walk(c, depth + 1)
                     except Exception:
@@ -158,7 +363,7 @@ def _deep_uia_scan_win(window_title_hint: str) -> dict:
             return {
                 "window_title": window_title,
                 "focused_text": focused_text,
-                "visible_texts": list(set(visible_texts))[:50],
+                "visible_texts": list(set(visible_texts))[:_MAX_TEXTS],
                 "errors": list(set(errors_found)),
             }
         finally:
@@ -169,7 +374,11 @@ def _deep_uia_scan_win(window_title_hint: str) -> dict:
 
 
 def read_screen() -> dict:
-    """Return active window info. Deep UIA element walk on Windows only."""
+    """Return active window info, including a deep element walk where supported.
+
+    Windows uses UIAutomation, macOS uses the Accessibility API. Linux has no
+    element walk and returns the window title only.
+    """
     log.debug("Starting screen scan...")
 
     if PLATFORM == 'win32':
@@ -178,19 +387,15 @@ def read_screen() -> dict:
 
     elif PLATFORM == 'darwin':
         window_title, _ = _get_foreground_mac()
+        return _deep_ax_scan_mac(window_title)
 
-    else:  # linux
+    else:  # linux — no element walk available
         window_title, _ = _get_foreground_linux()
-
-    # Mac / Linux: no deep element walk — return basic window title only
-    return {
-        "window_title": window_title,
-        "focused_text": "",
-        "visible_texts": [],
-        "errors": [],
-    }
+        return _empty_scan(window_title)
 
 
 if __name__ == "__main__":
     import json
+    if PLATFORM == 'darwin':
+        print(f"Accessibility trusted: {mac_accessibility_trusted()}")
     print(json.dumps(read_screen(), indent=2))

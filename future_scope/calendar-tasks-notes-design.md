@@ -108,7 +108,7 @@ calendar items.
 ## Dashboard (on open)
 
 ```text
-Good Evening, Aniketh
+Good Evening, Alex
 Today — 📅 3 Events  📝 5 Tasks
 Next Event: Database Lab    Due Soon: AI Assignment    Suggested Focus: Primnox Testing
 ```

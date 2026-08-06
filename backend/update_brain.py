@@ -1,5 +1,11 @@
 import json
 import re
+from pathlib import Path
+
+# Resolve paths relative to this file. These were absolute paths on the
+# original author's Windows machine, which leaked a username and broke the
+# script for everyone else.
+_BACKEND_DIR = Path(__file__).resolve().parent
 
 new_think_stream = """
 def think_stream(prompt, context=None):
@@ -165,12 +171,12 @@ def think_stream(prompt, context=None):
         yield f"error thinking: {e}"
 """
 
-with open('C:/Users/aniketh/Projects/Primnox/backend/brain.py', 'r', encoding='utf-8') as f:
+with open(str(_BACKEND_DIR / "brain.py"), 'r', encoding='utf-8') as f:
     content = f.read()
 
 # Replace the old think_stream
 content = re.sub(r'def think_stream\(prompt, context=None\):.*?if __name__ == "__main__":', new_think_stream + '\nif __name__ == "__main__":', content, flags=re.DOTALL)
 
-with open('C:/Users/aniketh/Projects/Primnox/backend/brain.py', 'w', encoding='utf-8') as f:
+with open(str(_BACKEND_DIR / "brain.py"), 'w', encoding='utf-8') as f:
     f.write(content)
 print('Updated think_stream.')

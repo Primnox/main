@@ -1,6 +1,11 @@
+from pathlib import Path
+
+# Was an absolute path on the original author's Windows machine: it leaked a
+# username and the script could not run anywhere else.
+_FRONTEND_DIR = Path(__file__).resolve().parent
 import os
 
-file_path = 'C:/Users/aniketh/Projects/Primnox/frontend/src/app/components/CommandCenter.tsx'
+file_path = str(_FRONTEND_DIR / 'src/app/components/CommandCenter.tsx')
 
 with open(file_path, 'r', encoding='utf-8') as f:
     content = f.read()

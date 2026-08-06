@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Sparkles, Check, Brain, Shield, Eye, ShieldAlert,
   Loader2, Terminal, Compass, LayoutDashboard, MessageSquare, Cpu
 } from 'lucide-react';
 import { FlowLocal, FlowCloud } from './FlowDiagram';
+import { API_BASE } from '../../config';
 // Props are injected from App so we share the single WebSocket connection.
 interface OnboardingViewProps {
   onComplete: () => void;
@@ -27,7 +28,10 @@ export const OnboardingView = ({ onComplete, activity, updateSettings, settings,
     knowledge_areas: ['<Building Knowledge Graph>']
   });
   
-  const nextStep = () => setStep(prev => Math.min(prev + 1, totalSteps));
+  // Must be stable. As a fresh closure each render it changed identity on every
+  // render, and Step6Learning lists it as an effect dependency — so that effect
+  // tore down and re-ran continuously, restarting its scan and never advancing.
+  const nextStep = useCallback(() => setStep(prev => Math.min(prev + 1, totalSteps)), [totalSteps]);
   const skipSetup = () => {
     updateSettings({ ...settings, onboarding_completed: true });
     onComplete();
@@ -42,17 +46,17 @@ export const OnboardingView = ({ onComplete, activity, updateSettings, settings,
           <Terminal size={14} />
         </div>
         <div className="flex flex-col">
-          <span className="font-bold text-white tracking-tighter uppercase">Primnox</span>
+          <span className="font-bold text-on-surface tracking-tighter uppercase">Primnox</span>
           <span className="text-[8px] font-mono text-primary uppercase tracking-[0.2em]">Initialization</span>
         </div>
       </div>
       
       <div className="flex items-center gap-6">
         <div className="flex flex-col items-end text-right">
-          <span className="text-xs text-white/50 font-mono">Step {step} of {totalSteps}</span>
+          <span className="text-xs text-on-surface/50 font-mono">Step {step} of {totalSteps}</span>
           <span className="text-[10px] text-primary/70 font-mono">~{estimatedTime} Minutes Remaining</span>
         </div>
-        <button onClick={skipSetup} className="text-xs text-white/40 hover:text-white transition-all duration-300 ease-out active:scale-95">
+        <button onClick={skipSetup} className="text-xs text-on-surface/60 hover:text-on-surface transition-all duration-300 ease-out active:scale-95">
           Skip For Now
         </button>
       </div>
@@ -60,9 +64,9 @@ export const OnboardingView = ({ onComplete, activity, updateSettings, settings,
   );
 
   return (
-    <div className="h-full w-full text-white overflow-hidden relative flex flex-col items-center justify-center font-sans">
+    <div className="h-full w-full text-on-surface overflow-hidden relative flex flex-col items-center justify-center font-sans">
       {/* Background Ambience */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-black to-black opacity-50 z-0" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-surface to-surface opacity-50 z-0" />
       
       {renderStepIndicator()}
       
@@ -96,16 +100,16 @@ const Step1Welcome = ({ next, skip }: any) => (
     <div className="w-20 h-20 rounded-full border border-primary/30 flex items-center justify-center bg-primary/10 text-primary mx-auto mb-4 shadow-[0_0_30px_rgba(79,70,229,0.3)]">
       <Sparkles size={32} />
     </div>
-    <h1 className="font-bold lowercase italic tracking-wide text-4xl text-white">Welcome to Primnox</h1>
+    <h1 className="font-bold lowercase italic tracking-wide text-4xl text-on-surface">Welcome to Primnox</h1>
     <h2 className="font-bold lowercase italic tracking-wide text-xl text-primary font-mono uppercase">Your AI Operating Environment</h2>
-    <p className="text-white/50 max-w-lg mx-auto text-sm leading-relaxed mb-8">
+    <p className="text-on-surface/50 max-w-lg mx-auto text-sm leading-relaxed mb-8">
       An assistant that learns your projects, workflows, communication style, and preferences over time. Primnox is not being configured. Primnox is learning.
     </p>
     <div className="flex items-center justify-center gap-4">
-      <button onClick={next} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 shadow-[0_0_20px_rgba(255,255,255,0.2)] transition-all duration-300 ease-out active:scale-95">
+      <button onClick={next} className="px-8 py-3 bg-on-surface text-surface font-bold text-sm rounded-lg hover:bg-on-surface/90 shadow-[0_0_20px_rgba(255,255,255,0.2)] transition-all duration-300 ease-out active:scale-95">
         Begin Setup
       </button>
-      <button onClick={skip} className="px-8 py-3 bg-white/5 text-white/70 font-medium text-sm rounded-lg hover:bg-white/10 border border-white/10 transition-all duration-300 ease-out active:scale-95">
+      <button onClick={skip} className="px-8 py-3 bg-on-surface/5 text-on-surface/70 font-medium text-sm rounded-lg hover:bg-on-surface/10 border border-on-surface/10 transition-all duration-300 ease-out active:scale-95">
         Skip Setup
       </button>
     </div>
@@ -122,7 +126,7 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
   const [llamaModel, setLlamaModel] = useState('');
 
   useEffect(() => {
-    fetch('http://localhost:4009/api/ollama/status')
+    fetch(`${API_BASE}/api/ollama/status`)
       .then(r => r.json())
       .then(d => {
         setOllamaStatus(d);
@@ -153,7 +157,7 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-6">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Privacy Architecture</h2>
-        <p className="text-white/50 text-sm">Choose how Primnox thinks. You can change this any time in Settings.</p>
+        <p className="text-on-surface/50 text-sm">Choose how Primnox thinks. You can change this any time in Settings.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -164,42 +168,42 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
         >
           <Eye size={22} className="text-primary mb-3" />
           <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Cloud Assisted</h3>
-          <p className="text-[10px] text-white/50 leading-relaxed">Groq / OpenAI / Anthropic. Maximum speed.</p>
+          <p className="text-[10px] text-on-surface/50 leading-relaxed">Groq / OpenAI / Anthropic. Maximum speed.</p>
         </button>
 
         {/* Ollama */}
         <button
           onClick={() => setSelected(s => s === 'ollama' ? null : 'ollama')}
-          className={`${cardBase} ${selected === 'ollama' ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 hover:scale-[1.02]'}`}
+          className={`${cardBase} ${selected === 'ollama' ? 'border-success/60 bg-success/10' : 'border-success/20 bg-success/5 hover:bg-success/10 hover:scale-[1.02]'}`}
         >
           <div className={`absolute top-3 right-3 flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-mono ${
-            ollamaStatus === null ? 'bg-white/10 text-white/30' :
-            ollamaStatus.running ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-white/20'
+            ollamaStatus === null ? 'bg-on-surface/10 text-on-surface/55' :
+            ollamaStatus.running ? 'bg-success/20 text-success' : 'bg-on-surface/5 text-on-surface/48'
           }`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${ollamaStatus === null ? 'bg-white/20 animate-pulse' : ollamaStatus.running ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
+            <div className={`w-1.5 h-1.5 rounded-full ${ollamaStatus === null ? 'bg-on-surface/20 animate-pulse' : ollamaStatus.running ? 'bg-success/25 animate-pulse' : 'bg-on-surface/20'}`} />
             {ollamaStatus === null ? 'checking…' : ollamaStatus.running ? 'detected' : 'not running'}
           </div>
-          <ShieldAlert size={22} className="text-emerald-400 mb-3" />
+          <ShieldAlert size={22} className="text-success mb-3" />
           <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Ollama — Local</h3>
-          <p className="text-[10px] text-white/50 leading-relaxed">On-device via Ollama. No chat leaves your machine.</p>
+          <p className="text-[10px] text-on-surface/50 leading-relaxed">On-device via Ollama. No chat leaves your machine.</p>
         </button>
 
         {/* llama.cpp */}
         <button
           onClick={() => setSelected(s => s === 'llamacpp' ? null : 'llamacpp')}
-          className={`${cardBase} ${selected === 'llamacpp' ? 'border-violet-500/60 bg-violet-500/10' : 'border-violet-500/20 bg-violet-500/5 hover:bg-violet-500/10 hover:scale-[1.02]'}`}
+          className={`${cardBase} ${selected === 'llamacpp' ? 'border-primary/60 bg-primary/10' : 'border-primary/20 bg-primary/5 hover:bg-primary/10 hover:scale-[1.02]'}`}
         >
-          <Cpu size={22} className="text-violet-400 mb-3" />
+          <Cpu size={22} className="text-primary mb-3" />
           <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">llama.cpp — Local GGUF</h3>
-          <p className="text-[10px] text-white/50 leading-relaxed">Run any GGUF model via llama-server. Fully offline.</p>
+          <p className="text-[10px] text-on-surface/50 leading-relaxed">Run any GGUF model via llama-server. Fully offline.</p>
         </button>
 
         {/* Local Only — coming soon */}
-        <div className={`${cardBase} border-white/5 bg-white/5 opacity-40 cursor-not-allowed`}>
-          <span className="absolute top-3 right-3 text-[8px] font-mono text-white/30 bg-white/5 px-2 py-0.5 rounded-full uppercase tracking-widest">soon</span>
-          <Shield size={22} className="text-white/30 mb-3" />
+        <div className={`${cardBase} border-on-surface/5 bg-on-surface/5 opacity-40 cursor-not-allowed`}>
+          <span className="absolute top-3 right-3 text-[8px] font-mono text-on-surface/55 bg-on-surface/5 px-2 py-0.5 rounded-full uppercase tracking-widest">soon</span>
+          <Shield size={22} className="text-on-surface/55 mb-3" />
           <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Local Only</h3>
-          <p className="text-[10px] text-white/40 leading-relaxed">100% on-device, no server needed. Coming soon.</p>
+          <p className="text-[10px] text-on-surface/60 leading-relaxed">100% on-device, no server needed. Coming soon.</p>
         </div>
       </div>
 
@@ -207,40 +211,40 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
       <AnimatePresence>
         {selected === 'ollama' && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-            <div className="border border-emerald-500/20 bg-emerald-500/5 rounded-xl p-5 space-y-4">
-              <p className="font-mono text-[10px] text-emerald-400/70 uppercase tracking-widest font-bold">Ollama Config</p>
+            <div className="border border-success/20 bg-success/5 rounded-xl p-5 space-y-4">
+              <p className="font-mono text-[10px] text-success/70 uppercase tracking-widest font-bold">Ollama Config</p>
               {!ollamaStatus?.running && (
-                <p className="text-[10px] text-amber-400/80 font-mono">
-                  Run <span className="bg-white/5 px-1 rounded text-amber-300">ollama serve</span> then{' '}
-                  <span className="bg-white/5 px-1 rounded text-amber-300">ollama pull llama3.2</span> to get started.
+                <p className="text-[10px] text-warn/80 font-mono">
+                  Run <span className="bg-on-surface/5 px-1 rounded text-warn">ollama serve</span> then{' '}
+                  <span className="bg-on-surface/5 px-1 rounded text-warn">ollama pull llama3.2</span> to get started.
                 </p>
               )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Server URL</label>
+                  <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">Server URL</label>
                   <input value={ollamaUrl} onChange={e => setOllamaUrl(e.target.value)}
-                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80"
+                    className="w-full bg-surface/60 border border-on-surface/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-success/40 text-on-surface/80"
                     placeholder="http://localhost:11434" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Model</label>
+                  <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">Model</label>
                   {ollamaStatus?.running && ollamaStatus.models.length > 0 ? (
                     <select value={ollamaModel} onChange={e => setOllamaModel(e.target.value)}
-                      className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80 appearance-none">
+                      className="w-full bg-surface/60 border border-on-surface/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-success/40 text-on-surface/80 appearance-none">
                       {ollamaStatus.models.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
                   ) : (
                     <input value={ollamaModel} onChange={e => setOllamaModel(e.target.value)}
-                      className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-emerald-500/40 text-white/80"
+                      className="w-full bg-surface/60 border border-on-surface/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-success/40 text-on-surface/80"
                       placeholder="llama3.2" />
                   )}
                 </div>
               </div>
-              <div className="border-t border-emerald-500/10 pt-2">
-                <FlowLocal light />
+              <div className="border-t border-success/10 pt-2">
+                <FlowLocal />
               </div>
               <button onClick={confirmOllama}
-                className="w-full py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-400 rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
+                className="w-full py-2.5 bg-success/20 hover:bg-success/30 border border-success/30 text-success rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
                 Use Ollama → Continue
               </button>
             </div>
@@ -250,30 +254,30 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
         {/* llama.cpp config panel */}
         {selected === 'llamacpp' && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-            <div className="border border-violet-500/20 bg-violet-500/5 rounded-xl p-5 space-y-4">
-              <p className="font-mono text-[10px] text-violet-400/70 uppercase tracking-widest font-bold">llama.cpp Config</p>
-              <p className="text-[10px] text-amber-400/80 font-mono">
-                Start with: <span className="bg-white/5 px-1 rounded text-amber-300">./llama-server -m model.gguf --port 8080</span>
+            <div className="border border-primary/20 bg-primary/5 rounded-xl p-5 space-y-4">
+              <p className="font-mono text-[10px] text-primary/70 uppercase tracking-widest font-bold">llama.cpp Config</p>
+              <p className="text-[10px] text-warn/80 font-mono">
+                Start with: <span className="bg-on-surface/5 px-1 rounded text-warn">./llama-server -m model.gguf --port 8080</span>
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Server URL</label>
+                  <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">Server URL</label>
                   <input value={llamaUrl} onChange={e => setLlamaUrl(e.target.value)}
-                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-violet-500/40 text-white/80"
+                    className="w-full bg-surface/60 border border-on-surface/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-primary/40 text-on-surface/80"
                     placeholder="http://localhost:8080" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="font-mono text-[9px] text-white/30 uppercase tracking-widest">Model Name <span className="text-white/20">(optional)</span></label>
+                  <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">Model Name <span className="text-on-surface/48">(optional)</span></label>
                   <input value={llamaModel} onChange={e => setLlamaModel(e.target.value)}
-                    className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-violet-500/40 text-white/80"
+                    className="w-full bg-surface/60 border border-on-surface/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-primary/40 text-on-surface/80"
                     placeholder="leave blank for default" />
                 </div>
               </div>
-              <div className="border-t border-violet-500/10 pt-2">
-                <FlowLocal light />
+              <div className="border-t border-primary/10 pt-2">
+                <FlowLocal />
               </div>
               <button onClick={confirmLlamaCpp}
-                className="w-full py-2.5 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 text-violet-400 rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
+                className="w-full py-2.5 bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
                 Use llama.cpp → Continue
               </button>
             </div>
@@ -285,9 +289,9 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
             <div className="border border-primary/20 bg-primary/5 rounded-xl p-5 space-y-4">
               <p className="font-mono text-[10px] text-primary/60 uppercase tracking-widest font-bold">Cloud + Privacy Mirror</p>
-              <FlowCloud light />
-              <p className="text-[10px] text-white/30 font-mono">
-                Privacy Mirror is <span className="text-emerald-400">on by default</span> — your name, email, and phone are pseudonymised before leaving your machine. You can toggle it in Settings → Security.
+              <FlowCloud />
+              <p className="text-[10px] text-on-surface/55 font-mono">
+                Privacy Mirror is <span className="text-success">on by default</span> — your name, email, and phone are pseudonymised before leaving your machine. You can toggle it in Settings → Security.
               </p>
               <button onClick={confirmCloud}
                 className="w-full py-2.5 bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95">
@@ -330,18 +334,18 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">AI Provider Connect</h2>
         {isLocalMode ? (
-          <p className="text-white/50 text-sm">
+          <p className="text-on-surface/50 text-sm">
             You chose {localModelName} — no cloud key needed for chat. Optionally add a Groq key for voice transcription (Whisper).
           </p>
         ) : (
-          <p className="text-white/50 text-sm">
+          <p className="text-on-surface/50 text-sm">
             Add a Groq API key to get started. Free at <span className="text-primary">console.groq.com</span>. You can add OpenAI / Anthropic keys in Settings later.
           </p>
         )}
       </div>
-      <div className="p-6 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-4">
-        <label className="text-xs font-mono text-white/70 uppercase tracking-wider">
-          Groq API Key {isLocalMode && <span className="text-white/30">(optional — for transcription only)</span>}
+      <div className="p-6 rounded-xl border border-on-surface/10 bg-on-surface/5 flex flex-col gap-4">
+        <label className="text-xs font-mono text-on-surface/70 uppercase tracking-wider">
+          Groq API Key {isLocalMode && <span className="text-on-surface/55">(optional — for transcription only)</span>}
         </label>
         <div className="flex gap-2">
           <input
@@ -349,16 +353,16 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
             value={key}
             onChange={e => setKey(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && key) testKey(); }}
-            className="flex-1 bg-black/50 border border-white/10 rounded px-4 py-2 text-sm focus:border-primary/50 outline-none"
+            className="flex-1 bg-surface/50 border border-on-surface/10 rounded px-4 py-2 text-sm focus:border-primary/50 outline-none"
             placeholder="gsk_..."
           />
-          <button onClick={testKey} disabled={!key || status === 'testing'} className="px-6 bg-primary text-black text-sm font-bold rounded hover:bg-white disabled:opacity-50 min-w-[120px] transition-all duration-300 ease-out active:scale-95">
+          <button onClick={testKey} disabled={!key || status === 'testing'} className="px-6 bg-primary text-surface text-sm font-bold rounded hover:bg-on-surface disabled:opacity-50 min-w-[120px] transition-all duration-300 ease-out active:scale-95">
             {status === 'testing' ? <Loader2 size={16} className="animate-spin mx-auto" /> : status === 'success' ? '✓ Connected' : 'Test Key'}
           </button>
         </div>
-        {status === 'error' && <p className="text-red-400 text-xs">Invalid key or connection failed.</p>}
+        {status === 'error' && <p className="text-error text-xs">Invalid key or connection failed.</p>}
       </div>
-      <button onClick={next} className="text-sm text-white/30 hover:text-white/60 transition-colors text-center">
+      <button onClick={next} className="text-sm text-on-surface/55 hover:text-on-surface/60 transition-colors text-center">
         {isLocalMode ? `Skip — using ${localModelName} only →` : 'Skip for now — add in Settings later →'}
       </button>
     </motion.div>
@@ -377,17 +381,17 @@ const Step4Permissions = ({ next, updateSettings, settings }: any) => {
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Access Permissions</h2>
-        <p className="text-white/50 text-sm">Nothing is accessed without your explicit consent.</p>
+        <p className="text-on-surface/50 text-sm">Nothing is accessed without your explicit consent.</p>
       </div>
       <div className="grid grid-cols-2 gap-4">
         {['Documents', 'Downloads', 'Desktop', 'Projects', 'Notes', 'Browser Bookmarks', 'Browser History'].map(p => (
-          <label key={p} className="flex items-center gap-3 p-4 rounded-lg border border-white/5 bg-white/[0.02] cursor-pointer hover:bg-white/5 transition-all duration-300 ease-out active:scale-95">
+          <label key={p} className="flex items-center gap-3 p-4 rounded-lg border border-on-surface/5 bg-on-surface/[0.02] cursor-pointer hover:bg-on-surface/5 transition-all duration-300 ease-out active:scale-95">
             <input type="checkbox" checked={permissions.includes(p)} onChange={() => toggle(p)} className="accent-primary w-4 h-4" />
-            <span className="text-sm text-white/80">{p}</span>
+            <span className="text-sm text-on-surface/80">{p}</span>
           </label>
         ))}
       </div>
-      <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 self-end mt-4 transition-all duration-300 ease-out active:scale-95">
+      <button onClick={handleNext} className="px-8 py-3 bg-on-surface text-surface font-bold text-sm rounded-lg hover:bg-on-surface/90 self-end mt-4 transition-all duration-300 ease-out active:scale-95">
         Confirm Access
       </button>
     </motion.div>
@@ -406,7 +410,7 @@ const Step5Voice = ({ next, updateSettings, settings }: any) => {
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Voice & Communication</h2>
-        <p className="text-white/50 text-sm">How should Primnox listen and respond?</p>
+        <p className="text-on-surface/50 text-sm">How should Primnox listen and respond?</p>
       </div>
       
       <div className="space-y-4">
@@ -420,13 +424,13 @@ const Step5Voice = ({ next, updateSettings, settings }: any) => {
           ].map(m => (
             m.available ? (
               <button key={m.id} onClick={() => setInteractionMode(m.id)}
-                className={`flex-1 py-3 px-2 text-[10px] uppercase tracking-wider font-bold rounded border transition-all ${interactionMode === m.id ? 'bg-primary/20 border-primary text-white' : 'bg-transparent border-white/10 text-white/50 hover:bg-white/5'}`}>
+                className={`flex-1 py-3 px-2 text-[10px] uppercase tracking-wider font-bold rounded border transition-all ${interactionMode === m.id ? 'bg-primary/20 border-primary text-on-surface' : 'bg-transparent border-on-surface/10 text-on-surface/50 hover:bg-on-surface/5'}`}>
                 {m.label}
               </button>
             ) : (
-              <div key={m.id} className="flex-1 relative flex flex-col items-center justify-center py-3 px-2 rounded border border-white/5 bg-transparent opacity-35 cursor-not-allowed select-none">
-                <span className="text-[10px] uppercase tracking-wider font-bold text-white/40">{m.label}</span>
-                <span className="text-[7px] font-mono text-white/25 mt-0.5 uppercase tracking-widest">soon</span>
+              <div key={m.id} className="flex-1 relative flex flex-col items-center justify-center py-3 px-2 rounded border border-on-surface/5 bg-transparent opacity-35 cursor-not-allowed select-none">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-on-surface/60">{m.label}</span>
+                <span className="text-[7px] font-mono text-on-surface/52 mt-0.5 uppercase tracking-widest">soon</span>
               </div>
             )
           ))}
@@ -435,14 +439,14 @@ const Step5Voice = ({ next, updateSettings, settings }: any) => {
 
       <div className="space-y-4">
         <h3 className="font-bold lowercase italic tracking-wide text-xs font-mono text-primary uppercase">Communication Learning</h3>
-        <p className="text-[10px] text-white/40">Allow Primnox to learn your vocabulary, writing style, slang, and response preferences over time.</p>
+        <p className="text-[10px] text-on-surface/60">Allow Primnox to learn your vocabulary, writing style, slang, and response preferences over time.</p>
         <div className="flex items-center gap-3 p-4 rounded-lg border border-primary/30 bg-primary/5">
           <input type="checkbox" checked={adaptiveComm} onChange={e => setAdaptiveComm(e.target.checked)} className="accent-primary w-4 h-4" />
-          <span className="text-sm text-white/80">Enable Adaptive Communication</span>
+          <span className="text-sm text-on-surface/80">Enable Adaptive Communication</span>
         </div>
       </div>
 
-      <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 self-end mt-4 transition-all duration-300 ease-out active:scale-95">
+      <button onClick={handleNext} className="px-8 py-3 bg-on-surface text-surface font-bold text-sm rounded-lg hover:bg-on-surface/90 self-end mt-4 transition-all duration-300 ease-out active:scale-95">
         Next Step
       </button>
     </motion.div>
@@ -454,17 +458,41 @@ const Step6Learning = ({ next, activity, profile, scanEnvironment, setProfile }:
   const [stream, setStream] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Latest values without making them effect dependencies. `activity` ticks
+  // every few seconds and the interval below re-renders every 200ms, so any of
+  // these in the dependency array restarts the whole step — which is exactly
+  // what used to happen: the scan relaunched forever, progress sat at ~90%, and
+  // onboarding could never get past this screen.
+  const activityRef = useRef(activity);
+  activityRef.current = activity;
+  const nextRef = useRef(next);
+  nextRef.current = next;
+  const scanRef = useRef(scanEnvironment);
+  scanRef.current = scanEnvironment;
+  const setProfileRef = useRef(setProfile);
+  setProfileRef.current = setProfile;
+
   useEffect(() => {
     let p = 0;
     let isDone = false;
-    
+    let advanceTimer: ReturnType<typeof setTimeout>;
+
+    const finish = (line: string) => {
+      if (isDone) return;
+      isDone = true;
+      setProgress(100);
+      setStream(prev => [...prev, line].slice(-10));
+      advanceTimer = setTimeout(() => nextRef.current(), 1500);
+    };
+
     // Fake progress that slows down as it gets closer to 99%
     const interval = setInterval(() => {
       if (isDone) return;
       p += (99 - p) * 0.1;
       setProgress(Math.min(99, p));
-      
-      const randomAct = activity.length > 0 ? activity[Math.floor(Math.random() * activity.length)] : null;
+
+      const acts = activityRef.current || [];
+      const randomAct = acts.length > 0 ? acts[Math.floor(Math.random() * acts.length)] : null;
       let logMsg = "Scanning system environment...";
       if (randomAct) {
          const name = randomAct.window || randomAct.app || "System Process";
@@ -475,76 +503,75 @@ const Step6Learning = ({ next, activity, profile, scanEnvironment, setProfile }:
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }, 200);
 
-    // Run the actual backend scan
-    if (scanEnvironment) {
-      scanEnvironment()
+    // Backstop: this screen has no forward button, so if the scan never settles
+    // the user is trapped with no way out but abandoning setup. Always advance.
+    const failsafe = setTimeout(() => finish('> Scan timed out — continuing with defaults.'), 12000);
+
+    const scan = scanRef.current;
+    if (scan) {
+      scan()
         .then((data: any) => {
-          isDone = true;
-          setProgress(100);
           if (data && data.projects) {
-            setProfile(data);
-            setStream(prev => [...prev, '> Scan Complete: Real data acquired!'].slice(-10));
+            setProfileRef.current(data);
+            finish('> Scan Complete: Real data acquired!');
           } else {
-            setStream(prev => [...prev, '> Environment mapped.'].slice(-10));
+            finish('> Environment mapped.');
           }
-          setTimeout(next, 1500);
         })
-        .catch(() => {
-          // Backend unreachable — just move on with defaults
-          isDone = true;
-          setProgress(100);
-          setStream(prev => [...prev, '> Using default profile — configure later in Settings.'].slice(-10));
-          setTimeout(next, 1500);
-        });
+        .catch(() => finish('> Using default profile — configure later in Settings.'));
     } else {
-      // No scanner available — advance after a short delay
-      setTimeout(() => { isDone = true; setProgress(100); next(); }, 2000);
+      advanceTimer = setTimeout(() => finish('> Environment mapped.'), 2000);
     }
 
-    return () => clearInterval(interval);
-  }, [activity, next, scanEnvironment, setProfile]);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(failsafe);
+      clearTimeout(advanceTimer);
+    };
+    // Mount-only: every value it needs is read through a ref.
+  }, []);
 
   return (
     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} className="flex flex-col gap-8 h-[60vh]">
       <div className="text-center">
-        <h2 className="font-bold lowercase italic tracking-wide text-3xl mb-2 bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">Learning About You</h2>
-        <p className="text-white/50 text-sm">Primnox is mapping your digital environment.</p>
+        <h2 className="font-bold lowercase italic tracking-wide text-3xl mb-2 bg-gradient-to-r from-primary to-primary/25 bg-clip-text text-transparent">Learning About You</h2>
+        <p className="text-on-surface/50 text-sm">Primnox is mapping your digital environment.</p>
       </div>
 
       <div className="flex-1 grid grid-cols-2 gap-6 min-h-0">
-        <div className="flex flex-col border border-white/10 rounded-xl bg-black/50 overflow-hidden relative">
-          <div className="px-4 py-2 border-b border-white/10 bg-white/5 text-[10px] font-mono text-white/50 uppercase flex justify-between items-center">
+        <div className="flex flex-col border border-on-surface/10 rounded-xl bg-surface/50 overflow-hidden relative">
+          <div className="px-4 py-2 border-b border-on-surface/10 bg-on-surface/5 text-[10px] font-mono text-on-surface/50 uppercase flex justify-between items-center">
             <span>Real-Time Discovery Feed</span>
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-success/20 animate-pulse" />
           </div>
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-[10px]">
             {stream.map((log, i) => (
-              <div key={i} className="text-white/70 animate-fade-in flex gap-2">
+              <div key={i} className="text-on-surface/70 animate-fade-in flex gap-2">
                 <span className="text-primary/50">&gt;</span> {log}
               </div>
             ))}
           </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/5">
-            <div className="h-full bg-gradient-to-r from-primary to-purple-500 transition-all duration-200" style={{ width: `${progress}%` }} />
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-on-surface/5">
+            <div className="h-full bg-gradient-to-r from-primary to-primary/20 transition-all duration-200" style={{ width: `${progress}%` }} />
           </div>
         </div>
 
         <div className="flex flex-col gap-4">
-          <div className="border border-white/10 rounded-xl bg-white/5 p-4 flex-1">
-            <div className="text-[10px] font-mono text-white/50 uppercase mb-4 flex justify-between">
+          <div className="border border-on-surface/10 rounded-xl bg-on-surface/5 p-4 flex-1">
+            <div className="text-[10px] font-mono text-on-surface/50 uppercase mb-4 flex justify-between">
               <span>Understanding Confidence</span>
               <span className="text-primary">{Math.floor(progress * 0.91)}%</span>
             </div>
             
             <div className="space-y-4">
               <div>
-                <h4 className="text-xs text-white/40 mb-2">Projects Found</h4>
+                <h4 className="text-xs text-on-surface/60 mb-2">Projects Found</h4>
                 <div className="flex flex-wrap gap-2">
-                  {profile.projects.map((p: string) => <span key={p} className="px-2 py-1 bg-white/10 rounded text-xs">{p}</span>)}
+                  {profile.projects.map((p: string) => <span key={p} className="px-2 py-1 bg-on-surface/10 rounded text-xs">{p}</span>)}
                 </div>
               </div>
               <div>
-                <h4 className="text-xs text-white/40 mb-2">Topics & Skills</h4>
+                <h4 className="text-xs text-on-surface/60 mb-2">Topics & Skills</h4>
                 <div className="flex flex-wrap gap-2">
                   {[...profile.topics, ...profile.skills].map((t: string) => <span key={t} className="px-2 py-1 bg-primary/20 text-primary rounded text-xs">{t}</span>)}
                 </div>
@@ -572,7 +599,7 @@ const Step7UserModel = ({ next, updateSettings, settings, profile }: any) => {
         <div className="absolute inset-0 w-full h-full border-4 border-t-primary rounded-full animate-spin" />
       </div>
       <h2 className="font-bold lowercase italic tracking-wide text-2xl">Constructing User Model</h2>
-      <div className="flex gap-4 text-xs font-mono text-white/40">
+      <div className="flex gap-4 text-xs font-mono text-on-surface/60">
         <span className="animate-pulse">Interests</span>
         <span className="animate-pulse delay-75">Knowledge Areas</span>
         <span className="animate-pulse delay-150">Communication Style</span>
@@ -605,36 +632,36 @@ const Step8ProfileReview = ({ next, profile, setProfile }: any) => {
       <div className="flex items-start justify-between">
         <div>
           <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Profile Review</h2>
-          <p className="text-white/50 text-sm">Transparency is mandatory. Is this accurate?</p>
+          <p className="text-on-surface/50 text-sm">Transparency is mandatory. Is this accurate?</p>
         </div>
         {!editing && (
           <button onClick={() => { startEdit(); setEditing(true); }}
-            className="px-4 py-1.5 bg-white/5 text-white/50 font-bold text-xs rounded-lg hover:bg-white/10 border border-white/10 transition-all active:scale-95">
+            className="px-4 py-1.5 bg-on-surface/5 text-on-surface/50 font-bold text-xs rounded-lg hover:bg-on-surface/10 border border-on-surface/10 transition-all active:scale-95">
             Edit
           </button>
         )}
       </div>
 
-      <div className="border border-white/10 rounded-xl bg-white/5 p-6 space-y-6">
+      <div className="border border-on-surface/10 rounded-xl bg-on-surface/5 p-6 space-y-6">
         {!editing ? (
           <>
             <p className="font-mono text-primary text-sm uppercase tracking-wider">I think:</p>
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <h4 className="text-xs text-white/50 mb-2 uppercase">You enjoy:</h4>
-                <ul className="list-disc list-inside text-sm text-white/80 space-y-1">
+                <h4 className="text-xs text-on-surface/50 mb-2 uppercase">You enjoy:</h4>
+                <ul className="list-disc list-inside text-sm text-on-surface/80 space-y-1">
                   {profile.topics.map((t: string) => <li key={t}>{t}</li>)}
                 </ul>
               </div>
               <div>
-                <h4 className="text-xs text-white/50 mb-2 uppercase">You frequently work on:</h4>
-                <ul className="list-disc list-inside text-sm text-white/80 space-y-1">
+                <h4 className="text-xs text-on-surface/50 mb-2 uppercase">You frequently work on:</h4>
+                <ul className="list-disc list-inside text-sm text-on-surface/80 space-y-1">
                   {profile.projects.map((t: string) => <li key={t}>{t}</li>)}
                 </ul>
               </div>
-              <div className="col-span-2 border-t border-white/5 pt-4">
-                <h4 className="text-xs text-white/50 mb-2 uppercase">You appear to prefer:</h4>
-                <ul className="list-disc list-inside text-sm text-white/80 space-y-1">
+              <div className="col-span-2 border-t border-on-surface/5 pt-4">
+                <h4 className="text-xs text-on-surface/50 mb-2 uppercase">You appear to prefer:</h4>
+                <ul className="list-disc list-inside text-sm text-on-surface/80 space-y-1">
                   {profile.communication_style.map((t: string) => <li key={t}>{t}</li>)}
                 </ul>
               </div>
@@ -648,11 +675,11 @@ const Step8ProfileReview = ({ next, profile, setProfile }: any) => {
               { key: 'communication_style', label: 'Communication style' },
             ] as const).map(({ key, label }) => (
               <div key={key}>
-                <h4 className="text-xs text-white/50 mb-2 uppercase">{label}</h4>
+                <h4 className="text-xs text-on-surface/50 mb-2 uppercase">{label}</h4>
                 <div className="space-y-1.5">
                   {(draft[key] as string[]).map((val, i) => (
                     <input key={i} value={val} onChange={e => updateList(key, i, e.target.value)}
-                      className="w-full bg-black/60 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/80 outline-none focus:border-primary/40" />
+                      className="w-full bg-surface/60 border border-on-surface/10 rounded-lg px-3 py-1.5 text-sm text-on-surface/80 outline-none focus:border-primary/40" />
                   ))}
                 </div>
               </div>
@@ -665,17 +692,17 @@ const Step8ProfileReview = ({ next, profile, setProfile }: any) => {
         {editing ? (
           <>
             <button onClick={() => { setEditing(false); setDraft(null); }}
-              className="px-6 py-2 bg-white/5 text-white/50 font-bold text-sm rounded-lg hover:bg-white/10 border border-white/10 transition-all active:scale-95">
+              className="px-6 py-2 bg-on-surface/5 text-on-surface/50 font-bold text-sm rounded-lg hover:bg-on-surface/10 border border-on-surface/10 transition-all active:scale-95">
               Cancel
             </button>
             <button onClick={saveEdit}
-              className="px-8 py-2 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 transition-all active:scale-95">
+              className="px-8 py-2 bg-primary text-on-surface font-bold text-sm rounded-lg hover:bg-primary/90 transition-all active:scale-95">
               Save
             </button>
           </>
         ) : (
           <button onClick={next}
-            className="px-8 py-2 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">
+            className="px-8 py-2 bg-primary text-on-surface font-bold text-sm rounded-lg hover:bg-primary/90 shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">
             Looks Good
           </button>
         )}
@@ -694,7 +721,7 @@ const Step9Memory = ({ next, updateSettings, settings }: any) => {
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Memory Preferences</h2>
-        <p className="text-white/50 text-sm">How should Primnox retain context?</p>
+        <p className="text-on-surface/50 text-sm">How should Primnox retain context?</p>
       </div>
       
       <div className="grid grid-cols-1 gap-4">
@@ -703,12 +730,12 @@ const Step9Memory = ({ next, updateSettings, settings }: any) => {
           { id: 'ask', title: 'Ask Before Saving', desc: 'Primnox will prompt you before committing to long-term memory.' },
           { id: 'never', title: 'Never Remember', desc: 'Amnesia mode. Sessions are completely ephemeral.' }
         ].map(opt => (
-          <button key={opt.id} onClick={() => handleSelect(opt.id)} className="flex items-center gap-4 text-left p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 relative overflow-hidden transition-all duration-300 ease-out active:scale-95">
-            {opt.recommended && <div className="absolute top-0 right-0 bg-primary text-white text-[8px] font-bold uppercase px-2 py-1 rounded-bl">Recommended</div>}
-            <div className={`w-4 h-4 rounded-full border ${opt.recommended ? 'border-primary border-4' : 'border-white/30'}`} />
+          <button key={opt.id} onClick={() => handleSelect(opt.id)} className="flex items-center gap-4 text-left p-4 rounded-xl border border-on-surface/10 bg-on-surface/5 hover:bg-on-surface/10 relative overflow-hidden transition-all duration-300 ease-out active:scale-95">
+            {opt.recommended && <div className="absolute top-0 right-0 bg-primary text-on-surface text-[8px] font-bold uppercase px-2 py-1 rounded-bl">Recommended</div>}
+            <div className={`w-4 h-4 rounded-full border ${opt.recommended ? 'border-primary border-4' : 'border-on-surface/30'}`} />
             <div>
               <h3 className="font-bold lowercase italic tracking-wide text-sm">{opt.title}</h3>
-              <p className="text-[10px] text-white/50">{opt.desc}</p>
+              <p className="text-[10px] text-on-surface/50">{opt.desc}</p>
             </div>
           </button>
         ))}
@@ -732,19 +759,19 @@ const Step10Personalization = ({ next, updateSettings, settings }: any) => {
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Personalization Evolution</h2>
-        <p className="text-white/50 text-sm">The assistant should gradually adapt to you through actual usage patterns.</p>
+        <p className="text-on-surface/50 text-sm">The assistant should gradually adapt to you through actual usage patterns.</p>
       </div>
       
       <div className="grid grid-cols-2 gap-4">
         {defaultOptions.map(p => (
-          <label key={p} className="flex items-center gap-3 p-4 rounded-lg border border-white/5 bg-white/[0.02] cursor-pointer hover:bg-white/5 transition-all duration-300 ease-out active:scale-95">
+          <label key={p} className="flex items-center gap-3 p-4 rounded-lg border border-on-surface/5 bg-on-surface/[0.02] cursor-pointer hover:bg-on-surface/5 transition-all duration-300 ease-out active:scale-95">
             <input type="checkbox" checked={options.includes(p)} onChange={() => toggle(p)} className="accent-primary w-4 h-4" />
-            <span className="text-sm text-white/80">{p}</span>
+            <span className="text-sm text-on-surface/80">{p}</span>
           </label>
         ))}
       </div>
       
-      <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold text-sm rounded-lg hover:bg-white/90 self-end mt-4 transition-all duration-300 ease-out active:scale-95">
+      <button onClick={handleNext} className="px-8 py-3 bg-on-surface text-surface font-bold text-sm rounded-lg hover:bg-on-surface/90 self-end mt-4 transition-all duration-300 ease-out active:scale-95">
         Confirm Evolution Options
       </button>
     </motion.div>
@@ -781,21 +808,21 @@ const Step11Workspace = ({ next, updateSettings, settings, profile }: any) => {
     <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} className="flex flex-col gap-8">
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl mb-2">Workspace Creation</h2>
-        <p className="text-white/50 text-sm">
+        <p className="text-on-surface/50 text-sm">
           {seededFromProfile ? 'Seeded from your scanned projects — rename or add more.' : 'Name your workspaces. You can change these any time.'}
         </p>
       </div>
 
       <div className="space-y-3">
         {workspaces.map((ws, i) => (
-          <div key={i} className="flex items-center gap-3 p-4 rounded-xl border border-white/10 bg-white/5 group">
-            <LayoutDashboard size={18} className="text-white/30 shrink-0" />
+          <div key={i} className="flex items-center gap-3 p-4 rounded-xl border border-on-surface/10 bg-on-surface/5 group">
+            <LayoutDashboard size={18} className="text-on-surface/55 shrink-0" />
             <input type="text" value={ws} onChange={e => handleChange(i, e.target.value)}
-              className="bg-transparent border-none outline-none text-sm text-white/90 flex-1 placeholder-white/20"
+              className="bg-transparent border-none outline-none text-sm text-on-surface/90 flex-1 placeholder-on-surface/20"
               placeholder="Workspace name…" />
             {workspaces.length > 1 && (
               <button onClick={() => removeWorkspace(i)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-white/20 hover:text-red-400 text-xs font-mono px-1">
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-on-surface/48 hover:text-error text-xs font-mono px-1">
                 ✕
               </button>
             )}
@@ -803,13 +830,13 @@ const Step11Workspace = ({ next, updateSettings, settings, profile }: any) => {
         ))}
         {workspaces.length < 6 && (
           <button onClick={addWorkspace}
-            className="w-full py-3 rounded-xl border border-dashed border-white/10 text-white/20 hover:text-white/50 hover:border-white/20 text-xs font-mono uppercase tracking-widest transition-all">
+            className="w-full py-3 rounded-xl border border-dashed border-on-surface/10 text-on-surface/48 hover:text-on-surface/50 hover:border-on-surface/20 text-xs font-mono uppercase tracking-widest transition-all">
             + Add Workspace
           </button>
         )}
       </div>
 
-      <button onClick={handleNext} className="px-8 py-3 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary/90 self-end shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">
+      <button onClick={handleNext} className="px-8 py-3 bg-primary text-on-surface font-bold text-sm rounded-lg hover:bg-primary/90 self-end shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all duration-300 ease-out active:scale-95">
         Create Workspaces
       </button>
     </motion.div>
@@ -829,7 +856,7 @@ const Step12AssistantGen = ({ next }: any) => {
       </div>
       <div>
         <h2 className="font-bold lowercase italic tracking-wide text-2xl">Generating Assistant</h2>
-        <p className="text-white/40 text-sm mt-2">Compiling Knowledge Graph & Memory System...</p>
+        <p className="text-on-surface/60 text-sm mt-2">Compiling Knowledge Graph & Memory System...</p>
       </div>
     </motion.div>
   );
@@ -840,7 +867,7 @@ const Step13Completion = ({ onComplete, profile }: any) => {
   const role = profile?.role && profile.role !== 'Developer' ? profile.role : null;
   return (
   <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-8 text-center max-w-xl mx-auto py-10">
-    <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-4 border border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.2)]">
+    <div className="w-16 h-16 rounded-full bg-success/20 text-success flex items-center justify-center mx-auto mb-4 border border-success/50 shadow-[0_0_30px_rgba(16,185,129,0.2)]">
       <Check size={32} />
     </div>
 
@@ -849,12 +876,12 @@ const Step13Completion = ({ onComplete, profile }: any) => {
         {name ? `welcome, ${name}.` : 'Welcome.'}
       </h2>
       {role && <p className="text-primary/70 font-mono text-xs uppercase tracking-widest mb-3">{role}</p>}
-      <p className="text-white/60">Primnox has initialized your personalized environment.</p>
+      <p className="text-on-surface/60">Primnox has initialized your personalized environment.</p>
     </div>
     
-    <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-left space-y-4">
-      <p className="text-xs font-mono text-white/40 uppercase tracking-wider">Background Learning System Active</p>
-      <p className="text-sm text-white/70 leading-relaxed">
+    <div className="bg-on-surface/5 border border-on-surface/10 rounded-xl p-6 text-left space-y-4">
+      <p className="text-xs font-mono text-on-surface/60 uppercase tracking-wider">Background Learning System Active</p>
+      <p className="text-sm text-on-surface/70 leading-relaxed">
         Primnox will continue observing your notes, research, and conversations. Over time, it will naturally improve its knowledge graph, memory system, and communication matching without imitating you excessively.
       </p>
     </div>
@@ -864,7 +891,7 @@ const Step13Completion = ({ onComplete, profile }: any) => {
         <MessageSquare size={24} className="group-hover:scale-110 transition-transform" />
         <span className="font-bold text-sm">Open Chat</span>
       </button>
-      <button onClick={onComplete} className="p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white flex flex-col items-center gap-2 group transition-all duration-300 ease-out active:scale-95">
+      <button onClick={onComplete} className="p-4 rounded-xl border border-on-surface/10 bg-on-surface/5 hover:bg-on-surface/10 text-on-surface flex flex-col items-center gap-2 group transition-all duration-300 ease-out active:scale-95">
         <Compass size={24} className="group-hover:scale-110 transition-transform" />
         <span className="font-bold text-sm">Explore Workspace</span>
       </button>
