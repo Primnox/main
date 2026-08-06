@@ -22,13 +22,22 @@ pub struct PasteResult {
 
 impl PasteResult {
     pub fn changed() -> Self {
-        Self { ok: true, changed: Some(true) }
+        Self {
+            ok: true,
+            changed: Some(true),
+        }
     }
     pub fn unchanged() -> Self {
-        Self { ok: true, changed: Some(false) }
+        Self {
+            ok: true,
+            changed: Some(false),
+        }
     }
     pub fn failed() -> Self {
-        Self { ok: false, changed: None }
+        Self {
+            ok: false,
+            changed: None,
+        }
     }
 }
 

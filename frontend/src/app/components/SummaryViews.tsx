@@ -82,9 +82,21 @@ export const SummariesExpanded = memo(({
     }
   }, []);
 
-  // Exponential backoff: 30s → 60s → 120s → capped at 120s
+  // Fetch once on mount. Deliberately separate from the polling effect below:
+  // when the two were combined, a failed fetch incremented `dashFailCount`,
+  // which re-ran the effect, which called `fetchDash()` again immediately.
+  // With the backend unreachable a fetch rejects in microseconds, so that loop
+  // spun at ~500 requests/second for as long as the dashboard was open —
+  // measured at 5036 requests to /api/dashboard in 10s — pinning a CPU core
+  // and completely defeating the backoff below, whose interval was torn down
+  // and rebuilt before it could ever fire.
   useEffect(() => {
     fetchDash();
+  }, [fetchDash]);
+
+  // Exponential backoff: 30s → 60s → 120s → capped at 120s.
+  // Re-arms when the failure count changes, but never fetches on re-arm.
+  useEffect(() => {
     const delay = Math.min(120_000, 30_000 * Math.pow(2, Math.min(dashFailCount, 2)));
     const id = setInterval(fetchDash, delay);
     return () => clearInterval(id);

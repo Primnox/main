@@ -25,7 +25,9 @@ pub fn backend_exe_name() -> &'static str {
 
 /// Path to the bundled backend inside the app's resource directory.
 pub fn backend_path(resource_dir: &Path) -> PathBuf {
-    resource_dir.join("primnox_backend").join(backend_exe_name())
+    resource_dir
+        .join("primnox_backend")
+        .join(backend_exe_name())
 }
 
 /// Would we kill this process to reclaim the backend port?
@@ -77,11 +79,7 @@ pub fn free_port(port: u16) {
                 continue;
             };
             let info = String::from_utf8_lossy(&info.stdout);
-            let name = info
-                .split(',')
-                .next()
-                .unwrap_or("")
-                .replace('"', "");
+            let name = info.split(',').next().unwrap_or("").replace('"', "");
             if is_our_backend_process(&name) {
                 let _ = Command::new("taskkill")
                     .args(["/PID", &pid.to_string(), "/T", "/F"])

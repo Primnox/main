@@ -88,7 +88,9 @@ pub fn position_island(win: &WebviewWindow) {
 /// the pill removes the transparent margin, and with it the need to ignore
 /// anything.
 pub fn resize_island(app: &AppHandle, width: f64, height: f64) {
-    let Some(island) = island_window(app) else { return };
+    let Some(island) = island_window(app) else {
+        return;
+    };
     let (w, h) = crate::channels::clamp_island_size(width, height);
 
     let _ = island.set_size(tauri::LogicalSize::new(w as f64, h as f64));
@@ -191,7 +193,10 @@ mod tests {
     fn defaults_match_electron() {
         let s = AppState::new();
         assert!(!s.is_island_mode(), "app starts in full-window mode");
-        assert!(s.is_island_enabled(), "island defaults ON like electron.cjs");
+        assert!(
+            s.is_island_enabled(),
+            "island defaults ON like electron.cjs"
+        );
     }
 
     #[test]

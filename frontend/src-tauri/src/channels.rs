@@ -92,8 +92,16 @@ pub const ISLAND_MAX_H: u32 = 900;
 /// or pre-layout measurement can report 0 or an absurd value. Clamping here
 /// keeps a bad frame from resizing the window to something unusable.
 pub fn clamp_island_size(width: f64, height: f64) -> (u32, u32) {
-    let w = if width.is_finite() { width.round().max(0.0) as u32 } else { 0 };
-    let h = if height.is_finite() { height.round().max(0.0) as u32 } else { 0 };
+    let w = if width.is_finite() {
+        width.round().max(0.0) as u32
+    } else {
+        0
+    };
+    let h = if height.is_finite() {
+        height.round().max(0.0) as u32
+    } else {
+        0
+    };
     (
         w.clamp(ISLAND_MIN_W, ISLAND_MAX_W),
         h.clamp(ISLAND_MIN_H, ISLAND_MAX_H),
@@ -146,13 +154,19 @@ mod tests {
         // reports sub-pixel sizes mid-animation. Neither may shrink the window
         // to something the user cannot see or grab.
         assert_eq!(clamp_island_size(0.0, 0.0), (ISLAND_MIN_W, ISLAND_MIN_H));
-        assert_eq!(clamp_island_size(-500.0, -20.0), (ISLAND_MIN_W, ISLAND_MIN_H));
+        assert_eq!(
+            clamp_island_size(-500.0, -20.0),
+            (ISLAND_MIN_W, ISLAND_MIN_H)
+        );
         assert_eq!(clamp_island_size(3.0, 1.0), (ISLAND_MIN_W, ISLAND_MIN_H));
     }
 
     #[test]
     fn clamps_runaway_measurements_to_the_maximum() {
-        assert_eq!(clamp_island_size(99_999.0, 99_999.0), (ISLAND_MAX_W, ISLAND_MAX_H));
+        assert_eq!(
+            clamp_island_size(99_999.0, 99_999.0),
+            (ISLAND_MAX_W, ISLAND_MAX_H)
+        );
     }
 
     #[test]

@@ -2,8 +2,14 @@
    the site's request except JetBrains Mono 700, which the site does not load but
    87 call sites here render at font-bold; without it the browser fakes the bold.
    Urbanist was dropped: after the design-language pass nothing referenced it, so
-   it was a font download for glyphs that never rendered. */
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=JetBrains+Mono:wght@400;500;700&display=swap');
+   it was a font download for glyphs that never rendered.
+
+   Self-hosted rather than pulled from fonts.googleapis.com at runtime. The
+   remote @import contacted Google on every launch — IP, User-Agent and timing,
+   from an app whose whole premise is that nothing leaves the machine — and left
+   the UI rendering in fallback system fonts whenever the user was offline.
+   Regenerate public/fonts + fonts.css with: node scripts/vendor-fonts.mjs */
+@import './fonts.css';
 
 /* All colour tokens — including the --color-* ones Tailwind consumes — live in
    themes.css, generated from the live website palettes so the app and the

@@ -134,10 +134,7 @@ fn electron_send(app: AppHandle, channel: String, payload: Option<serde_json::Va
         "run-smart-paste" => run_smart_paste(&app),
 
         "island:set-enabled" => {
-            let enabled = payload
-                .as_ref()
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
+            let enabled = payload.as_ref().and_then(|v| v.as_bool()).unwrap_or(true);
             state.set_island_enabled(enabled);
         }
 
@@ -146,8 +143,12 @@ fn electron_send(app: AppHandle, channel: String, payload: Option<serde_json::Va
                 .as_ref()
                 .map(|v| {
                     (
-                        v.get("width").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
-                        v.get("height").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
+                        v.get("width")
+                            .and_then(serde_json::Value::as_f64)
+                            .unwrap_or(0.0),
+                        v.get("height")
+                            .and_then(serde_json::Value::as_f64)
+                            .unwrap_or(0.0),
                     )
                 })
                 .unwrap_or((0.0, 0.0));
@@ -155,10 +156,7 @@ fn electron_send(app: AppHandle, channel: String, payload: Option<serde_json::Va
         }
 
         "island:set-ignore-mouse" => {
-            let ignore = payload
-                .as_ref()
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
+            let ignore = payload.as_ref().and_then(|v| v.as_bool()).unwrap_or(true);
             if let Some(island) = island_window(&app) {
                 let _ = island.set_ignore_cursor_events(ignore);
             }
@@ -200,9 +198,11 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
 
     TrayIconBuilder::with_id("primnox-tray")
-        .icon(app.default_window_icon().cloned().ok_or_else(|| {
-            tauri::Error::AssetNotFound("default window icon".into())
-        })?)
+        .icon(
+            app.default_window_icon()
+                .cloned()
+                .ok_or_else(|| tauri::Error::AssetNotFound("default window icon".into()))?,
+        )
         .tooltip("Primnox — running in background")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -266,8 +266,7 @@ pub fn run() {
                 .expect("failed to register Ctrl+Shift+P")
                 .with_handler(move |app, shortcut, event| {
                     // Fire on key-down only; the handler also receives Released.
-                    if event.state() == ShortcutState::Pressed
-                        && shortcut == &smart_paste_shortcut
+                    if event.state() == ShortcutState::Pressed && shortcut == &smart_paste_shortcut
                     {
                         run_smart_paste(app);
                     }
