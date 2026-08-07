@@ -1,0 +1,52 @@
+name: Deploy Website
+
+# Mirrors website/ from this repo onto Primnox/primnox.github.io (the live
+# GitHub Pages site) whenever it changes on main. Also runnable by hand for a
+# one-off deploy without waiting on a website/ change to land.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout website source
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            website
+          sparse-checkout-cone-mode: false
+
+      # Uses RELEASE_TOKEN (the same PAT build-windows.yml already uses for
+      # cross-repo publishing) — it needs Contents:write on
+      # Primnox/primnox.github.io for the push step below to succeed.
+      - name: Checkout primnox.github.io
+        uses: actions/checkout@v4
+        with:
+          repository: Primnox/primnox.github.io
+          ref: master
+          token: ${{ secrets.RELEASE_TOKEN }}
+          path: site
+
+      - name: Sync website/ into the Pages repo
+        run: rsync -a --delete --exclude='.git' website/ site/
+
+      - name: Commit and push if changed
+        working-directory: site
+        run: |
+          git config user.name "primnox-bot"
+          git config user.email "actions@github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to deploy."
+            exit 0
+          fi
+          git commit -m "deploy: sync website/ from Primnox/main@${{ github.sha }}"
+          git push origin master
