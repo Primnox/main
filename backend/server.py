@@ -90,7 +90,25 @@ async def security_middleware(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173", "app://."],
+    # Origins the desktop shell can serve the UI from.
+    #
+    # Dev servers use the Vite ports. Packaged builds do NOT use http://localhost
+    # at all — each shell has its own custom scheme, and a missing entry here
+    # fails only in the packaged app while dev keeps working, which is the worst
+    # possible place for this list to be wrong:
+    #   Electron          app://.
+    #   Tauri (Linux/mac) tauri://localhost
+    #   Tauri (Windows)   http://tauri.localhost   (WebView2 maps the scheme to https-like URLs)
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "app://.",
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
