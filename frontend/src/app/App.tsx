@@ -76,6 +76,7 @@ export default function App() {
     createNewChat,
     islandError,
     clearIslandError,
+    privacyScrub,
     flowState,
     errorStreak,
     nowPlaying,
@@ -335,6 +336,7 @@ export default function App() {
             loadChat={loadChat}
             createNewChat={createNewChat}
             refreshChats={fetchChats}
+            privacyScrub={privacyScrub}
           />
         );
       case 'research_workspace':

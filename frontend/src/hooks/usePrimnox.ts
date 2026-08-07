@@ -40,6 +40,13 @@ export function usePrimnox() {
   
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [islandError, setIslandError] = useState<{ summary: string; fix: string; hover_text: string } | null>(null);
+  // What the Privacy Mirror pseudonymized before this exchange left the
+  // device — backend already computed and broadcast this (core.py's
+  // `privacy_scrub` event, fed by ScrubSession.mapping in privacy_mirror.py);
+  // nothing on the frontend was listening for it, so the diff never reached
+  // the UI. Cleared on each new send so a stale reveal doesn't linger under
+  // an unrelated later reply.
+  const [privacyScrub, setPrivacyScrub] = useState<{ mapping: { original: string; placeholder: string; label: string }[]; model: string } | null>(null);
 
   // ── Island ambient features ────────────────────────────────────────────
   const [flowState, setFlowState] = useState<{ duration_minutes: number; started_at: number; app: string } | null>(null);
@@ -74,7 +81,15 @@ export function usePrimnox() {
   const parallelTaskTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const proactiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const triggerIslandError = useCallback(async (errorMessage: string, context?: string) => {
+  const triggerIslandError = useCallback(async (errorMessage: string, context?: string, preFilled?: { summary?: string; fix?: string }) => {
+    // Stage 1 triage on the backend now returns summary/fix in the same call
+    // that detects the error (see feed_manager.py's _stage1_uai_triage) —
+    // when it did, use that directly instead of firing a THIRD LLM call
+    // (/api/error_explain) for information we already have.
+    if (preFilled?.summary && preFilled?.fix) {
+      setIslandError({ summary: preFilled.summary, fix: preFilled.fix, hover_text: 'click to copy the fix' });
+      return;
+    }
     try {
       const resp = await fetch(`${API_BASE_URL}/api/error_explain`, {
         method: 'POST',
@@ -243,6 +258,9 @@ export function usePrimnox() {
             });
           }
         }
+        else if (type === 'privacy_scrub') {
+          if (payload?.mapping?.length) setPrivacyScrub(payload);
+        }
         else if (type === 'state') {
           setState(payload.value);
           if ((window as any).electron) {
@@ -272,8 +290,10 @@ export function usePrimnox() {
         }
         else if (type === 'task_added') { fetchTasks(); }
         else if (type === 'memory_updated') {
-          // Show a subtle toast so the user knows something was remembered
-          if (payload?.text) addToast('info', `remembered: ${payload.text.slice(0, 60)}`);
+          // Memory is deliberately silent — no toast. Announcing every stored
+          // fact made the app feel like it was watching over your shoulder;
+          // what was remembered is always inspectable in the Memory view.
+          fetchMemory();
         }
         else if (type === 'daily_debrief') {
           const briefText = payload?.debrief || 'Daily brief generated.';
@@ -346,9 +366,9 @@ export function usePrimnox() {
           const name = payload?.skill || 'skill';
           addToast('success', `${name} — file ready`);
         }
-        else if (type === 'skill_unavailable') addToast('error', 'Skill unavailable');
-        else if (type === 'fallback_triggered') addToast('warning', 'Fallback triggered');
-        else if (type === 'rate_limit_hit') addToast('warning', 'Rate limit hit');
+        else if (type === 'skill_unavailable') addToast('error', "can't do that one yet");
+        else if (type === 'fallback_triggered') addToast('warning', 'main model bailed — using backup');
+        else if (type === 'rate_limit_hit') addToast('warning', 'rate limited, give it a sec');
         else if (type === 'startup_complete') setStartupComplete(true);
         else if (type === 'proactive_message') {
           // Show in Dynamic Island only — do NOT pollute the chat history
@@ -400,15 +420,15 @@ export function usePrimnox() {
           const screen = payload?.screen;
           if (screen) window.dispatchEvent(new CustomEvent('primnox:navigate', { detail: { screen } }));
         }
-        else if (type === 'backup_complete') addToast('success', 'Backup complete');
-        else if (type === 'backup_failed') addToast('error', 'Backup failed');
+        else if (type === 'backup_complete') addToast('success', 'backed up, encrypted');
+        else if (type === 'backup_failed') addToast('error', "backup didn't go through");
         else if (type === 'emotion_updated') {
           if (payload?.mood) addToast('info', `vibe detected: ${payload.mood.toLowerCase()}`);
         }
         else if (type === 'profile_updated') {
           addToast('info', 'profile updated from recent activity');
         }
-        else if (type === 'error_island') triggerIslandError(payload?.error_message || 'unknown error', payload?.context);
+        else if (type === 'error_island') triggerIslandError(payload?.error_message || 'unknown error', payload?.context, { summary: payload?.summary, fix: payload?.fix });
         // ── Ambient island features ──────────────────────────────────────
         else if (type === 'flow_state') setFlowState(payload);
         else if (type === 'flow_broken') setFlowState(null);
@@ -463,6 +483,7 @@ export function usePrimnox() {
   }, [addToast, triggerIslandError]);
 
   const sendMessage = useCallback(async (text: string, sessionId: string = 'current', files?: File[] | null) => {
+    setPrivacyScrub(null);
     if (files && files.length > 0) {
       // Upload files via multipart FormData so the backend receives actual bytes
       const formData = new FormData();
@@ -607,7 +628,7 @@ export function usePrimnox() {
     const resp = await fetch(`${API_BASE_URL}/notes/export`, { method: 'POST' });
     const data = await resp.json();
     if (data.success) {
-      addToast('success', 'Notes exported to Documents/Primnox');
+      addToast('success', 'exported to Documents/Primnox');
     } else {
       addToast('error', 'Export failed');
     }
@@ -664,6 +685,7 @@ export function usePrimnox() {
     activity, meetings, debriefs, transcripts, currentTranscript, lastAttachedFile, incognito, settings,
     toasts, connectionLost, reconnectAttempt, maxAttempts, startupComplete,
     islandError, triggerIslandError, clearIslandError,
+    privacyScrub,
     flowState, errorStreak, nowPlaying, productivityScore, parallelTasks, proactiveAlert, dismissProactiveAlert,
     islandSkills,
     triggerSmartPaste, triggerMediaControl,

@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.2.0-beta (2026-08-07)
+
+### 🏝️ Dynamic Island
+- Fixed the island overlapping page headers when it's visible — the header now yields a `mt-24` when the island is on screen instead of sitting under it.
+- Fixed the island's own window never picking up theme changes made in Settings: it renders in a separate window that never mounts `useTheme()`, so the cross-window `storage` sync now runs unconditionally from `main.tsx` (`installThemeSync()`) instead of only inside the hook.
+
+### 🧠 Memory
+- Fixed unscoped dedup (`add_memory` compared against the last 50 memories regardless of category) — now scoped per-category.
+- Added real staleness: `mark_stale_memories()` flags memories older than 30 days, run from the existing cleanup pass; `list_memories()` filters them in SQL instead of recomputing age on every read.
+- Removed a dead `extract_memories_from_text()` function.
+- `memory_updated` no longer pops a toast — memory now updates silently in the background, matching the "stays local, out of your way" personality.
+
+### 🔍 Project-Aware Error Detection
+- New `project_context.py`: resolves the actual project (path, git branch/status, stack, key files) behind whatever IDE window is focused, entirely locally — no LLM calls.
+- Error-detection prompts are now scoped to that project instead of flagging unrelated errors from other open windows.
+- Fixed an unbounded directory walk that could hang the feed thread when scanning a candidate project folder with no matching file.
+- Fixed `resolve_project()` guessing the IDE's own install directory as "the project" when no workspace was confirmed — it now correctly returns nothing rather than a wrong guess.
+- Two-stage detection is now gated on model confidence and deduplicated by a fingerprint of the error text, so the same recurring error doesn't re-trigger a vision call every poll.
+
+### 🩹 Logging
+- Fixed duplicate log entries: `RotatingFileHandler` calls a formatter's `format()` twice per record (once to check rollover size, once to write), and the old `JsonFormatter` had a side effect in `format()` that ran both times. The side effect now lives in a dedicated `BufferHandler.emit()`, called exactly once per record.
+
+### 🛡️ Privacy
+- Added a scrub indicator to chat: a "N scrubbed" pill next to the send hint, expandable to show each original → placeholder pair for the current cloud message. The data was already flowing over the `privacy_scrub` event — this just surfaces it.
+
+### 📋 Smart Paste
+- Now tries a local model (`qwen2.5:0.5b` via Ollama) first, falling back to the cloud model only if Ollama isn't reachable. Backed by a circuit breaker on `think_local()` so a dead local endpoint doesn't add a timeout to every paste for 30 seconds after the first failure.
+
+### 🎨 Copy & Personality
+- Reworded empty states and toasts across chat, notes, and memory to match Primnox's voice instead of generic app copy ("Right, what are we doing?", "Nothing here yet", "can't do that one yet", "backed up, encrypted").
+- Dashboard stat tiles trimmed from a 4-tile Tasks/Notes/Memories/Skills grid down to a single Tasks/Notes row.
+
 ## v0.1.1 (2026-07-01)
 
 ### 🔒 Privacy Mirror — Reversible PII Scrubbing

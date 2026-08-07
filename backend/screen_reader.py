@@ -1,4 +1,6 @@
 # backend/screen_reader.py
+import hashlib
+import re
 import sys
 import subprocess
 import psutil
@@ -12,6 +14,27 @@ PLATFORM = sys.platform  # 'win32', 'darwin', 'linux'
 # platform backend so error detection behaves identically across OSes.
 _ERROR_KEYWORDS = ("error", "exception", "expected", "failed", "syntaxerror")
 
+# Shapes that only occur in real compiler/runtime/test output — a hit here is
+# trusted regardless of length or keyword overlap.
+_CODE_ERROR_PATTERNS = [re.compile(p) for p in (
+    r'[\w./\\-]+\.\w+:\d+(:\d+)?',           # file.ext:line[:col]
+    r'Traceback \(most recent call last\)',
+    r'^\s*at .+\(.+:\d+',                     # JS/TS stack frame
+    r'line \d+, in \w+',                      # Python traceback frame
+    r'TS\d{4}:',                               # TypeScript diagnostic code
+    r'error\[E\d+\]',                          # Rust
+    r'^\s*\w*(Error|Exception):',              # NameError:, TypeError:, etc.
+    r'\d+ (failed|failing)',                   # test-runner summaries
+)]
+
+# Keyword hits that are noise, not a code error — a browser/app message, not
+# something the user can fix in their editor. Checked before falling back to
+# the bare keyword list.
+_NOISE_PATTERNS = [re.compile(p, re.IGNORECASE) for p in (
+    r'\b404\b', r'ERR_INTERNET_DISCONNECTED', r'\bDNS\b', r'\boffline\b',
+    r'deprecat', r'^warning:', r'no internet', r'connection lost',
+)]
+
 # Walk limits — kept identical across platforms so the payload shape and cost
 # of a scan does not change depending on which OS the user is on.
 _MAX_DEPTH = 4
@@ -24,11 +47,55 @@ def _empty_scan(window_title: str = "Unknown") -> dict:
         "focused_text": "",
         "visible_texts": [],
         "errors": [],
+        "error_records": [],
     }
 
 
+def _is_code_error(text: str) -> bool:
+    """Shared predicate for both the Windows UIA walk and the mac AX walk —
+    they used to diverge (Windows checked keywords inline, mac called
+    _find_errors), so the same on-screen text could count as an error on one
+    OS and not the other. A hit on a real error *shape* (file:line, a
+    traceback, a compiler diagnostic code) is trusted outright; a bare
+    keyword hit ("failed", "error"...) only counts if it's not noise and
+    isn't so short/long that it's obviously not an error message."""
+    if any(p.search(text) for p in _CODE_ERROR_PATTERNS):
+        return True
+    lower = text.lower()
+    if not any(kw in lower for kw in _ERROR_KEYWORDS):
+        return False
+    if any(p.search(text) for p in _NOISE_PATTERNS):
+        return False
+    return 12 <= len(text) <= 400
+
+
+# Fingerprint normalization — collapses "the same error at a different line
+# number/timestamp/id" down to one identity so error-streak tracking and
+# proactive alerts don't re-fire on every superficial variation.
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+_HEX_ID_RE = re.compile(r'\b(0x)?[0-9a-fA-F]{8,}\b')
+_DIGIT_RE = re.compile(r'\d+')
+_PATH_RE = re.compile(r'(?:[A-Za-z]:)?[/\\]?(?:[\w.\-]+[/\\])+([\w.\-]+)')
+_WS_RE = re.compile(r'\s+')
+
+
+def fingerprint(text: str) -> str:
+    s = _ANSI_RE.sub('', text)
+    s = _PATH_RE.sub(r'\1', s)       # absolute paths -> basename
+    s = _HEX_ID_RE.sub('<id>', s)    # hex/uuid-ish tokens -> placeholder
+    s = _DIGIT_RE.sub('#', s)        # remaining digits (line numbers, pids) -> #
+    s = _WS_RE.sub(' ', s).strip().lower()
+    return hashlib.sha1(s.encode('utf-8', errors='ignore')).hexdigest()[:12]
+
+
 def _find_errors(texts) -> list:
-    return [t for t in texts if any(kw in t.lower() for kw in _ERROR_KEYWORDS)]
+    return [t for t in texts if _is_code_error(t)]
+
+
+def _error_records(texts) -> list:
+    """Same filter as _find_errors, but returns {text, fingerprint} records
+    for callers that want stable error identity (see feed_manager.py)."""
+    return [{"text": t, "fingerprint": fingerprint(t)} for t in texts if _is_code_error(t)]
 
 
 def _get_foreground_win():
@@ -287,6 +354,7 @@ def _deep_ax_scan_mac(window_title_hint: str) -> dict:
             "focused_text": focused_text,
             "visible_texts": unique_texts,
             "errors": errors_found,
+            "error_records": _error_records(unique_texts),
         }
     except Exception as e:
         log.error(f"AX scan failed: {e}")
@@ -352,19 +420,26 @@ def _deep_uia_scan_win(window_title_hint: str) -> dict:
                             s = name.strip()
                             if len(s) > 1:
                                 visible_texts.append(s)
-                                if any(kw in s.lower() for kw in _ERROR_KEYWORDS):
+                                # Shared with the mac AX walk via _is_code_error —
+                                # this used to be a bare keyword check duplicated
+                                # inline here, which let the two platforms flag
+                                # different things as "an error" for identical
+                                # on-screen text.
+                                if _is_code_error(s):
                                     errors_found.append(s)
                         walk(c, depth + 1)
                     except Exception:
                         continue
 
             walk(window_control)
-            log.info(f"UIA scan complete: {len(visible_texts)} elements, {len(errors_found)} errors.")
+            unique_errors = list(set(errors_found))
+            log.info(f"UIA scan complete: {len(visible_texts)} elements, {len(unique_errors)} errors.")
             return {
                 "window_title": window_title,
                 "focused_text": focused_text,
                 "visible_texts": list(set(visible_texts))[:_MAX_TEXTS],
-                "errors": list(set(errors_found)),
+                "errors": unique_errors,
+                "error_records": [{"text": t, "fingerprint": fingerprint(t)} for t in unique_errors],
             }
         finally:
             pythoncom.CoUninitialize()

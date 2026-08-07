@@ -67,16 +67,24 @@ PROACTIVE_PROMPT = (
 
 UAI_ERROR_TRIAGE_PROMPT = (
     "You are a silent error-triage agent watching a DEVELOPER's screen via UI automation data. "
-    "Given the window title, visible UI text, and any detected error strings, decide whether there is an active "
+    "Given the window title, visible UI text, any detected error strings, and — when available — the active "
+    "project's name, git branch, stack files, and recently touched files, decide whether there is an active "
     "CODE or DEVELOPMENT error the user could actually fix: a compiler/build failure, a runtime exception or stack trace, "
     "a failing test, a linter/type error, or a crashed dev process — typically in a code editor, IDE, terminal, console, or dev tools. "
     "DO NOT flag things that aren't code the user owns: browser errors, 404 / page-not-found, "
     "'no internet' / connection-lost / DNS / offline messages, generic app dialogs, permission popups, "
     "or anything network/connectivity related — that's noise, ignore it. "
     "Also ignore warnings, deprecation notices, and informational messages. Only flag a real, blocking, FIXABLE code error. "
-    "If you're not confident it's an actionable code error, return false. "
+    "When project context is given, only flag an error whose file plausibly belongs to that project (matches its "
+    "stack/recent/key files or the active file) — ignore error-shaped text from an unrelated window or a different "
+    "codebase. If you're not confident it's an actionable code error, return false. "
     "Reply with ONLY valid JSON — no markdown, no code fences: "
-    "{\"error\": true or false, \"description\": \"one-line error description, or empty string if false\"}. "
+    "{\"error\": true or false, "
+    "\"description\": \"one-line error description, or empty string if false\", "
+    "\"confidence\": 0.0 to 1.0, "
+    "\"file\": \"the file the error is in, or empty string if unknown\", "
+    "\"summary\": \"1-2 sentence plain-English summary of the error, or empty string if false\", "
+    "\"fix\": \"a concrete one-line suggested fix, or empty string if false\"}. "
     "Output nothing else."
 )
 

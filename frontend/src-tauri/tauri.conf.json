@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Primnox",
+  "version": "1.2.0-beta",
+  "identifier": "com.primnox.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Primnox",
+        "width": 1200,
+        "height": 800,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "visible": true,
+        "skipTaskbar": false,
+        "dragDropEnabled": false
+      },
+      {
+        "label": "island",
+        "url": "index.html?primnox_island=1",
+        "title": "Primnox Island",
+        "width": 900,
+        "height": 220,
+        "x": 510,
+        "y": 0,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "focus": false,
+        "visible": false,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "appimage", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Productivity",
+    "shortDescription": "Personal AI operating environment",
+    "longDescription": "Primnox is a desktop-native AI assistant that runs entirely on your machine."
+  }
+}

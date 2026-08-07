@@ -308,10 +308,14 @@ export const Layout = ({
               {!isZenMode && (
                 // Background was a hardcoded bg-surface that survived the token
                 // migration — now the themed nav surface.
-                <header className="h-20 border-b border-on-surface/5 flex items-center px-12 justify-between backdrop-blur-2xl relative z-30"
+                <header className={`h-20 border-b border-on-surface/5 flex items-center px-12 justify-between backdrop-blur-2xl relative z-30 ${isIslandVisible ? 'mt-24' : ''}`}
                         style={{ background: 'var(--nav-bg)' }}>
                   {/* Page header in the site's idiom: a mono section index above
-                      big uppercase Syne, replacing the lowercase italic. */}
+                      big uppercase Syne, replacing the lowercase italic.
+                      The Dynamic Island renders position:fixed above everything
+                      (see DynamicIsland.tsx) so it never pushes layout on its
+                      own — without this top margin it floats directly over the
+                      header title and clips it. */}
                   <div className="flex flex-col text-left gap-1">
                     {subtitle && <span className="px-eyebrow">{subtitle}</span>}
                     <h2 className="px-display px-display-sm text-on-surface">{title}</h2>

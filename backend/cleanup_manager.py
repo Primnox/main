@@ -147,6 +147,16 @@ def compress_memories_pass() -> int:
         return 0
 
 
+def mark_stale_memories_pass(memory_days: int) -> int:
+    """Flag memories past the retention cutoff as stale (read-hidden, not deleted)."""
+    try:
+        from memory import mark_stale_memories
+        return mark_stale_memories(stale_after_days=memory_days)
+    except Exception as e:
+        log.warning(f"Stale-memory pass failed: {e}")
+        return 0
+
+
 def run_cleanup() -> dict:
     """Run all cleanup tasks. Returns summary dict."""
     settings = load_settings()
@@ -157,9 +167,11 @@ def run_cleanup() -> dict:
 
     # Compress old memories into weekly digests — no auto-deletion, user manages manually
     memories_compressed = compress_memories_pass()
+    memories_marked_stale = mark_stale_memories_pass(memory_days)
 
     results = {
         "memories_compressed": memories_compressed,
+        "memories_marked_stale": memories_marked_stale,
         "meetings_deleted":    cleanup_meetings(meeting_days),
         "tts_deleted":         cleanup_tts(max_age_hours=1),
         "uploads_deleted":     cleanup_uploads(max_age_hours=24),

@@ -52,11 +52,16 @@ export const TitleBar = () => {
 
   return (
     <>
-      <div 
+      {/* Two drag mechanisms, one per runtime: `WebkitAppRegion` is a Chromium
+          extension that only Electron understands, while Tauri's WebKitGTK /
+          WKWebView / WebView2 backends look for `data-tauri-drag-region`.
+          Without the attribute the whole title bar is undraggable under Tauri. */}
+      <div
+        data-tauri-drag-region
         className="h-8 w-full shrink-0 flex items-center justify-between z-50 pointer-events-auto pl-4"
         style={{ WebkitAppRegion: 'drag' } as any}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-tauri-drag-region>
           <span className="font-mono text-[9px] text-on-surface/55 tracking-widest font-bold">PRIMNOX {APP_VERSION}</span>
         </div>
         

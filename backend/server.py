@@ -90,7 +90,25 @@ async def security_middleware(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173", "app://."],
+    # Origins the desktop shell can serve the UI from.
+    #
+    # Dev servers use the Vite ports. Packaged builds do NOT use http://localhost
+    # at all — each shell has its own custom scheme, and a missing entry here
+    # fails only in the packaged app while dev keeps working, which is the worst
+    # possible place for this list to be wrong:
+    #   Electron          app://.
+    #   Tauri (Linux/mac) tauri://localhost
+    #   Tauri (Windows)   http://tauri.localhost   (WebView2 maps the scheme to https-like URLs)
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "app://.",
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -650,14 +668,38 @@ async def post_daily_brief(background_tasks: BackgroundTasks):
     background_tasks.add_task(_run_brief)
     return {"status": "generating"}
 
+_error_explain_cache: dict = {}   # {fingerprint: (expires_at, payload)}
+_ERROR_EXPLAIN_TTL = 60  # seconds
+
+
 @app.post("/api/error_explain")
 async def explain_error(request: Request):
-    """Feed an error string to the dynamic island error handler and return a structured payload."""
+    """Feed an error string to the dynamic island error handler and return a structured payload.
+
+    This used to fire on every error_island event uncapped — Stage 1 triage
+    in feed_manager.py now returns summary/fix itself so the frontend usually
+    skips this endpoint entirely, but it's still reachable directly and from
+    the fallback path when Stage 1 didn't supply them. This cache is the
+    remaining safety net: the same error re-explained within a minute (e.g.
+    a duplicate event, or a user re-opening the island) reuses the prior
+    answer instead of re-calling the model.
+    """
+    import time as _time
     from brain import think
+    from screen_reader import fingerprint as _fingerprint
     from system_prompts import ERROR_HANDLER_PROMPT
     body = await request.json()
     error_message = body.get("error_message", "")
     context = body.get("context", "")
+
+    fp = _fingerprint(error_message) if error_message else None
+    now = _time.time()
+    if fp and fp in _error_explain_cache:
+        expires_at, cached_payload = _error_explain_cache[fp]
+        if expires_at > now:
+            return cached_payload
+        del _error_explain_cache[fp]
+
     prompt = f"Error: {error_message}" + (f"\nContext: {context}" if context else "")
     try:
         response = think(prompt, system_override=ERROR_HANDLER_PROMPT)
@@ -677,6 +719,11 @@ async def explain_error(request: Request):
                 "fix": "Review the raw AI output above.",
                 "hover_text": "click to copy the fix"
             }
+        if fp:
+            _error_explain_cache[fp] = (now + _ERROR_EXPLAIN_TTL, payload)
+            if len(_error_explain_cache) > 200:  # bound memory, oldest-ish entries first
+                for k in list(_error_explain_cache)[:50]:
+                    _error_explain_cache.pop(k, None)
         return payload
     except Exception as e:
         log = get_logger("error_explain")
@@ -816,10 +863,21 @@ async def api_parse_nl_event(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+_SMART_PASTE_LOCAL_MODEL = "qwen2.5:0.5b"
+
+
 @app.post("/api/smart_paste")
 async def smart_paste(request: Request):
-    """Transform clipboard content via LLM to fit the current target application."""
-    from brain import think
+    """Transform clipboard content to fit the current target application.
+
+    Reformatting a clipboard blob doesn't need frontier reasoning, so this
+    tries a small on-device Ollama model first — zero network round trip,
+    nothing leaves the machine, no Privacy Mirror scrub/rehydrate needed at
+    all since the content never goes anywhere. Falls back to the normal
+    cloud+scrub path via think() only if no local model answered (Ollama not
+    running, or the small model isn't pulled and nothing else is either).
+    """
+    from brain import think, think_local
     from system_prompts import SMART_PASTE_PROMPT
     body = await request.json()
     content = body.get("content", "")
@@ -832,12 +890,23 @@ async def smart_paste(request: Request):
     except Exception:
         target_app = ""
     prompt = f"Target app: {target_app or 'unknown'}\nContent to transform:\n{content}"
+    log = get_logger("smart_paste")
+
+    try:
+        local_text = think_local(
+            prompt, system_override=SMART_PASTE_PROMPT,
+            model=_SMART_PASTE_LOCAL_MODEL, timeout=15,
+        )
+        if local_text and local_text.strip():
+            return {"transformed": local_text.strip()}
+    except Exception as e:
+        log.debug(f"smart_paste local route failed, falling back to cloud: {e}")
+
     try:
         response = think(prompt, system_override=SMART_PASTE_PROMPT)
         text = response.get("choices", [{}])[0].get("message", {}).get("content", content)
         return {"transformed": text.strip() or content}
     except Exception as e:
-        log = get_logger("smart_paste")
         log.error(f"smart_paste failed: {e}")
         return {"transformed": content}
 

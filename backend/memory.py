@@ -144,34 +144,52 @@ def delete_memories_by_session(session_id):
     if rows_deleted > 0:
         log.info(f"Deleted {rows_deleted} memories for session {session_id}.")
 
+STALE_AFTER_DAYS = 30
+
+
+def mark_stale_memories(stale_after_days: int = STALE_AFTER_DAYS) -> int:
+    """Flag memories past the age cutoff as stale. Returns rows newly flagged.
+
+    list_memories() used to drop old rows by recomputing age on every read while
+    the `stale` column it selected was never written by anything — so a memory
+    could vanish from the UI while its own flag still said it was fresh. The
+    cutoff is applied here, once, by the cleanup scheduler; every reader now
+    just trusts the column.
+    """
+    cutoff = (datetime.now() - timedelta(days=stale_after_days)).isoformat()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE memories SET stale = 1 WHERE timestamp < ? AND stale = 0", (cutoff,))
+    flagged = c.rowcount
+    conn.commit()
+    conn.close()
+    if flagged:
+        log.info(f"Marked {flagged} memories stale (older than {stale_after_days} days)")
+    return flagged
+
+
 def list_memories(category=None, include_stale=False):
     log.debug(f"Listing memories (category={category}, include_stale={include_stale})...")
     conn = get_db()
     c = conn.cursor()
-    
+
     query = "SELECT key, text, category, timestamp, stale FROM memories WHERE 1=1"
     params = []
-    
+
     if category:
         query += " AND category = ?"
         params.append(category)
-        
+    if not include_stale:
+        query += " AND stale = 0"
+
     c.execute(query, params)
     rows = c.fetchall()
     conn.close()
-    
-    now = datetime.now()
-    result = []
-    for r in rows:
-        stale = bool(r[4])
-        ts = datetime.fromisoformat(r[3])
-        if not include_stale and (now - ts).days > 30:
-            continue
-        result.append({"key": r[0], "text": r[1], "category": r[2], "timestamp": r[3], "stale": stale})
-    return result
 
-def extract_memories_from_text(text):
-    return [s.strip() for s in text.split(".") if len(s.strip()) > 10]
+    return [
+        {"key": r[0], "text": r[1], "category": r[2], "timestamp": r[3], "stale": bool(r[4])}
+        for r in rows
+    ]
 
 def is_duplicate(new, existing_memories, threshold=0.85):
     from difflib import SequenceMatcher
@@ -181,16 +199,25 @@ def is_duplicate(new, existing_memories, threshold=0.85):
             return True
     return False
 
+# How many prior memories a new one is compared against before being stored.
+# Scoped per-category, so a busy "session" stream can't push older "work" or
+# "personal" facts out of comparison range and let duplicates back in.
+_DEDUP_CANDIDATES = 200
+
+
 def add_memory(text, category="session", session_id=None):
     log.info(f"Adding new memory: {text[:50]}...")
     conn = get_db()
     c = conn.cursor()
-    
-    # Simple deduplication check via exact match or FTS to save time
-    # For now, we fetch recent memories to check difflib
-    c.execute("SELECT text FROM memories ORDER BY timestamp DESC LIMIT 50")
+
+    cat = category if category in CATEGORIES else "session"
+
+    c.execute(
+        "SELECT text FROM memories WHERE category = ? ORDER BY timestamp DESC LIMIT ?",
+        (cat, _DEDUP_CANDIDATES),
+    )
     recent = [{"text": r[0]} for r in c.fetchall()]
-    
+
     if is_duplicate(text, recent):
         log.info("Memory is a duplicate, skipping.")
         conn.close()
@@ -198,8 +225,7 @@ def add_memory(text, category="session", session_id=None):
         
     key = hashlib.sha256((text+str(datetime.now())).encode()).hexdigest()
     ts = datetime.now().isoformat()
-    cat = category if category in CATEGORIES else "session"
-    
+
     c.execute("INSERT INTO memories (key, text, category, timestamp, stale, session_id) VALUES (?, ?, ?, ?, 0, ?)", (key, text, cat, ts, session_id))
     conn.commit()
     conn.close()
