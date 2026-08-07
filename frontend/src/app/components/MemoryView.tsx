@@ -196,7 +196,7 @@ export const DataVaultPage = ({
                 animate={{ opacity: 1 }}
                 className="col-span-full p-20 text-center text-on-surface/38 font-mono text-xs uppercase tracking-[0.4em]"
               >
-                {query ? 'No memories match your search' : 'Neural Vault Empty'}
+                {query ? 'Nothing matches that' : "Nothing remembered yet — I'll pick things up as we go"}
               </motion.div>
             ) : (
               displayed.map((item: any, i: number) => {

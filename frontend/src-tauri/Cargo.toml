@@ -1,6 +1,6 @@
 [package]
 name = "primnox"
-version = "0.1.1"
+version = "1.2.0-beta"
 description = "Primnox — a personal AI operating environment for your desktop"
 authors = ["Primnox"]
 license = "BUSL-1.1"

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, memo } from 'react';
-import { Database, MessageSquare, FileText, CheckCircle, Terminal, Brain, FileEdit, Video, Monitor, Zap, RefreshCw, AlertTriangle, Bell, Shield, ListTodo, Plus, Clock, Trash2, Activity, Radio, Cpu, CalendarDays, MapPin } from 'lucide-react';
+import { Database, MessageSquare, FileText, CheckCircle, Terminal, FileEdit, Video, Monitor, Zap, RefreshCw, AlertTriangle, Bell, Shield, ListTodo, Plus, Clock, Trash2, Activity, Radio, Cpu, CalendarDays, MapPin } from 'lucide-react';
 import { API_BASE } from '../../config';
 
 type ScreenId =
@@ -286,31 +286,23 @@ export const SummariesExpanded = memo(({
           )}
         </div>
 
-        {/* ── Stat Row ──
-            Was four rounded cards with per-metric accent colours (violet, sky,
-            amber…) that fought the active theme. The site states figures as
-            plain numerals under a mono label, divided by hairlines only. */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 border-t border-on-surface/[0.09]">
-          {[
-            { label: 'Tasks',    value: pendingTasks.length,         icon: ListTodo, sub: `${doneTasks.length} done` },
-            { label: 'Notes',    value: dash?.notes_count ?? '—',    icon: FileEdit, sub: 'in workspace' },
-            { label: 'Memories', value: dash?.memories_count ?? '—', icon: Brain,    sub: 'stored' },
-            { label: 'Skills',   value: dash?.skills_count ?? '—',   icon: Zap,      sub: 'loaded' },
-          ].map(({ label, value, icon: Icon, sub }, i) => (
-            <div
-              key={label}
-              className={`group px-4 py-5 border-b border-on-surface/[0.09] transition-colors hover:bg-on-surface/[0.02]
-                ${i < 3 ? 'sm:border-r border-on-surface/[0.09]' : ''}
-                ${i % 2 === 0 ? 'border-r sm:border-r' : ''}`}
-            >
-              <div className="flex items-center gap-2 mb-3">
-                <Icon size={11} className="text-on-surface/52 group-hover:text-primary transition-colors" />
-                <span className="px-label">{label}</span>
-              </div>
-              <p className="px-display px-display-sm text-on-surface">{value}</p>
-              <p className="font-mono text-[9px] text-on-surface/52 mt-1.5 tracking-wider">{sub}</p>
-            </div>
-          ))}
+        {/* ── Stat strip ──
+            Was a four-tile band (Tasks / Notes / Memories / Skills) sized like
+            a hero. Memories and Skills report what Primnox knows, not anything
+            the user can act on, so they earned none of that space; the two that
+            do are now one hairline row and the hero belongs to the brief. */}
+        <div className="flex items-center gap-6 px-4 py-2.5 border-t border-b border-on-surface/[0.09]">
+          <span className="flex items-center gap-2">
+            <ListTodo size={11} className="text-on-surface/52" />
+            <span className="px-label">Tasks</span>
+            <span className="font-mono text-[11px] text-on-surface">{pendingTasks.length}</span>
+            <span className="font-mono text-[9px] text-on-surface/52">{doneTasks.length} done</span>
+          </span>
+          <span className="flex items-center gap-2">
+            <FileEdit size={11} className="text-on-surface/52" />
+            <span className="px-label">Notes</span>
+            <span className="font-mono text-[11px] text-on-surface">{dash?.notes_count ?? '—'}</span>
+          </span>
         </div>
 
         {/* ── Main grid ── */}

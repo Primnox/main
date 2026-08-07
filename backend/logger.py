@@ -13,7 +13,7 @@ from logging.handlers import RotatingFileHandler
 from collections import deque
 
 # ── Single source of truth for the app version ───────────────────────────────
-APP_VERSION = "0.0.91"
+APP_VERSION = "1.2.0-beta"
 
 LOG_DIR = Path.home() / "Documents" / "Primnox" / "Logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -24,6 +24,14 @@ _log_buffer: deque = deque(maxlen=500)
 
 # Track whether we have written the session banner yet (per-process)
 _session_banner_written = False
+
+# Guards the check-then-act in _build_logger. Several background threads
+# (feed loop, recorder, background worker) start within milliseconds of each
+# other at launch and each may request the same logger name for the first
+# time; without this lock two threads can both see `logger.handlers` empty
+# and each attach their own file+console handler, doubling every line that
+# logger ever writes for the rest of the process.
+_logger_build_lock = threading.Lock()
 
 
 def _write_session_banner():
@@ -69,24 +77,36 @@ def _write_session_banner():
     })
 
 
+def _record_to_entry(record: logging.LogRecord) -> dict:
+    entry = {
+        "ts": round(time.time(), 3),
+        "level": record.levelname,
+        "module": record.name,
+        "msg": record.getMessage(),
+    }
+    if record.exc_info:
+        entry["exc"] = logging.Formatter().formatException(record.exc_info)
+    return entry
+
+
 class JsonFormatter(logging.Formatter):
+    """Pure formatter — MUST NOT have side effects.
+
+    RotatingFileHandler.shouldRollover() calls format(record) once just to
+    measure the rendered size, then emit() calls it again to actually write
+    the line — so format() runs twice per log call by design. It used to
+    also append to _log_buffer here, which silently doubled every entry the
+    live log viewer shows. The buffer append now lives in BufferHandler.emit,
+    which the logging module guarantees runs exactly once per record.
+    """
     def format(self, record: logging.LogRecord) -> str:
-        entry = {
-            "ts": round(time.time(), 3),
-            "level": record.levelname,
-            "module": record.name,
-            "msg": record.getMessage(),
-        }
-        if record.exc_info:
-            entry["exc"] = self.formatException(record.exc_info)
-        _log_buffer.append(entry)
-        return json.dumps(entry)
+        return json.dumps(_record_to_entry(record))
 
 
 class BufferHandler(logging.Handler):
-    """Just writes to the in-memory buffer (JsonFormatter already does it, this is a no-op sink)."""
+    """Appends each record to the in-memory ring buffer exactly once."""
     def emit(self, record):
-        pass
+        _log_buffer.append(_record_to_entry(record))
 
 
 def _build_logger(name: str) -> logging.Logger:
@@ -96,25 +116,34 @@ def _build_logger(name: str) -> logging.Logger:
     if logger.handlers:
         return logger  # already configured
 
-    # Write session banner on first logger creation
-    _write_session_banner()
+    with _logger_build_lock:
+        if logger.handlers:
+            return logger  # a racing thread finished configuring it first
 
-    logger.setLevel(logging.DEBUG)
+        # Write session banner on first logger creation
+        _write_session_banner()
 
-    # Rotating file — 5 MB x 3 files
-    fh = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
-    fh.setFormatter(JsonFormatter())
-    fh.setLevel(logging.DEBUG)
-    logger.addHandler(fh)
+        logger.setLevel(logging.DEBUG)
 
-    # Console — human-readable
-    ch = logging.StreamHandler()
-    ch.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S"))
-    ch.setLevel(logging.INFO)
-    logger.addHandler(ch)
+        # Rotating file — 5 MB x 3 files
+        fh = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+        fh.setFormatter(JsonFormatter())
+        fh.setLevel(logging.DEBUG)
+        logger.addHandler(fh)
 
-    logger.propagate = False
-    return logger
+        # Console — human-readable
+        ch = logging.StreamHandler()
+        ch.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S"))
+        ch.setLevel(logging.INFO)
+        logger.addHandler(ch)
+
+        # In-memory ring buffer for the live log viewer
+        bh = BufferHandler()
+        bh.setLevel(logging.DEBUG)
+        logger.addHandler(bh)
+
+        logger.propagate = False
+        return logger
 
 
 def get_logger(name: str) -> logging.Logger:

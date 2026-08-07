@@ -9,6 +9,7 @@ from pathlib import Path
 from brain import think
 from memory import add_memory
 from logger import get_logger
+from project_context import parse_editor_title
 
 log = get_logger("feed")
 
@@ -93,8 +94,18 @@ class FeedManager:
         self._stage_lock = threading.Lock()  # prevent overlapping stage runs
 
         # ── Feature: Error Streak ────────────────────────────────────────
-        self.error_streak_start: dict = {}      # {error_text: start_time}
-        self.error_streak_notified: dict = {}   # {error_text: last_reported_minute}
+        # Keyed by fingerprint (screen_reader.fingerprint), not raw text — two
+        # scans of "TypeError at file.py:42" and "TypeError at file.py:57" are
+        # the same underlying error and used to be tracked as two unrelated
+        # streaks because the raw strings differed.
+        self.error_streak_start: dict = {}      # {fingerprint: {"text":..., "start":...}}
+        self.error_streak_notified: dict = {}   # {fingerprint: last_reported_minute}
+        # Bounds how often the SAME error (by fingerprint) re-triggers the
+        # two-stage LLM investigation: once it's been investigated, a repeat
+        # sighting within this window is assumed to be the same still-open
+        # error, not a new event worth another Groq+vision round trip.
+        self.fired_error_fps: dict = {}         # {fingerprint: last_investigated_time}
+        self.fired_error_fp_ttl = 1800          # 30 minutes
 
         # ── Feature: Flow State ──────────────────────────────────────────
         self.focus_apps = {
@@ -226,6 +237,46 @@ class FeedManager:
             log.error(f"Linux active window failed: {e}")
             return "Unknown", "Unknown"
 
+    def _get_active_pid(self):
+        """PID of the foreground window, or None. Kept separate from
+        get_active_info() (whose (title, process) tuple several call sites
+        already unpack) rather than widening that tuple everywhere — only
+        project-context resolution needs the pid."""
+        try:
+            if PLATFORM == 'win32':
+                if not HAS_WIN32:
+                    return None
+                hwnd = win32gui.GetForegroundWindow()
+                if not hwnd:
+                    return None
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                return pid or None
+            elif PLATFORM == 'darwin':
+                if self._mac_fail_count >= 3 and time.time() < self._mac_circuit_open_until:
+                    return None
+                result = subprocess.run(
+                    ['osascript', '-e',
+                     'tell application "System Events" to unix id of '
+                     '(first application process whose frontmost is true)'],
+                    capture_output=True, text=True, timeout=3
+                )
+                out = result.stdout.strip()
+                return int(out) if result.returncode == 0 and out.isdigit() else None
+            else:
+                win_id = subprocess.run(
+                    ['xdotool', 'getactivewindow'],
+                    capture_output=True, text=True, timeout=2
+                ).stdout.strip()
+                if not win_id:
+                    return None
+                pid_str = subprocess.run(
+                    ['xdotool', 'getwindowpid', win_id],
+                    capture_output=True, text=True, timeout=2
+                ).stdout.strip()
+                return int(pid_str) if pid_str else None
+        except Exception:
+            return None
+
     def log_ambient(self, text):
         """Log ambient speech to history with timestamp."""
         event = f"{time.strftime('%H:%M:%S')} - Ambient: {text}"
@@ -256,7 +307,13 @@ class FeedManager:
                          or any(p in _clean for p in _reject_phrases))
             if content and not _rejected:
                 log.info(f"Memory extracted: {content[:100]}...")
-                add_memory(content)
+                # Ambient screen/app activity, not a chat exchange — "session"
+                # matches the category core.py's own auto-extraction uses for
+                # the same kind of transient context. Was relying on
+                # add_memory()'s default, which happened to be "session" too;
+                # now explicit so the category can't silently drift if the
+                # default ever changes.
+                add_memory(content, category="session")
                 if self.callback:
                     self.callback("memory_updated", {"text": content})
         except Exception as e:
@@ -597,25 +654,61 @@ class FeedManager:
 
     # ── Two-Stage Error Detection ─────────────────────────────────────────────
 
-    def _stage1_uai_triage(self, uia_data) -> tuple:
+    def _stage1_uai_triage(self, uia_data) -> dict:
         """
         Text-only Groq call: decide if the UAI data represents a real error.
-        Returns (error_detected: bool, description: str).
+        Returns {"error": bool, "description": str, "confidence": float,
+        "file": str, "summary": str, "fix": str}.
         Respects stage1_cooldown so we don't hammer the API.
+
+        Now includes local, zero-token project context (project name, branch,
+        active file, stack/dirty/recent files — see project_context.py) in
+        the prompt instead of just a bare window title, and asks for
+        confidence/summary/fix in the same call so a confident result can
+        skip Stage 2 vision entirely and the frontend can skip the separate
+        /api/error_explain call that used to always follow.
         """
         import json
         from brain import think
+        from screen_reader import _is_code_error
         from system_prompts import UAI_ERROR_TRIAGE_PROMPT
 
         now = time.time()
+        empty = {"error": False, "description": "", "confidence": 0.0, "file": "", "summary": "", "fix": ""}
         if now - self.last_stage1_time < self.stage1_cooldown:
-            return False, ""
+            return empty
         self.last_stage1_time = now
 
+        project = uia_data.get("project") or {}
+        context_lines = []
+        if project:
+            context_lines.append(f"Project: {project.get('project_name', '?')}")
+            git = project.get("git") or {}
+            if git.get("branch"):
+                context_lines.append(f"Branch: {git['branch']}")
+            if project.get("active_file"):
+                context_lines.append(f"Active file: {project['active_file']}")
+            if project.get("stack"):
+                context_lines.append(f"Stack: {', '.join(project['stack'][:6])}")
+            if git.get("dirty_files"):
+                context_lines.append(f"Dirty files: {', '.join(git['dirty_files'][:5])}")
+            if project.get("recent_files"):
+                context_lines.append(f"Recently touched: {', '.join(project['recent_files'][:8])}")
+        context_block = ("\n".join(context_lines) + "\n") if context_lines else ""
+
+        # Prioritise text that already looks like a code error over generic
+        # UI chrome — was an unfiltered top-25 slice; trimmed to 12 since the
+        # project context block above now carries signal that used to have
+        # to come from a longer visible-text dump.
+        visible = list(uia_data.get("visible_texts", []))
+        prioritised = [t for t in visible if _is_code_error(t)] + [t for t in visible if not _is_code_error(t)]
+        visible_slice = prioritised[:12]
+
         uai_summary = (
+            f"{context_block}"
             f"Window: {uia_data.get('window_title', 'Unknown')}\n"
             f"Errors: {', '.join(uia_data.get('errors', []))}\n"
-            f"Visible: {', '.join(list(uia_data.get('visible_texts', []))[:25])}"
+            f"Visible: {', '.join(visible_slice)}"
         )
         try:
             resp = think(uai_summary, system_override=UAI_ERROR_TRIAGE_PROMPT)
@@ -626,10 +719,17 @@ class FeedManager:
                 if content.startswith("json"):
                     content = content[4:].strip()
             result = json.loads(content)
-            return bool(result.get("error", False)), result.get("description", "")
+            return {
+                "error": bool(result.get("error", False)),
+                "description": result.get("description", ""),
+                "confidence": float(result.get("confidence", 0.0) or 0.0),
+                "file": result.get("file", ""),
+                "summary": result.get("summary", ""),
+                "fix": result.get("fix", ""),
+            }
         except Exception as e:
             log.debug(f"Stage 1 UAI triage error: {e}")
-            return False, ""
+            return empty
 
     def _stage2_vision_detail(self, stage1_description: str) -> str:
         """
@@ -661,10 +761,18 @@ class FeedManager:
             log.warning(f"Stage 2 vision detail failed: {e}")
             return ""
 
+    # Below this Stage 1 confidence, trust the screenshot more than the model's
+    # own read of the UIA text dump and pay for a Stage 2 vision call. At or
+    # above it, Stage 1 already has a clear enough picture that a screenshot
+    # would just confirm what it already said — this is the single biggest
+    # cost cut here, since Stage 2 is a full-resolution image call.
+    STAGE2_CONFIDENCE_GATE = 0.75
+
     def _run_two_stage_error_detect(self, uia_data):
         """
-        Fire Stage 1 + Stage 2 in a background thread so the feed loop doesn't block.
-        Uses a non-blocking trylock so overlapping runs are skipped, not queued.
+        Fire Stage 1, then Stage 2 only when Stage 1 wasn't confident, in a
+        background thread so the feed loop doesn't block. Non-blocking
+        trylock so overlapping runs are skipped, not queued.
         """
         if not self._stage_lock.acquire(blocking=False):
             log.debug("Two-stage detection already running — skipping.")
@@ -672,18 +780,32 @@ class FeedManager:
 
         def _run():
             try:
-                error_detected, description = self._stage1_uai_triage(uia_data)
-                if not error_detected or not description:
+                result = self._stage1_uai_triage(uia_data)
+                if not result["error"] or not result["description"]:
                     return
-                log.warning(f"Stage 1 confirmed error on screen: {description}")
+                log.warning(
+                    f"Stage 1 confirmed error on screen (confidence={result['confidence']:.2f}): "
+                    f"{result['description']}"
+                )
 
-                # Stage 2 — screenshot only if Stage 2 cooldown allows
-                vision_detail = self._stage2_vision_detail(description)
+                vision_detail = ""
+                if result["confidence"] < self.STAGE2_CONFIDENCE_GATE:
+                    vision_detail = self._stage2_vision_detail(result["description"])
+                else:
+                    log.debug(f"Stage 1 confidence {result['confidence']:.2f} — skipping Stage 2 vision.")
 
                 if self.callback:
                     self.callback("error_island", {
-                        "error_message": description,
-                        "context": vision_detail   # empty string → frontend uses error_message alone
+                        "error_message": result["description"],
+                        "context": vision_detail,   # empty string → frontend uses error_message alone
+                        # Stage 1 now returns enough to render the island
+                        # directly — the frontend used this event to make a
+                        # THIRD LLM call (/api/error_explain) for exactly
+                        # this; passing summary/fix through here removes that
+                        # call whenever Stage 1 supplied them.
+                        "summary": result["summary"],
+                        "fix": result["fix"],
+                        "file": result["file"],
                     })
             except Exception as e:
                 log.error(f"Two-stage error detection crashed: {e}")
@@ -773,73 +895,110 @@ class FeedManager:
             if current_time - self.last_uia_scan_time > 10 or focus_changed:
                 self.last_uia_scan_time = current_time
                 try:
-                    from screen_reader import read_screen
+                    from screen_reader import read_screen, fingerprint
+                    from project_context import get_project_context
                     uia_data = read_screen()
                     if uia_data and "error" not in uia_data and (
                         uia_data.get("focused_text") or uia_data.get("visible_texts") or uia_data.get("errors")
                     ):
+                        # Local, zero-token project context (repo, branch, active
+                        # file, dirty files) — attached to the existing event so
+                        # no new event type / extra round trip is needed. Also
+                        # doubles as the reliable "is this actually an IDE"
+                        # check, replacing the process-name match below.
+                        editor_info = parse_editor_title(title, process)
+                        if editor_info:
+                            pid = self._get_active_pid()
+                            uia_data["project"] = get_project_context(title, process, pid)
+
                         if self.callback:
                             self.callback("uia_update", uia_data)
-                        
-                        errors = uia_data.get("errors", [])
+
+                        error_records = uia_data.get("error_records") or [
+                            {"text": e, "fingerprint": fingerprint(e)} for e in uia_data.get("errors", [])
+                        ]
 
                         # ── Error Streak Tracking ──────────────────────────────
-                        active_errors = set(errors)
-                        # Start new streaks for freshly appeared errors
-                        for err in active_errors:
-                            if err not in self.error_streak_start:
-                                self.error_streak_start[err] = current_time
-                                self.error_streak_notified[err] = -1
-                        # Resolve streaks for errors that disappeared
-                        for err in list(self.error_streak_start.keys()):
-                            if err not in active_errors:
-                                dur = int((current_time - self.error_streak_start[err]) / 60)
+                        # Keyed by fingerprint so "TypeError at file.py:42" and
+                        # "TypeError at file.py:57" count as one ongoing streak
+                        # instead of two, which is what raw-text keys used to do.
+                        active_fps = {r["fingerprint"]: r["text"] for r in error_records}
+                        for fp, text in active_fps.items():
+                            if fp not in self.error_streak_start:
+                                self.error_streak_start[fp] = {"text": text, "start": current_time}
+                                self.error_streak_notified[fp] = -1
+                        for fp in list(self.error_streak_start.keys()):
+                            if fp not in active_fps:
+                                entry = self.error_streak_start[fp]
+                                dur = int((current_time - entry["start"]) / 60)
                                 if dur >= 1 and self.callback:
                                     self.callback("error_resolved", {
-                                        "error": err,
+                                        "error": entry["text"],
                                         "duration_minutes": dur
                                     })
-                                del self.error_streak_start[err]
-                                self.error_streak_notified.pop(err, None)
-                        # Report growing streaks (at each new minute)
-                        for err, start in list(self.error_streak_start.items()):
-                            dur = int((current_time - start) / 60)
-                            if dur > self.error_streak_notified.get(err, -1) and dur >= 1:
-                                self.error_streak_notified[err] = dur
+                                del self.error_streak_start[fp]
+                                self.error_streak_notified.pop(fp, None)
+                        for fp, entry in list(self.error_streak_start.items()):
+                            dur = int((current_time - entry["start"]) / 60)
+                            if dur > self.error_streak_notified.get(fp, -1) and dur >= 1:
+                                self.error_streak_notified[fp] = dur
                                 if self.callback:
                                     self.callback("error_streak", {
-                                        "error": err,
+                                        "error": entry["text"],
                                         "duration_minutes": dur
                                     })
 
-                        # ── VS Code proactive toast (light, no LLM) ──────────
-                        is_vscode = process.lower() in ["code.exe", "code", "electron"]
-                        if is_vscode and errors:
-                            for err in errors:
-                                self.screen_error_frequency[err] = self.screen_error_frequency.get(err, 0) + 1
-                                if self.screen_error_frequency[err] >= 3 and err not in self.fired_screen_errors:
-                                    log.warning(f"Persistent screen error in VS Code: {err}")
+                        # ── IDE proactive toast (light, no LLM) ──────────────
+                        # Was `process.lower() in ["code.exe","code","electron"]`
+                        # — "electron" also matches Slack/Discord/Postman, so
+                        # those toasted "persistent error in VS Code" on their
+                        # own unrelated notification text. parse_editor_title
+                        # only returns non-None for a title shaped like a real
+                        # IDE window with a file open.
+                        if editor_info and active_fps:
+                            for fp, text in active_fps.items():
+                                self.screen_error_frequency[fp] = self.screen_error_frequency.get(fp, 0) + 1
+                                if self.screen_error_frequency[fp] >= 3 and fp not in self.fired_screen_errors:
+                                    log.warning(f"Persistent screen error in {editor_info['editor']}: {text}")
                                     if self.callback:
                                         self.callback("proactive_message", {
-                                            "message": f"looks like you're facing a persistent error in VS Code: '{err}'. want me to debug it?",
+                                            "message": f"looks like you're facing a persistent error: '{text}'. want me to debug it?",
                                             "suggestions": ["debug this error", "explain what is wrong"]
                                         })
-                                    self.fired_screen_errors.add(err)
+                                    self.fired_screen_errors.add(fp)
 
                             # Clean up resolved errors
-                            for err in list(self.screen_error_frequency.keys()):
-                                if err not in errors:
-                                    self.screen_error_frequency[err] -= 1
-                                    if self.screen_error_frequency[err] <= 0:
-                                        del self.screen_error_frequency[err]
-                                        self.fired_screen_errors.discard(err)
+                            for fp in list(self.screen_error_frequency.keys()):
+                                if fp not in active_fps:
+                                    self.screen_error_frequency[fp] -= 1
+                                    if self.screen_error_frequency[fp] <= 0:
+                                        del self.screen_error_frequency[fp]
+                                        self.fired_screen_errors.discard(fp)
 
                         # ── Two-stage error detection (all apps) ─────────────
                         # Stage 1: text-only Groq confirms the error from UAI.
                         # Stage 2: screenshot vision extracts full details.
                         # Both run in a background thread; cooldowns prevent spam.
-                        if errors:
-                            self._run_two_stage_error_detect(uia_data)
+                        # Gated additionally by fingerprint identity, not just
+                        # the global cooldown timers — a still-open error that
+                        # keeps appearing on screen used to re-enter this path
+                        # (and burn a Stage 1 call) every time the cooldown
+                        # window happened to elapse, even though nothing new
+                        # was on screen.
+                        if active_fps:
+                            now = current_time
+                            fresh_fps = {
+                                fp for fp in active_fps
+                                if now - self.fired_error_fps.get(fp, 0) > self.fired_error_fp_ttl
+                            }
+                            if fresh_fps:
+                                for fp in fresh_fps:
+                                    self.fired_error_fps[fp] = now
+                                stale_cutoff = now - self.fired_error_fp_ttl
+                                self.fired_error_fps = {
+                                    fp: t for fp, t in self.fired_error_fps.items() if t > stale_cutoff
+                                }
+                                self._run_two_stage_error_detect(uia_data)
                 except Exception as e:
                     log.error(f"UIA continuous background scan failed: {e}")
             
@@ -853,11 +1012,17 @@ class FeedManager:
                     })
                     self.fired_stuck_session = True
 
-            # --- 4. VS Code Stuck ---
-            is_vscode = process.lower() in ["code.exe", "code", "electron"]
-            if is_vscode and not self.fired_vscode_session and (current_time - self.vscode_start_time > 420): # 7 minutes
+            # --- 4. IDE Stuck ---
+            # Was `process.lower() in ["code.exe","code","electron"]`, which
+            # also matched every other Electron app (Slack, Discord, Postman)
+            # on the frontmost-window check that runs every tick, not just on
+            # UIA scan ticks — so this fired for "stuck in VS Code" while the
+            # user was just idling in Slack. Cheap string check, safe to run
+            # unconditionally.
+            is_ide = parse_editor_title(title, process) is not None
+            if is_ide and not self.fired_vscode_session and (current_time - self.vscode_start_time > 420): # 7 minutes
                  if self.callback:
-                    log.info("Stuck detected in VS Code.")
+                    log.info("Stuck detected in IDE.")
                     self.callback("proactive_message", {
                         "message": "been on this file a while. stuck?",
                         "suggestions": ["review my code", "find the bug"]

@@ -3,6 +3,7 @@ import requests
 import os
 import json
 import threading
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 from system_prompts import MASTER_PROMPT
@@ -172,14 +173,33 @@ def get_ollama_status(base_url: str = "http://localhost:11434") -> dict:
     except Exception:
         return {"running": False, "models": []}
 
-def think_local(prompt, system_override=None, timeout=90):
+# Circuit breaker for think_local(), matching the pattern already used for
+# feed_manager.py's mac osascript calls. Without it, every caller that probes
+# local inference while Ollama/llama.cpp are both down (e.g. Smart Paste on
+# every clipboard transform) pays the full connect-refused + 2s health-check
+# tax on every single call. One failure opens the circuit for a cooldown
+# window; callers fail straight to None (and their own cloud fallback)
+# instead of re-probing.
+_LOCAL_UNREACHABLE_UNTIL = 0.0
+_LOCAL_CIRCUIT_COOLDOWN = 30  # seconds
+
+
+def think_local(prompt, system_override=None, timeout=90, model=None):
     """On-device inference ONLY — tries Ollama first, then llama.cpp.
 
     Returns the model's text content, or None if no local model is reachable.
     Use this for privacy-critical work (e.g. reading file contents during
     onboarding) that must NEVER touch a cloud provider, regardless of the
     user's configured active_model.
+
+    `model` overrides the user's configured `ollama_model` for this call only —
+    for a task like Smart Paste that doesn't need the user's main chat model,
+    just a fast small one. Falls back to Ollama's normal "not available" retry
+    (whatever else is pulled) exactly like the settings-derived default does.
     """
+    global _LOCAL_UNREACHABLE_UNTIL
+    if time.time() < _LOCAL_UNREACHABLE_UNTIL:
+        return None
     try:
         from settings_manager import load_settings
         settings = load_settings()
@@ -198,7 +218,7 @@ def think_local(prompt, system_override=None, timeout=90):
     # ConnectionRefused is instant when Ollama is down; _extract() uses .get()
     # so a malformed error body (no "choices" key) returns "" instead of crashing.
     ollama_url = _safe_local_url(settings.get("ollama_base_url", "http://localhost:11434"), 11434)
-    model = settings.get("ollama_model", "llama3.2")
+    model = model or settings.get("ollama_model", "llama3.2")
     try:
         resp = requests.post(
             f"{ollama_url}/v1/chat/completions",
@@ -269,7 +289,8 @@ def think_local(prompt, system_override=None, timeout=90):
     except Exception as e:
         log.debug(f"think_local llama.cpp unavailable: {e}")
 
-    log.info("think_local → no local model reachable")
+    log.info(f"think_local → no local model reachable, backing off {_LOCAL_CIRCUIT_COOLDOWN}s")
+    _LOCAL_UNREACHABLE_UNTIL = time.time() + _LOCAL_CIRCUIT_COOLDOWN
     return None
 
 

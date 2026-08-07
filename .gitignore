@@ -61,6 +61,9 @@ build_admin.log
 # Runtime user data — feedback submissions carry a contact email, which was
 # being committed to the repo.
 backend/feedback.json
+backend/chat_sessions.json
+backend/memory.json
+backend/memories.json
 
 # Generated security-scan reports. These embed absolute build paths (and with
 # them the builder's OS username) and are regenerated on every run.

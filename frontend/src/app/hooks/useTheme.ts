@@ -46,6 +46,26 @@ export function initTheme(): ThemeId {
   return id;
 }
 
+/**
+ * Keep every window's `data-theme` live, independent of whether that window
+ * ever mounts a component that calls `useTheme()`.
+ *
+ * The Dynamic Island renders in its own window (Layout.tsx's `isIslandMode`
+ * branch renders only `<DynamicIsland />`, never `SettingsView`), so the
+ * cross-window `storage` listener that used to live only inside the
+ * `useTheme()` hook — instantiated exclusively by `SettingsView` — never ran
+ * there. That window's `data-theme` got set once by `initTheme()` at startup
+ * and then never again: changing the theme in Settings updated the main
+ * window but the island just sat on whatever it launched with. Call this
+ * once from main.tsx so the fix applies to every window regardless of what's
+ * mounted in it.
+ */
+export function installThemeSync(): void {
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY && isValid(e.newValue)) applyTheme(e.newValue);
+  });
+}
+
 export function useTheme() {
   const [theme, setThemeState] = useState<ThemeId>(() => {
     try {

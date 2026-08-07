@@ -649,7 +649,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
                 
                 <div className="text-center space-y-2">
                   <h3 className="text-xl font-bold text-on-surface tracking-wide">Workspace Empty</h3>
-                  <p className="text-sm text-on-surface/60 max-w-sm">Select a page from the sidebar to view its contents, or create a new one to start writing.</p>
+                  <p className="text-sm text-on-surface/60 max-w-sm">Nothing written down yet. Pick a page on the left, or start a new one — it never leaves this machine.</p>
                 </div>
                 
                 <div className="flex gap-4 mt-2">

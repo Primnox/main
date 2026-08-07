@@ -262,7 +262,8 @@ export const ChatExpandedSidebar = ({
   activeChatId = 'current',
   loadChat = () => {},
   createNewChat = () => {},
-  refreshChats = () => {}
+  refreshChats = () => {},
+  privacyScrub = null
 }: {
   aiName: string,
   userName: string,
@@ -274,7 +275,8 @@ export const ChatExpandedSidebar = ({
   activeChatId?: string,
   loadChat?: (id: string) => void,
   createNewChat?: () => void,
-  refreshChats?: () => void
+  refreshChats?: () => void,
+  privacyScrub?: { mapping: { original: string; placeholder: string; label: string }[]; model: string } | null
 }) => {
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -622,7 +624,7 @@ export const ChatExpandedSidebar = ({
               <div className="space-y-0.5">
                 {unpinnedChats.map(c => <ChatItem key={c.id} c={c} />)}
                 {unpinnedChats.length === 0 && (
-                  <p className="px-3 py-4 text-xs text-on-surface/48 text-center">No chats yet</p>
+                  <p className="px-3 py-4 text-xs text-on-surface/48 text-center">Nothing here yet</p>
                 )}
               </div>
             )}
@@ -669,8 +671,8 @@ export const ChatExpandedSidebar = ({
               <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-5">
                 <Sparkles size={22} className="text-primary/70" />
               </div>
-              <h2 className="text-xl font-semibold text-on-surface/80 mb-1">How can I help?</h2>
-              <p className="text-sm text-on-surface/55 mb-8">Ask anything or pick a quick action below.</p>
+              <h2 className="text-xl font-semibold text-on-surface/80 mb-1">Right, what are we doing?</h2>
+              <p className="text-sm text-on-surface/55 mb-8">Everything here stays local until you say otherwise.</p>
               <div className="grid grid-cols-2 gap-2 w-full max-w-md">
                 {QUICK_ACTIONS.map(({ label, prompt }) => (
                   <button key={label} onClick={() => setInputValue(prompt)}
@@ -806,10 +808,63 @@ export const ChatExpandedSidebar = ({
                 <ArrowUp size={16} strokeWidth={2.5} />
               </button>
             </div>
-            <p className="text-[10px] text-on-surface/42 text-center mt-2.5">Enter to send · Shift+Enter for new line</p>
+            <div className="flex items-center justify-center gap-2 mt-2.5">
+              <p className="text-[10px] text-on-surface/42 text-center">Enter to send · Shift+Enter for new line</p>
+              {privacyScrub && privacyScrub.mapping.length > 0 && (
+                <PrivacyScrubIndicator scrub={privacyScrub} />
+              )}
+            </div>
           </div>
         </div>
       </div>
+    </div>
+  );
+};
+
+// Live proof of the privacy claim, not just a settings-page diagram: what
+// actually got pseudonymized before this exchange left the device. The
+// backend has computed this on every cloud send all along
+// (ScrubSession.mapping in privacy_mirror.py, broadcast as `privacy_scrub`
+// in core.py) — nothing on the frontend was rendering it.
+const PrivacyScrubIndicator = ({ scrub }: { scrub: { mapping: { original: string; placeholder: string; label: string }[]; model: string } }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 border border-success/20 text-success/80 hover:text-success hover:border-success/40 transition-colors text-[10px] font-mono"
+        title="What was scrubbed before this left your device"
+      >
+        <ShieldCheck size={10} />
+        {scrub.mapping.length} scrubbed
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.97 }}
+            className="absolute bottom-full right-0 mb-2 w-72 max-h-64 overflow-y-auto rounded-xl border border-on-surface/10 bg-[var(--surface)] shadow-2xl p-3 z-50"
+          >
+            <p className="text-[10px] font-mono uppercase tracking-widest text-on-surface/48 mb-2">
+              Stayed on this device · {scrub.model || 'cloud model'} saw placeholders only
+            </p>
+            <div className="space-y-1.5">
+              {scrub.mapping.map((m, i) => (
+                <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-on-surface/85 truncate">{m.original}</span>
+                  <span className="shrink-0 flex items-center gap-1.5">
+                    <span className="text-on-surface/30">→</span>
+                    <span className="font-mono text-[10px] text-primary/80 bg-primary/10 border border-primary/20 rounded px-1.5 py-0.5">
+                      {m.placeholder}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
