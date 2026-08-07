@@ -158,7 +158,9 @@ fn electron_send(app: AppHandle, channel: String, payload: Option<serde_json::Va
         "island:set-ignore-mouse" => {
             let ignore = payload.as_ref().and_then(|v| v.as_bool()).unwrap_or(true);
             if let Some(island) = island_window(&app) {
-                let _ = island.set_ignore_cursor_events(ignore);
+                // Guarded: on Linux this aborts the process if the window is
+                // not realized, and the renderer can send at any time.
+                windows::set_click_through(&island, ignore);
             }
         }
 
@@ -289,9 +291,13 @@ pub fn run() {
             // The island overlay is declared `visible: false` in the config and
             // pre-loaded here, so the first minimize shows a ready pill rather
             // than a blank window while React boots.
+            //
+            // Deliberately no click-through call here: the window is hidden and
+            // therefore unrealized, and on Linux that combination aborts the
+            // process on startup (see windows::set_click_through). Nothing needs
+            // ignoring while the overlay is invisible anyway.
             if let Some(island) = island_window(handle) {
-                windows::position_island(&island);
-                let _ = island.set_ignore_cursor_events(true);
+                windows::position_island(handle, &island);
             }
 
             Ok(())

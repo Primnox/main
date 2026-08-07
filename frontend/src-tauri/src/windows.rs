@@ -3,7 +3,7 @@
 //! Ports `enterIslandMode` / `exitIslandMode` and the window lifecycle rules
 //! from `public/electron.cjs`.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow};
 
 use crate::channels::{island_x, ISLAND_WINDOW, MAIN_WINDOW};
@@ -18,6 +18,14 @@ pub struct AppState {
     pub island_mode: AtomicBool,
     /// User setting: whether the Dynamic Island is enabled at all.
     pub island_enabled: AtomicBool,
+    /// Last pill width the renderer measured, in logical pixels; 0 = never measured.
+    ///
+    /// The single authority for centring the overlay. Both `position_island`
+    /// and `resize_island` used to derive the width themselves — one from
+    /// `outer_size()`, the other from the incoming measurement — and mid-
+    /// animation those disagree, so whichever ran last won. Observed live: a
+    /// 206px pill centred as if it were 510px, landing 150px left of centre.
+    pub island_width: AtomicU32,
 }
 
 impl AppState {
@@ -27,7 +35,20 @@ impl AppState {
             // Renderer pushes the real value from settings on boot; default ON
             // to match `islandEnabled = true` in electron.cjs.
             island_enabled: AtomicBool::new(true),
+            island_width: AtomicU32::new(0),
         }
+    }
+
+    /// Logical width to centre the overlay on, or `None` before the renderer
+    /// has measured the pill.
+    pub fn measured_island_width(&self) -> Option<u32> {
+        match self.island_width.load(Ordering::Acquire) {
+            0 => None,
+            w => Some(w),
+        }
+    }
+    pub fn set_measured_island_width(&self, w: u32) {
+        self.island_width.store(w, Ordering::Release);
     }
 
     pub fn is_island_mode(&self) -> bool {
@@ -58,7 +79,7 @@ pub fn island_window(app: &AppHandle) -> Option<WebviewWindow> {
 /// logical, so centring has to happen in one space or the other. Doing the
 /// arithmetic in physical pixels keeps it correct under fractional scaling,
 /// where converting to logical and back rounds the pill off-centre.
-pub fn position_island(win: &WebviewWindow) {
+pub fn position_island(app: &AppHandle, win: &WebviewWindow) {
     let scale = win.scale_factor().unwrap_or(1.0);
     let screen_w = win
         .current_monitor()
@@ -67,12 +88,17 @@ pub fn position_island(win: &WebviewWindow) {
         .map(|m| m.size().width)
         .unwrap_or(1920);
 
-    // Prefer the window's real size over the configured constant: after
-    // `resize_island` the overlay no longer measures ISLAND_WIDTH.
-    let win_w = win
-        .outer_size()
-        .map(|s| s.width)
-        .unwrap_or((ISLAND_WIDTH as f64 * scale).round() as u32);
+    // The measured pill width is authoritative. `outer_size()` is only a
+    // fallback for the first show, before the renderer has reported anything:
+    // reading it mid-resize returns whatever GTK has applied so far, which is
+    // how the overlay ended up centred for a width it no longer had.
+    let win_w = match app.state::<AppState>().measured_island_width() {
+        Some(logical) => (logical as f64 * scale).round() as u32,
+        None => win
+            .outer_size()
+            .map(|s| s.width)
+            .unwrap_or((ISLAND_WIDTH as f64 * scale).round() as u32),
+    };
 
     let _ = win.set_position(PhysicalPosition::new(island_x(screen_w, win_w), 0));
 }
@@ -93,23 +119,29 @@ pub fn resize_island(app: &AppHandle, width: f64, height: f64) {
     };
     let (w, h) = crate::channels::clamp_island_size(width, height);
 
-    let _ = island.set_size(tauri::LogicalSize::new(w as f64, h as f64));
+    // Record before moving anything: this is the value every centring path
+    // reads, so it must be current even if the resize below is still settling.
+    app.state::<AppState>().set_measured_island_width(w);
 
-    // Re-centre using the new width, in the same logical space as the size
-    // above — mixing logical size with physical position drifts the overlay
-    // off-centre on any display with fractional scaling.
-    let scale = island.scale_factor().unwrap_or(1.0);
-    let screen_w = island
-        .current_monitor()
-        .ok()
-        .flatten()
-        .map(|m| m.size().width)
-        .unwrap_or(1920);
-    let logical_screen_w = (screen_w as f64 / scale).round() as u32;
-    let _ = island.set_position(tauri::LogicalPosition::new(
-        island_x(logical_screen_w, w) as f64,
-        0.0,
-    ));
+    let _ = island.set_size(tauri::LogicalSize::new(w as f64, h as f64));
+    position_island(app, &island);
+}
+
+/// Set click-through on a window, but only once it is actually on screen.
+///
+/// On Linux this call reaches `window.window().unwrap()` in tao's GTK event
+/// loop. A GTK window that has never been shown has no realized `GdkWindow`, so
+/// that unwrap panics — and it runs inside a callback declared `extern "C"`,
+/// which cannot unwind, so the panic aborts the whole process rather than
+/// surfacing as an error. `WebviewWindow::set_ignore_cursor_events` returns a
+/// `Result`, which makes it look safe to call unconditionally; it is not.
+///
+/// The visibility check is the guard. Windows and macOS tolerate the call on a
+/// hidden window, so this costs nothing there.
+pub fn set_click_through(win: &WebviewWindow, ignore: bool) {
+    if win.is_visible().unwrap_or(false) {
+        let _ = win.set_ignore_cursor_events(ignore);
+    }
 }
 
 /// Fold the app down to the island pill.
@@ -127,10 +159,13 @@ pub fn enter_island_mode(app: &AppHandle) {
     state.set_island_mode(true);
 
     if let Some(island) = island_window(app) {
-        position_island(&island);
-        // Transparent regions must not swallow clicks until the pill is hovered.
-        let _ = island.set_ignore_cursor_events(true);
+        position_island(app, &island);
+        // Show before touching click-through: the window must be realized first
+        // (see set_click_through). Under Tauri the overlay is sized to the pill
+        // by useIslandAutoSize, so there is no transparent margin left to pass
+        // clicks through — this only resets state the renderer may have set.
         let _ = island.show();
+        set_click_through(&island, false);
     }
 
     if let Some(main) = main_window(app) {
@@ -146,8 +181,8 @@ pub fn exit_island_mode(app: &AppHandle) {
     state.set_island_mode(false);
 
     if let Some(island) = island_window(app) {
-        // Reset click-through so the next show starts from a clean state.
-        let _ = island.set_ignore_cursor_events(true);
+        // Reset click-through while the window is still realized, then hide.
+        set_click_through(&island, false);
         let _ = island.hide();
     }
 
@@ -166,7 +201,7 @@ pub fn hide_to_tray(app: &AppHandle) {
         let _ = main.hide();
     }
     if let Some(island) = island_window(app) {
-        let _ = island.set_ignore_cursor_events(true);
+        set_click_through(&island, false);
         let _ = island.hide();
     }
     app.state::<AppState>().set_island_mode(false);
@@ -209,6 +244,33 @@ mod tests {
 
         s.set_island_enabled(false);
         assert!(!s.is_island_enabled());
+    }
+
+    #[test]
+    fn measured_width_starts_unset_and_round_trips() {
+        let s = AppState::new();
+        assert_eq!(
+            s.measured_island_width(),
+            None,
+            "before the renderer measures, centring must fall back to the window size"
+        );
+
+        s.set_measured_island_width(206);
+        assert_eq!(s.measured_island_width(), Some(206));
+    }
+
+    #[test]
+    fn measured_width_is_the_single_centring_authority() {
+        // Regression guard for the observed off-centre overlay: a 206px pill
+        // was centred as if it were 510px because `position_island` read a
+        // stale `outer_size()` instead of the measurement. Both paths now read
+        // this one value, so centring is a pure function of it.
+        let s = AppState::new();
+        s.set_measured_island_width(510);
+        assert_eq!(island_x(1600, s.measured_island_width().unwrap()), 545);
+
+        s.set_measured_island_width(206);
+        assert_eq!(island_x(1600, s.measured_island_width().unwrap()), 697);
     }
 
     #[test]
