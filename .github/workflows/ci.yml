@@ -56,15 +56,13 @@ jobs:
 
       # Drives the built app headlessly with no backend running — the state
       # that surfaced the /api/dashboard request storm and the Google Fonts
-      # call. Ubuntu only: the checks are platform-independent and running it
-      # three times just triples the browser download.
+      # call. Run on every platform: the renderer is where per-OS webview
+      # differences show up, and a Linux-only run cannot see them.
       - name: Install Chromium for E2E
-        if: matrix.os == 'ubuntu-latest'
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
       - name: E2E smoke test
-        if: matrix.os == 'ubuntu-latest'
         working-directory: frontend
         run: npm run test:e2e
 
@@ -117,6 +115,60 @@ jobs:
       - name: Build
         working-directory: frontend/src-tauri
         run: cargo build
+
+  # ── Windows installer: a runnable build you can actually click ───────────
+  # CI proving the Rust compiles is not the same as the app working: the Linux
+  # startup abort compiled and unit-tested perfectly while being fatal at
+  # launch. This job produces a real NSIS installer, downloadable from the run's
+  # Artifacts section, so the Windows shell can be exercised by hand.
+  #
+  # The Python backend is NOT bundled — that lives in tauri.bundle.conf.json and
+  # needs a PyInstaller build first (see the tauri:build:full script). Launch the
+  # backend separately with start.bat; without it the UI runs but shows
+  # "Connection Lost", which is the correct behaviour, not a build failure.
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Runs tauri.conf.json's beforeBuildCommand (tsc + vite build) itself.
+      - name: Build Tauri app
+        working-directory: frontend
+        run: npx tauri build
+
+      - name: List bundle output
+        working-directory: frontend
+        shell: pwsh
+        run: Get-ChildItem src-tauri/target/release/bundle -Recurse -Include *.exe, *.msi | Select-Object FullName, Length
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Primnox-Tauri-Windows
+          path: |
+            frontend/src-tauri/target/release/bundle/nsis/*.exe
+            frontend/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14
 
   # ── Backend: Python unit tests ───────────────────────────────────────────
   backend:
