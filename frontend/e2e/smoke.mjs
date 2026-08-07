@@ -18,7 +18,7 @@
  * Usage:  npm run build && npm run test:e2e
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
 const PORT = Number(process.env.E2E_PORT ?? 4183);
@@ -39,13 +39,33 @@ const fail = (msg) => {
 };
 const pass = (msg) => console.log(`  ok    ${msg}`);
 
+const IS_WINDOWS = process.platform === 'win32';
+
 function startPreview() {
-  const proc = spawn(
-    process.platform === 'win32' ? 'npx.cmd' : 'npx',
+  // `shell: true` is required on Windows. Since Node 18.20.2 / 20.12.2
+  // (CVE-2024-27980) spawn refuses to execute .cmd/.bat files directly and
+  // fails with EINVAL, and npx on Windows is npx.cmd. The arguments here are
+  // all static literals, so enabling the shell introduces no injection risk.
+  return spawn(
+    IS_WINDOWS ? 'npx.cmd' : 'npx',
     ['vite', 'preview', '--port', String(PORT), '--strictPort'],
-    { stdio: 'ignore' },
+    { stdio: 'ignore', shell: IS_WINDOWS },
   );
-  return proc;
+}
+
+function stopPreview(proc) {
+  if (!proc?.pid) return;
+  // With `shell: true` the spawned pid is the shell, not vite — killing it
+  // would orphan the server and leave the port held for the next run.
+  if (IS_WINDOWS) {
+    try {
+      spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+      return;
+    } catch {
+      /* fall through to the plain kill below */
+    }
+  }
+  proc.kill();
 }
 
 async function waitForServer(timeoutMs = 30000) {
@@ -169,7 +189,7 @@ async function main() {
     });
   } finally {
     await browser?.close();
-    preview.kill();
+    stopPreview(preview);
   }
 
   console.log('');
