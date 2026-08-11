@@ -214,14 +214,20 @@ A local Windows user account is a mediocre isolation primitive: it is
 ACL-based only (no memory, CPU or kernel-surface isolation), and — as this
 document shows — a large fraction of Windows will not initialise inside one.
 
-If this keeps costing time, the better answer is to replace the primitive
-rather than keep debugging it. **WSL2** is the strongest candidate: a real VM
-boundary, and Node, Pillow, LibreOffice and pandoc all work normally there,
-which additionally unlocks the higher-fidelity `pptxgenjs`/`docx-js` path and
-the render-and-verify loop the official skills assume. The swap is
-`CreateProcessAsUser` → `wsl -d <distro> -u sandbox`, behind the same
-`code_exec` interface, so `runtime_capabilities` and every skill above it
-would need no changes.
+**WSL2 was scoped as the replacement** (a real VM boundary; Node, Pillow,
+LibreOffice and pandoc all work normally there) — full architecture,
+provisioning module, and backend-selection design were written and unit
+tested (2026-08-11). **The user explicitly declined it** ("i dont want
+wsl") and the WSL2 code was removed at their request. Do not re-propose
+WSL2 for this — it was a considered, deliberate rejection, not an oversight.
+If Node/Pillow support is revisited, it needs a different mechanism than
+WSL2.
+
+Accepted current state: the Windows-account sandbox is permanent, with the
+Node/Pillow limitation staying in place. `runtime_capabilities.py` and the
+capability-aware prompt/fallback in `skills/adapted_skill.py` (below) are
+what make that limitation survivable rather than a hard failure — that
+part is not affected by the WSL2 decision and stays as-is.
 
 ## Design response
 
