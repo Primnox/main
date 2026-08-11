@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 
 export type ScreenId =
-  | 'summaries_expanded' | 'summaries_sidebar_hidden' | 'summaries_empty_state' | 'summaries_icon_sidebar'
+  | 'summaries_expanded' | 'summaries_empty_state'
   | 'notes_icon_sidebar' | 'chat_expanded_sidebar' | 'research_workspace'
   | 'calendar' | 'meetings' | 'graph_view' | 'archive' | 'knowledge'
   | 'logs' | 'island_settings' | 'settings_neural';

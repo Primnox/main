@@ -71,3 +71,10 @@ bandit_report*.json
 
 .venv/
 backend/.venv/
+
+# Dropped-in Claude Skill packages (SKILL.md format). Deliberately NOT
+# vendored: Anthropic's docx/pdf/pptx/xlsx skills are source-available but
+# explicitly Proprietary, and this repo is public. Users install their own
+# skills here locally; the README stays tracked so the folder is documented.
+backend/skills/claude_skills/*
+!backend/skills/claude_skills/README.md

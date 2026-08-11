@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Paperclip, ArrowUp, Sparkles, X, Plus, MessageSquare, Pin, Folder, FolderPlus, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check, Copy, Terminal, FileText, ShieldCheck } from 'lucide-react';
+import { Paperclip, ArrowUp, Sparkles, X, Plus, MessageSquare, Pin, Folder, FolderPlus, ChevronDown, ChevronRight, Trash2, Bot, Pencil, Check, Copy, Terminal, FileText, ShieldCheck, RefreshCw, Cpu, Plug } from 'lucide-react';
+import {
+  BUILTIN_PROVIDERS, useProviderModels, selectedProviderKeyFor, type CustomProvider,
+} from '../hooks/useProviderModels';
+import { Select } from './settings/primitives';
+import { StructuredBlock } from './StructuredBlock';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // Prism "light" build: only the languages we register below are bundled,
@@ -257,26 +262,40 @@ export const ChatExpandedSidebar = ({
   setStatus,
   liveMessages = [],
   sendMessage = () => {},
+  respondToPermission = () => {},
   chatSessions = [],
   chatFolders = [],
   activeChatId = 'current',
   loadChat = () => {},
   createNewChat = () => {},
   refreshChats = () => {},
-  privacyScrub = null
+  privacyScrub = null,
+  activeModel = 'Groq_Llama_3',
+  activeCustomProviderId = '',
+  quickSetProviderAndModel = () => {},
+  apiKey = '', openaiApiKey = '', anthropicApiKey = '', geminiApiKey = '',
+  groqModel = '', openaiModel = '', anthropicModel = '', geminiModel = '',
+  customProviders = [],
 }: {
   aiName: string,
   userName: string,
   setStatus: (s: AiStatus) => void,
   liveMessages?: any[],
   sendMessage?: (text: string, sessionId?: string, files?: File[] | null) => void,
+  respondToPermission?: (token: string, allow: boolean) => void,
   chatSessions?: any[],
   chatFolders?: any[],
   activeChatId?: string,
   loadChat?: (id: string) => void,
   createNewChat?: () => void,
   refreshChats?: () => void,
-  privacyScrub?: { mapping: { original: string; placeholder: string; label: string }[]; model: string } | null
+  privacyScrub?: { mapping: { original: string; placeholder: string; label: string }[]; model: string } | null,
+  activeModel?: string,
+  activeCustomProviderId?: string,
+  quickSetProviderAndModel?: (providerKey: string, modelValue?: string) => void,
+  apiKey?: string, openaiApiKey?: string, anthropicApiKey?: string, geminiApiKey?: string,
+  groqModel?: string, openaiModel?: string, anthropicModel?: string, geminiModel?: string,
+  customProviders?: CustomProvider[],
 }) => {
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -284,6 +303,41 @@ export const ChatExpandedSidebar = ({
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
+
+  // ── In-chat model switcher ────────────────────────────────────────────
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const selectedProviderKey = selectedProviderKeyFor(activeModel, activeCustomProviderId);
+  const [pickerProviderKey, setPickerProviderKey] = useState(selectedProviderKey);
+  useEffect(() => { if (modelPickerOpen) setPickerProviderKey(selectedProviderKey); }, [modelPickerOpen, selectedProviderKey]);
+
+  const { providerModelsCache, detectingProvider, detectModelsFor } = useProviderModels({
+    apiKeys: { groq: apiKey, openai: openaiApiKey, anthropic: anthropicApiKey, gemini: geminiApiKey },
+    customProviders,
+  });
+  useEffect(() => {
+    if (!modelPickerOpen || !pickerProviderKey) return;
+    if (providerModelsCache[pickerProviderKey]) return;
+    detectModelsFor(pickerProviderKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelPickerOpen, pickerProviderKey]);
+
+  const currentModelLabel = (): string => {
+    if (activeModel === 'Custom') {
+      const p = customProviders.find(p => p.id === activeCustomProviderId);
+      return p ? `${p.name} · ${p.model || '—'}` : 'Custom';
+    }
+    const builtin = BUILTIN_PROVIDERS.find(p => p.activeModel === activeModel);
+    const model = selectedProviderKey === 'groq' ? groqModel : selectedProviderKey === 'openai' ? openaiModel
+      : selectedProviderKey === 'anthropic' ? anthropicModel : selectedProviderKey === 'gemini' ? geminiModel : '';
+    return builtin ? `${builtin.label}${model ? ` · ${model}` : ''}` : activeModel.replace(/_/g, ' ');
+  };
+  const pickerCurrentModel = (): string => {
+    if (pickerProviderKey === 'groq') return groqModel;
+    if (pickerProviderKey === 'openai') return openaiModel;
+    if (pickerProviderKey === 'anthropic') return anthropicModel;
+    if (pickerProviderKey === 'gemini') return geminiModel;
+    return customProviders.find(p => p.id === pickerProviderKey)?.model || '';
+  };
 
   // Sidebar
   const [historyOpen, setHistoryOpen]   = useState(true);
@@ -722,6 +776,19 @@ export const ChatExpandedSidebar = ({
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{msg.text || ''}</ReactMarkdown>
                               </div>
                             )}
+                            {!!msg.blocks?.length && (
+                              <StructuredBlock
+                                blocks={msg.blocks}
+                                onAction={(action) => {
+                                  const permMatch = /^permission:(.+):(allow|deny)$/.exec(action);
+                                  if (permMatch) {
+                                    respondToPermission(permMatch[1], permMatch[2] === 'allow');
+                                  } else {
+                                    sendMessage(action, activeChatId);
+                                  }
+                                }}
+                              />
+                            )}
                             {msg.timestamp && (
                               <p className="text-[10px] text-on-surface/42 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {relativeTime(msg.timestamp)}
@@ -810,6 +877,83 @@ export const ChatExpandedSidebar = ({
             </div>
             <div className="flex items-center justify-center gap-2 mt-2.5">
               <p className="text-[10px] text-on-surface/42 text-center">Enter to send · Shift+Enter for new line</p>
+              <div className="relative">
+                <button
+                  onClick={() => setModelPickerOpen(v => !v)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.1] border border-on-surface/[0.08] text-on-surface/55 hover:text-on-surface/75 transition-colors text-[10px] font-mono max-w-[160px]"
+                  title="Switch model"
+                >
+                  <Cpu size={10} className="shrink-0" />
+                  <span className="truncate">{currentModelLabel()}</span>
+                  <ChevronDown size={9} className="shrink-0" />
+                </button>
+                <AnimatePresence>
+                  {modelPickerOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setModelPickerOpen(false)} />
+                      <motion.div
+                        initial={{ opacity: 0, y: 6, scale: 0.97 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 rounded-xl border border-on-surface/10 bg-[var(--surface)] shadow-2xl p-3 z-50 space-y-3"
+                      >
+                        <div className="space-y-1">
+                          {BUILTIN_PROVIDERS.map(p => (
+                            <button
+                              key={p.key}
+                              onClick={() => setPickerProviderKey(p.key)}
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-mono transition-colors ${
+                                pickerProviderKey === p.key ? 'bg-primary/10 text-primary' : 'text-on-surface/65 hover:bg-on-surface/5'
+                              }`}
+                            >
+                              {p.label}
+                              {pickerProviderKey === p.key && <Check size={11} />}
+                            </button>
+                          ))}
+                          {customProviders.map(p => (
+                            <button
+                              key={p.id}
+                              onClick={() => setPickerProviderKey(p.id)}
+                              className={`w-full flex items-center gap-1.5 justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-mono transition-colors ${
+                                pickerProviderKey === p.id ? 'bg-primary/10 text-primary' : 'text-on-surface/65 hover:bg-on-surface/5'
+                              }`}
+                            >
+                              <span className="flex items-center gap-1.5 truncate"><Plug size={10} className="shrink-0" />{p.name}</span>
+                              {pickerProviderKey === p.id && <Check size={11} className="shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 pt-2 border-t border-on-surface/10">
+                          <div className="flex-1 min-w-0">
+                            <Select
+                              value={pickerCurrentModel()}
+                              onChange={(v) => quickSetProviderAndModel(pickerProviderKey, v)}
+                              options={(providerModelsCache[pickerProviderKey]?.models || []).map(m => ({ value: m, label: m }))}
+                            />
+                          </div>
+                          <button
+                            onClick={() => detectModelsFor(pickerProviderKey)}
+                            className="p-1.5 text-on-surface/50 hover:text-on-surface transition-colors shrink-0"
+                            title="Refresh model list"
+                          >
+                            <RefreshCw size={12} className={detectingProvider === pickerProviderKey ? 'animate-spin' : ''} />
+                          </button>
+                        </div>
+
+                        {pickerProviderKey !== selectedProviderKey && (
+                          <button
+                            onClick={() => { quickSetProviderAndModel(pickerProviderKey); setModelPickerOpen(false); }}
+                            className="w-full text-center py-1.5 rounded-lg bg-primary/10 text-primary text-[10px] font-mono uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                          >
+                            Switch to this provider
+                          </button>
+                        )}
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
               {privacyScrub && privacyScrub.mapping.length > 0 && (
                 <PrivacyScrubIndicator scrub={privacyScrub} />
               )}

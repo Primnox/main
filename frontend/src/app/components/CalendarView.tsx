@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronLeft, ChevronRight, Calendar, Clock, MapPin,
-  Plus, X, Edit2, Trash2, AlignLeft, Zap, Check,
+  Plus, X, Edit2, Trash2, AlignLeft, Zap, Check, FileText,
 } from 'lucide-react';
 import { API_BASE } from '../../config';
 
@@ -19,6 +19,7 @@ interface CalEvent {
   description: string;
   recurrence: string;
   calendar: string;
+  note_id?: number | null;
 }
 
 interface Task {
@@ -199,10 +200,41 @@ function EventForm({
     location:    draft.location    || '',
     description: draft.description || '',
     calendar:    draft.calendar    || 'Personal',
+    note_id:     draft.note_id     ?? null as number | null,
   });
 
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
     setForm(f => ({ ...f, [k]: v }));
+
+  // Linked note — searches note titles as the user types, resolves to a
+  // note_id on selection. Shows the title as text; the underlying id is
+  // what actually gets saved (form.note_id).
+  const [noteQuery, setNoteQuery] = useState('');
+  const [noteResults, setNoteResults] = useState<{ id: number; title: string }[]>([]);
+  const [noteMenuOpen, setNoteMenuOpen] = useState(false);
+  const [linkedNoteTitle, setLinkedNoteTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!form.note_id) { setLinkedNoteTitle(null); return; }
+    fetch(`${API_BASE}/api/notes/search-titles?q=&limit=200`)
+      .then(r => r.json())
+      .then(d => {
+        const match = (d?.notes ?? []).find((n: any) => n.id === form.note_id);
+        if (match) setLinkedNoteTitle(match.title);
+      })
+      .catch(() => {});
+  }, [form.note_id]);
+
+  useEffect(() => {
+    if (!noteMenuOpen) return;
+    const t = setTimeout(() => {
+      fetch(`${API_BASE}/api/notes/search-titles?q=${encodeURIComponent(noteQuery)}&limit=8`)
+        .then(r => r.json())
+        .then(d => setNoteResults(d?.notes ?? []))
+        .catch(() => setNoteResults([]));
+    }, 150);
+    return () => clearTimeout(t);
+  }, [noteQuery, noteMenuOpen]);
 
   return (
     <div className="space-y-3">
@@ -276,6 +308,46 @@ function EventForm({
         >
           {CAL_NAMES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
+      </div>
+
+      <div className="relative">
+        <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest block mb-1">Linked note (optional)</label>
+        {form.note_id && linkedNoteTitle ? (
+          <div className="flex items-center gap-2 bg-on-surface/5 border border-on-surface/10 rounded-lg px-3 py-2">
+            <FileText size={12} className="text-primary shrink-0" />
+            <span className="flex-1 text-[11px] text-on-surface/80 truncate">{linkedNoteTitle}</span>
+            <button
+              onClick={() => { set('note_id', null); setLinkedNoteTitle(null); }}
+              className="text-on-surface/48 hover:text-error transition-colors"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <input
+            type="text"
+            placeholder="Search notes to link…"
+            value={noteQuery}
+            onFocus={() => setNoteMenuOpen(true)}
+            onChange={e => { setNoteQuery(e.target.value); setNoteMenuOpen(true); }}
+            onBlur={() => setTimeout(() => setNoteMenuOpen(false), 150)}
+            className="w-full bg-on-surface/5 border border-on-surface/10 rounded-lg px-3 py-2 text-[11px] text-on-surface/70 placeholder-on-surface/20 outline-none focus:border-primary/50"
+          />
+        )}
+        {noteMenuOpen && !form.note_id && noteResults.length > 0 && (
+          <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-surface-container border border-on-surface/10 rounded-lg shadow-lg overflow-hidden max-h-40 overflow-y-auto">
+            {noteResults.map(n => (
+              <button
+                key={n.id}
+                onMouseDown={() => { set('note_id', n.id); setLinkedNoteTitle(n.title); setNoteMenuOpen(false); setNoteQuery(''); }}
+                className="w-full text-left px-3 py-2 text-[11px] text-on-surface/70 hover:bg-on-surface/5 flex items-center gap-2"
+              >
+                <FileText size={11} className="text-primary/60 shrink-0" />
+                <span className="truncate">{n.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2 pt-1">

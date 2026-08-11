@@ -1,7 +1,7 @@
 # backend/verify_imports.py
 modules = [
     'settings_manager', 'memory', 'notes_manager', 'screen_reader',
-    'sensor_vision', 'vad_listener', 'voice_id', 'brain', 'context_builder',
+    'sensor_vision', 'vad_listener', 'brain', 'context_builder',
     'core', 'server', 'meeting_recorder', 'feed_manager',
     'skills.base_skill', 'skills.skill_router',
     'automation', 'privacy_mirror', 'spatial_engine'

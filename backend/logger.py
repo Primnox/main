@@ -77,6 +77,14 @@ def _write_session_banner():
     })
 
 
+# Known structured tracing fields a caller may attach via
+# `log.info("...", extra={"session_id": ..., "duration_ms": ...})`. Kept as
+# an explicit allowlist (rather than dumping the whole LogRecord.__dict__)
+# so existing free-text `log.info(f"...")` calls stay byte-identical in the
+# log output — this is purely additive.
+_TRACE_FIELDS = ("session_id", "duration_ms", "model", "tool", "tokens_estimated", "event", "language", "return_code")
+
+
 def _record_to_entry(record: logging.LogRecord) -> dict:
     entry = {
         "ts": round(time.time(), 3),
@@ -86,6 +94,9 @@ def _record_to_entry(record: logging.LogRecord) -> dict:
     }
     if record.exc_info:
         entry["exc"] = logging.Formatter().formatException(record.exc_info)
+    for field in _TRACE_FIELDS:
+        if hasattr(record, field):
+            entry[field] = getattr(record, field)
     return entry
 
 
@@ -125,25 +136,42 @@ def _build_logger(name: str) -> logging.Logger:
 
         logger.setLevel(logging.DEBUG)
 
-        # Rotating file — 5 MB x 3 files
-        fh = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
-        fh.setFormatter(JsonFormatter())
-        fh.setLevel(logging.DEBUG)
-        logger.addHandler(fh)
-
-        # Console — human-readable
-        ch = logging.StreamHandler()
-        ch.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S"))
-        ch.setLevel(logging.INFO)
-        logger.addHandler(ch)
-
-        # In-memory ring buffer for the live log viewer
-        bh = BufferHandler()
-        bh.setLevel(logging.DEBUG)
-        logger.addHandler(bh)
+        # Every distinct name (get_logger("core"), get_logger("server"), ...)
+        # used to build its OWN RotatingFileHandler on the same LOG_FILE path
+        # — this app has 20+ named loggers, so that meant 20+ independent
+        # open file handles on primnox.log at once. The moment the file hit
+        # its 5MB rollover threshold, Windows refused every rename() because
+        # some OTHER logger's handle was still open on it, so rotation never
+        # actually succeeded — every single log call from then on printed a
+        # "Logging error" PermissionError traceback to stderr for the rest of
+        # the process's life, forever. One shared handler instance across all
+        # named loggers means there's exactly one open handle to rotate.
+        for handler in _shared_handlers():
+            logger.addHandler(handler)
 
         logger.propagate = False
         return logger
+
+
+_shared_handler_instances: list[logging.Handler] | None = None
+
+
+def _shared_handlers() -> list[logging.Handler]:
+    global _shared_handler_instances
+    if _shared_handler_instances is None:
+        fh = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+        fh.setFormatter(JsonFormatter())
+        fh.setLevel(logging.DEBUG)
+
+        ch = logging.StreamHandler()
+        ch.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S"))
+        ch.setLevel(logging.INFO)
+
+        bh = BufferHandler()
+        bh.setLevel(logging.DEBUG)
+
+        _shared_handler_instances = [fh, ch, bh]
+    return _shared_handler_instances
 
 
 def get_logger(name: str) -> logging.Logger:

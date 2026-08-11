@@ -47,11 +47,24 @@ class TranscriptSkill(BaseSkill):
             truncated = text[:12000]
             user_intent = ctx.user_message or "full"
 
+            # `mode` (see input_schema above) narrows which section(s) to
+            # produce — was previously declared but never actually read here,
+            # so a caller passing it had zero effect.
+            mode = ctx.metadata.get("mode", "full")
+            sections = {
+                "summary": "1. **Summary** (3–5 sentences): what was discussed overall.\n",
+                "action_items": "1. **Action Items**: bullet list of concrete tasks or follow-ups mentioned.\n",
+                "full": (
+                    "1. **Summary** (3–5 sentences): what was discussed overall.\n"
+                    "2. **Action Items**: bullet list of concrete tasks or follow-ups mentioned.\n"
+                    "3. **Key Moments**: 3 notable quotes or decisions, with brief context.\n"
+                ),
+            }
+            instructions = sections.get(mode, sections["full"])
+
             prompt = (
                 f"You are analyzing a transcript. Do the following:\n\n"
-                f"1. **Summary** (3–5 sentences): what was discussed overall.\n"
-                f"2. **Action Items**: bullet list of concrete tasks or follow-ups mentioned.\n"
-                f"3. **Key Moments**: 3 notable quotes or decisions, with brief context.\n\n"
+                f"{instructions}\n"
                 f"User intent: {user_intent}\n\n"
                 f"TRANSCRIPT:\n{truncated}"
             )

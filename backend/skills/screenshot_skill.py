@@ -1,6 +1,5 @@
 # backend/skills/screenshot_skill.py
 import time
-from pathlib import Path
 from skills.base_skill import BaseSkill, SkillContext, SkillResult
 from logger import get_logger
 
@@ -12,14 +11,14 @@ class ScreenshotSkill(BaseSkill):
     description = "Capture the screen and run vision analysis on it."
     supported_extensions = []
     trigger_words = ["take ss", "take screenshot", "screenshot this", "capture screen"]
-    REQUIRES_PIP = ["PIL"]
+    REQUIRES_PIP = [("PIL", "Pillow")]
 
     def execute(self, ctx: SkillContext) -> SkillResult:
         from PIL import ImageGrab
         from sensor_vision import describe_screen
+        from sandbox_manager import sandbox_dir, enforce_quota
 
-        base_dir = Path.home() / "Documents" / "Primnox" / "Screenshots"
-        base_dir.mkdir(parents=True, exist_ok=True)
+        base_dir = sandbox_dir()
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         img_path = base_dir / f"ss_{timestamp}.png"
 
@@ -33,8 +32,10 @@ class ScreenshotSkill(BaseSkill):
             description = vision_data.get("description", "no visual description.")
 
             meta_path = base_dir / f"ss_{timestamp}_meta.txt"
-            with open(meta_path, "w") as f:
+            with open(meta_path, "w", encoding="utf-8") as f:
                 f.write(f"Description: {description}")
+
+            enforce_quota()
 
             return SkillResult(
                 success=True,

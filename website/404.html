@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Not Found — Primnox</title>
+  <meta name="description" content="That page doesn't exist." />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#070707" />
+
+  <script>
+    (function () {
+      var d = document.documentElement;
+      d.classList.add('js-ready');
+      // Apply the stored theme before first paint, or every visit flashes the
+      // default palette before switching.
+      try {
+        var t = localStorage.getItem('primnox-theme');
+        if (t && t !== 'dark' && /^[a-z]+$/.test(t)) d.setAttribute('data-theme', t);
+      } catch (e) { /* private mode */ }
+      // Debug overrides. ?intro replays the intro on every load and forces the
+      // motion path; ?motion=on|off forces it either way. Must run pre-paint so
+      // the CSS escape hatch is in place before the first frame.
+      var q = location.search;
+      var replayIntro = /[?&]intro(=|&|$)/.test(q);
+      if (replayIntro || /[?&]motion=on(&|$)/.test(q)) d.classList.add('force-motion');
+      try {
+        var home = location.pathname === '/' || location.pathname === '/index.html';
+        var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches &&
+                      !d.classList.contains('force-motion');
+        if (home && !reduced &&
+            (replayIntro || sessionStorage.getItem('primnox:intro-seen') !== '1')) {
+          d.classList.add('intro-pending');
+        }
+      } catch (e) { /* storage blocked: skip the intro rather than trap content */ }
+    })();
+  </script>
+
+  <link rel="preload" href="/assets/fonts/syne-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/assets/css/tokens.css" />
+  <link rel="stylesheet" href="/assets/css/base.css" />
+  <link rel="stylesheet" href="/assets/css/motion.css" />
+  <link rel="stylesheet" href="/assets/css/pages.css" />
+
+  <script src="/assets/js/vendor/gsap.min.js" defer></script>
+  <script type="module" src="/assets/js/boot.js"></script>
+</head>
+<body data-page="404">
+<a class="skip-link" href="#app">Skip to content</a>
+
+<!-- shell:start -->
+<div id="fx" aria-hidden="true"><div class="blob-layer"></div></div>
+
+<svg class="goo-defs" aria-hidden="true" focusable="false">
+  <filter id="goo" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="b" />
+    <feColorMatrix in="b" type="matrix"
+      values="1 0 0 0 0
+              0 1 0 0 0
+              0 0 1 0 0
+              0 0 0 20 -9" />
+  </filter>
+</svg>
+
+<div id="curtain" aria-hidden="true">
+  <div class="curtain-panels">
+    <div class="curtain-panel"></div><div class="curtain-panel"></div>
+    <div class="curtain-panel"></div><div class="curtain-panel"></div>
+    <div class="curtain-panel"></div>
+  </div>
+  <div class="curtain-label"><div class="curtain-word">Primnox</div></div>
+  <div class="curtain-wait">Loading</div>
+</div>
+
+<div id="intro" aria-hidden="true">
+  <canvas id="introCanvas" class="intro-canvas"></canvas>
+  <div class="intro-sub">Your personal OS</div>
+</div>
+
+<div class="cursor" id="cursor"></div>
+
+<nav id="nav">
+  <a href="/" class="nav-logo"><span class="logo-dot"></span>Primnox</a>
+  <ul class="nav-links">
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed</a></li>
+  </ul>
+  <a href="/download/" class="nav-dl">↓ Beta</a>
+  <span class="theme-wrap">
+    <button class="theme-tg" id="themeTg" aria-label="Cycle colour theme" title="Cycle theme (T)"></button>
+    <span class="theme-name" id="themeName" aria-hidden="true">Dark</span>
+  </span>
+  <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navDrawer" aria-label="Open menu">
+    <span></span><span></span>
+  </button>
+</nav>
+<div class="nav-drawer" id="navDrawer" inert>
+  <ul>
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed Phrase</a></li>
+    <li><a href="https://github.com/Primnox/public" target="_blank" rel="noopener external">GitHub</a></li>
+  </ul>
+</div>
+
+<!-- shell:end -->
+
+<main id="app">
+  <section class="nf">
+    <div class="nf-code">404</div>
+    <h1 class="nf-t">This page doesn't exist.</h1>
+    <p class="nf-s">Either the link is wrong or we moved something and forgot to leave a note. Both are fixable.</p>
+    <div class="cta-btns">
+      <a href="/" class="btn-solid">Back home ↗</a>
+      <a href="/product/" class="btn-outline">See the product <span>→</span></a>
+    </div>
+  </section>
+</main>
+
+<!-- shell:start -->
+<footer>
+  <a href="/" class="f-logo"><span class="logo-dot"></span>Primnox</a>
+  <ul class="f-links">
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed Phrase</a></li>
+    <li><a href="https://github.com/Primnox/public" target="_blank" rel="noopener external">GitHub</a></li>
+  </ul>
+  <span class="f-copy">© 2026 Primnox</span>
+</footer>
+<div id="a11y-live" role="status" aria-live="polite" class="sr-only"></div>
+<!-- shell:end -->
+</body>
+</html>

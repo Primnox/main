@@ -29,8 +29,14 @@ class CodeSkill(BaseSkill):
 
         log.info(f"Code Analyst: {ctx.file_path}")
         try:
-            with open(ctx.file_path, "r", encoding="utf-8") as f:
+            with open(ctx.file_path, "r", encoding="utf-8", errors="ignore") as f:
                 code = f.read()
+
+            # Sibling file-reading skills (pdf_skill, transcript_skill) both
+            # cap what they hand to think() — this one didn't, so a large
+            # attached file had no ceiling before hitting the model's context.
+            if len(code) > 15000:
+                code = code[:15000] + "\n...[truncated for length]"
 
             prompt = ctx.user_message or "Review and explain this code."
             resp = think(f"CODE:\n{code}\n\nTASK: {prompt}")

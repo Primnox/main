@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback, memo } from 'react';
-import { Database, MessageSquare, FileText, CheckCircle, Terminal, FileEdit, Video, Monitor, Zap, RefreshCw, AlertTriangle, Bell, Shield, ListTodo, Plus, Clock, Trash2, Activity, Radio, Cpu, CalendarDays, MapPin } from 'lucide-react';
+import { Database, MessageSquare, FileText, CheckCircle, FileEdit, Video, Monitor, Zap, RefreshCw, AlertTriangle, Bell, Shield, ListTodo, Plus, Clock, Trash2, Activity, Radio, Cpu, CalendarDays, MapPin } from 'lucide-react';
 import { API_BASE } from '../../config';
 
 type ScreenId =
   | 'summaries_expanded'
   | 'notes_icon_sidebar'
-  | 'summaries_sidebar_hidden'
   | 'summaries_empty_state'
   | 'island_settings'
-  | 'summaries_icon_sidebar'
   | 'chat_expanded_sidebar'
   | 'settings_neural'
   | 'logs'
@@ -572,54 +570,6 @@ export const SummariesExpanded = memo(({
   );
 });
 
-export const SummariesSidebarHidden = ({ onNavigate }: { onNavigate: (id: ScreenId) => void }) => (
-  <div className="h-full flex flex-col p-8 md:p-12 lg:p-20 animate-in fade-in zoom-in-95 duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)]">
-      <div className="mb-16">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-1.5 h-4 bg-primary shadow-[0_0_10px_rgba(79,70,229,0.5)]" />
-          <span className="font-mono text-primary lowercase text-xs tracking-[0.4em] font-bold italic opacity-60">session_active // synthesis_buffer</span>
-        </div>
-        <h1 className="font-bold lowercase italic tracking-wide text-4xl text-on-surface hover:text-primary transition-all duration-700 cursor-default">
-          Primary_Interface_X
-        </h1>
-      </div>
-
-      <div className="glass-panel relative overflow-hidden shadow-[0_64px_256px_rgba(0,0,0,0.8)] border-on-surface/5 group rounded-3xl bg-[var(--surface)] backdrop-blur-3xl">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.03] to-transparent pointer-events-none" />
-        <div className="border-b border-on-surface/5 px-12 py-8 flex justify-between items-center bg-on-surface/[0.01]">
-          <div className="flex items-center gap-12">
-            <div className="flex items-center gap-4">
-              <div className="w-2.5 h-2.5 rounded-full bg-success/20 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse" />
-              <span className="font-mono text-[10px] text-on-surface/80 uppercase tracking-[0.3em] font-bold">STATE: STEADY</span>
-            </div>
-            <div className="h-6 w-px bg-on-surface/10" />
-            <div className="flex items-center gap-4">
-              <span className="font-mono text-[10px] text-on-surface/48 uppercase tracking-[0.3em]">VERSION: 0.0.4-ALPHA</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-12 md:p-20 lg:p-24 max-w-5xl">
-          <div className="mb-20">
-            <span className="font-mono text-primary lowercase mb-8 block uppercase text-[11px] tracking-[0.5em] font-bold opacity-40">System_Summary</span>
-            <p className="text-xl font-bold text-on-surface leading-[1.05] tracking-tight lowercase italic font-light opacity-90 text-left">
-              the sovereign neural architecture has achieved full synchronization. all local sub-systems are operating within nominal parameters. privacy filters are active and enforcing local data boundaries.
-            </p>
-          </div>
-          <div className="flex items-center gap-8 pt-20 border-t border-on-surface/5">
-            <button onClick={() => onNavigate('summaries_expanded')} className="bg-on-surface text-surface font-mono px-12 py-5 uppercase text-[12px] font-bold tracking-[0.2em] hover:bg-primary hover:text-on-surface shadow-2xl flex items-center gap-4 rounded-xl transition-all duration-300 ease-out active:scale-95">
-              Apply_Changes
-              <CheckCircle size={20} />
-            </button>
-            <button onClick={() => onNavigate('logs')} className="border border-on-surface/10 text-on-surface/60 font-mono px-12 py-5 uppercase text-[11px] tracking-[0.3em] font-bold hover:bg-on-surface/5 rounded-xl transition-all duration-300 ease-out active:scale-95">
-              VIEW_RAW_HEX
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-);
-
 export const SummariesEmptyState = ({ onNavigate }: { onNavigate: (id: ScreenId) => void }) => (
   <div className="p-12 lg:p-20 h-full flex flex-col justify-center items-center text-center animate-in fade-in slide-in-from-bottom-8 duration-1000">
       <div className="relative mb-12">
@@ -647,85 +597,6 @@ export const SummariesEmptyState = ({ onNavigate }: { onNavigate: (id: ScreenId)
         >
           historical_archive
         </a>
-      </div>
-    </div>
-);
-
-export const SummariesIconSidebar = ({ onNavigate, notes = [] }: { onNavigate: (id: ScreenId) => void, notes?: any[] }) => (
-  <div className="flex flex-col lg:flex-row h-full">
-      <aside className="w-full lg:w-80 border-r border-on-surface/5 p-8 space-y-10 bg-surface-container-lowest overflow-y-auto custom-scrollbar">
-        <div>
-          <h4 className="font-mono text-on-surface/55 uppercase mb-5 text-[9px] tracking-[0.3em]">Core_Insights</h4>
-          <ul className="space-y-6">
-            {notes.length === 0 ? (
-              <li className="text-[11px] text-on-surface/48 italic font-mono uppercase tracking-widest">No nodes synced...</li>
-            ) : (
-              notes.slice(0, 5).map((note, idx) => (
-                <li key={idx} className="flex gap-4 group">
-                  <span className="font-mono text-primary text-[10px] mt-1 tabular-nums">0{idx+1}</span>
-                  <p className="text-[13px] text-on-surface-variant leading-relaxed opacity-80 group-hover:opacity-100 transition-opacity line-clamp-2 italic lowercase">
-                    {typeof note === 'string' ? note : note.text}
-                  </p>
-                </li>
-              ))
-            )}
-          </ul>
-        </div>
-        
-        <div className="pt-10 border-t border-on-surface/5">
-           <h4 className="font-mono text-on-surface/55 uppercase mb-5 text-[9px] tracking-[0.3em]">System_State</h4>
-           <div className="space-y-4">
-             <div className="flex justify-between items-center bg-surface/40 p-3 border border-on-surface/5 group hover:border-primary/30 transition-all">
-                <span className="font-mono text-[10px] text-on-surface/60">MEMORY</span>
-                <span className="font-mono text-[10px] text-success tracking-tighter uppercase">{notes.length > 0 ? 'OPTIMAL' : 'IDLE'}</span>
-             </div>
-           </div>
-        </div>
-      </aside>
-
-      <div className="flex-1 overflow-y-auto custom-scrollbar max-w-5xl mx-auto p-10 lg:p-20 space-y-14 pb-40 animate-in fade-in slide-in-from-right-8 duration-700">
-        <header className="space-y-6 text-left">
-          <div className="w-fit">
-            <span className="bg-primary/10 text-primary px-3 py-1 border border-primary/20 font-mono text-[10px] uppercase tracking-[0.2em] shadow-[0_0_15px_rgba(79,70,229,0.1)]">Neural Nexus Core</span>
-          </div>
-          <h1 className="font-bold lowercase italic tracking-wide text-3xl lg:text-4xl leading-[0.95] text-on-surface max-w-4xl">
-            {notes[0] ? (typeof notes[0] === 'string' ? notes[0] : notes[0].text) : 'Technical architecture of the decentralized neural nexus'}
-          </h1>
-          <div className="flex items-center gap-4 pt-4">
-             <div className="flex -space-x-2">
-                {[1,2,3].map(i => <div key={i} className="w-8 h-8 rounded-full border-2 border-surface bg-surface-container flex items-center justify-center"><Terminal size={12} className="text-primary/48" /></div>)}
-             </div>
-             <span className="font-mono text-[10px] text-on-surface/48 uppercase tracking-widest italic lowercase">Authored by Primnox_Agent</span>
-          </div>
-        </header>
-
-        <div className="glass-panel p-10 border-l-2 border-l-primary relative overflow-hidden group">
-           <div className="absolute top-0 right-0 p-4 opacity-[0.03] pointer-events-none group-hover:opacity-[0.05] transition-opacity">
-              <Database size={100} />
-           </div>
-           <p className="text-base text-on-surface leading-loose italic opacity-90 relative z-10 font-medium text-left lowercase">
-            "{notes[1] ? (typeof notes[1] === 'string' ? notes[1] : notes[1].text) : 'the proposed framework leverages a sharded graph topology to ensure linear scalability across heterogenous nodes.'}"
-          </p>
-        </div>
-        
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-8">
-           <div className="p-6 bg-surface-container-lowest border border-on-surface/5">
-              <span className="block font-mono text-[9px] text-on-surface/55 uppercase mb-4 tracking-widest text-center">Node_Count</span>
-              <p className="text-2xl font-bold text-on-surface tracking-tighter text-center italic">{notes.length}</p>
-           </div>
-           <div className="p-6 bg-surface-container-lowest border border-on-surface/5">
-              <span className="block font-mono text-[9px] text-on-surface/55 uppercase mb-4 tracking-widest text-center">Sync_Frequency</span>
-              <p className="text-2xl font-bold text-on-surface tracking-tighter text-center italic">0.05ms</p>
-           </div>
-        </div>
-
-        <div className="fixed bottom-12 left-1/2 -translate-x-1/2 z-50">
-          <div className="flex gap-2 p-2 bg-surface/70 backdrop-blur-3xl rounded-full border border-on-surface/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-            <button className="p-4 rounded-full text-on-surface/60 hover:text-on-surface transition-all duration-300 ease-out active:scale-95" onClick={() => onNavigate('chat_expanded_sidebar')}><MessageSquare size={20} /></button>
-            <button className="p-4 rounded-full border border-primary text-primary bg-primary/10 shadow-[0_0_20px_rgba(79,70,229,0.2)] transition-all duration-300 ease-out active:scale-95" onClick={() => onNavigate('notes_icon_sidebar')}><Database size={20} /></button>
-            <button className="p-4 rounded-full text-on-surface/60 hover:text-on-surface transition-all duration-300 ease-out active:scale-95" onClick={() => onNavigate('summaries_expanded')}><FileText size={20} /></button>
-          </div>
-        </div>
       </div>
     </div>
 );

@@ -17,7 +17,7 @@ REQUIRES_PIP: google-api-python-client google-auth-oauthlib google-auth-httplib2
 """
 
 from __future__ import annotations
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from logger import get_logger
 from .base_provider import BaseCalendarProvider, CalendarEvent
@@ -104,11 +104,24 @@ class GoogleCalendarProvider(BaseCalendarProvider):
                     title    = item.get("summary", "Untitled")
                     location = item.get("location", "")
                     desc     = item.get("description", "")
-                    start_s  = item["start"].get("dateTime", item["start"].get("date", ""))
-                    end_s    = item["end"].get("dateTime", item["end"].get("date", ""))
 
-                    start = datetime.fromisoformat(start_s.replace("Z", "+00:00"))
-                    end_  = datetime.fromisoformat(end_s.replace("Z", "+00:00"))
+                    # All-day events carry "date" (e.g. "2024-01-15") instead
+                    # of "dateTime" — fromisoformat() on a bare date string
+                    # produces a naive datetime, which crashes CalendarEvent's
+                    # is_now/minutes_until (compared against an aware "now")
+                    # the moment this event is touched. Both the ical and
+                    # Notion providers already normalize this; mirror that here.
+                    is_all_day = "dateTime" not in item["start"]
+                    if is_all_day:
+                        start_d = date.fromisoformat(item["start"]["date"])
+                        end_d   = date.fromisoformat(item["end"]["date"])
+                        start = datetime(start_d.year, start_d.month, start_d.day, tzinfo=timezone.utc)
+                        end_  = datetime(end_d.year, end_d.month, end_d.day, tzinfo=timezone.utc)
+                    else:
+                        start_s = item["start"]["dateTime"]
+                        end_s   = item["end"]["dateTime"]
+                        start = datetime.fromisoformat(start_s.replace("Z", "+00:00"))
+                        end_  = datetime.fromisoformat(end_s.replace("Z", "+00:00"))
 
                     events.append(CalendarEvent(
                         title=title, start=start, end=end_,

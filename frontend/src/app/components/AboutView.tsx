@@ -1,11 +1,42 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Shield, Cpu, Terminal, Eye, Zap, Database, FileText, Bell, Layers, HardDrive, RefreshCw, Puzzle } from 'lucide-react';
+import { Shield, Cpu, Terminal, Eye, Zap, FileText, Bell, HardDrive, RefreshCw, Puzzle, Plus, Pencil, Trash2, Volume2, Check } from 'lucide-react';
 import { API_BASE } from '../../config';
+import {
+  BUILTIN_PROVIDERS, useProviderModels, type CustomProvider,
+} from '../hooks/useProviderModels';
+import { deleteJson } from './settings/api';
+import { Select, Button, Status } from './settings/primitives';
+import { CustomProviderForm } from './settings/CustomProviderForm';
 
 const API_BASE_URL = `${API_BASE}`;
 
-export const KnowledgePage = ({ activeModel = "llama-3.3-70b-versatile" }: { activeModel?: string }) => {
+type ModelLibraryProps = {
+  apiKey: string; openaiApiKey: string; anthropicApiKey: string; geminiApiKey: string;
+  openaiModel: string; setOpenaiModel: (v: string) => void;
+  anthropicModel: string; setAnthropicModel: (v: string) => void;
+  groqModel: string; setGroqModel: (v: string) => void;
+  geminiModel: string; setGeminiModel: (v: string) => void;
+  groqTtsModel: string; setGroqTtsModel: (v: string) => void;
+  openaiTtsModel: string; setOpenaiTtsModel: (v: string) => void;
+  anthropicTtsModel: string; setAnthropicTtsModel: (v: string) => void;
+  geminiTtsModel: string; setGeminiTtsModel: (v: string) => void;
+  customProviders: CustomProvider[]; setCustomProviders: (v: CustomProvider[]) => void;
+  activeCustomProviderId: string;
+  settings: any; updateSettings: (s: any) => void | Promise<void>;
+};
+
+export const KnowledgePage = ({
+  activeModel = "llama-3.3-70b-versatile",
+  apiKey = '', openaiApiKey = '', anthropicApiKey = '', geminiApiKey = '',
+  openaiModel = '', setOpenaiModel = () => {}, anthropicModel = '', setAnthropicModel = () => {},
+  groqModel = '', setGroqModel = () => {}, geminiModel = '', setGeminiModel = () => {},
+  groqTtsModel = '', setGroqTtsModel = () => {}, openaiTtsModel = '', setOpenaiTtsModel = () => {},
+  anthropicTtsModel = '', setAnthropicTtsModel = () => {}, geminiTtsModel = '', setGeminiTtsModel = () => {},
+  customProviders = [], setCustomProviders = () => {},
+  activeCustomProviderId = '',
+  settings = {}, updateSettings = () => {},
+}: Partial<ModelLibraryProps> & { activeModel?: string }) => {
   const [status, setStatus] = useState<any>(null);
   const [skills, setSkills] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,11 +63,82 @@ export const KnowledgePage = ({ activeModel = "llama-3.3-70b-versatile" }: { act
 
   useEffect(() => { fetchStatus(); }, []);
 
+  // ── Model Library ──────────────────────────────────────────────────────
+  const apiKeys = { groq: apiKey, openai: openaiApiKey, anthropic: anthropicApiKey, gemini: geminiApiKey };
+  const chatModels = useProviderModels({ apiKeys, customProviders, capability: 'chat' });
+  const ttsModels = useProviderModels({ apiKeys, customProviders, capability: 'tts' });
+
+  const allProviderKeys = [...BUILTIN_PROVIDERS.map(p => p.key), ...customProviders.map(p => p.id)];
+  useEffect(() => {
+    allProviderKeys.forEach(key => {
+      if (!chatModels.providerModelsCache[key]) chatModels.detectModelsFor(key);
+      if (!ttsModels.providerModelsCache[key] && BUILTIN_PROVIDERS.some(p => p.key === key)) {
+        ttsModels.detectModelsFor(key);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customProviders.length]);
+
+  const chatModelFor = (key: string): string => {
+    if (key === 'groq') return groqModel;
+    if (key === 'openai') return openaiModel;
+    if (key === 'anthropic') return anthropicModel;
+    if (key === 'gemini') return geminiModel;
+    return customProviders.find(p => p.id === key)?.model || '';
+  };
+  const setChatModelFor = (key: string, model: string) => {
+    if (key === 'groq') setGroqModel(model);
+    else if (key === 'openai') setOpenaiModel(model);
+    else if (key === 'anthropic') setAnthropicModel(model);
+    else if (key === 'gemini') setGeminiModel(model);
+    else setCustomProviders(customProviders.map(p => p.id === key ? { ...p, model } : p));
+  };
+  const ttsModelFor = (key: string): string =>
+    key === 'groq' ? groqTtsModel : key === 'openai' ? openaiTtsModel
+    : key === 'anthropic' ? anthropicTtsModel : key === 'gemini' ? geminiTtsModel : '';
+  const setTtsModelFor = (key: string, model: string) => {
+    if (key === 'groq') setGroqTtsModel(model);
+    else if (key === 'openai') setOpenaiTtsModel(model);
+    else if (key === 'anthropic') setAnthropicTtsModel(model);
+    else if (key === 'gemini') setGeminiTtsModel(model);
+  };
+
+  const [dirty, setDirty] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const markDirty = (fn: () => void) => { fn(); setDirty(true); setSaved(false); };
+
+  const saveModelLibrary = async () => {
+    await updateSettings({
+      ...settings,
+      openai_model: openaiModel, anthropic_model: anthropicModel, groq_model: groqModel, gemini_model: geminiModel,
+      groq_tts_model: groqTtsModel, openai_tts_model: openaiTtsModel,
+      anthropic_tts_model: anthropicTtsModel, gemini_tts_model: geminiTtsModel,
+      custom_providers: customProviders,
+    });
+    setDirty(false);
+    setSaved(true);
+  };
+
+  // Custom-endpoint add/edit/delete hit their own REST endpoints immediately
+  // (same as Settings) — the dirty/Save flow below is only for the model
+  // preference dropdowns, which are plain settings fields with no CRUD of
+  // their own.
+  const [customFormState, setCustomFormState] = useState<'closed' | 'new' | CustomProvider>('closed');
+  const handleCustomSaved = (profile: CustomProvider, isNew: boolean) => {
+    setCustomProviders(
+      isNew ? [...customProviders, profile] : customProviders.map(p => p.id === profile.id ? profile : p)
+    );
+    setCustomFormState('closed');
+  };
+  const deleteCustomProfile = async (id: string) => {
+    const ok = await deleteJson(`/api/custom_providers/${id}`);
+    if (!ok) return;
+    setCustomProviders(customProviders.filter(p => p.id !== id));
+  };
+
   const statCards = status ? [
-    { icon: Database, label: 'Memories', value: status.memories_count ?? '—', sub: `${(status.db_sizes_kb?.['memory.db'] ?? 0)} KB on disk` },
     { icon: FileText, label: 'Notes', value: status.notes_count ?? '—', sub: `${(status.db_sizes_kb?.['chat.db'] ?? 0)} KB chat DB` },
     { icon: Bell, label: 'Reminders', value: status.reminders_count ?? '—', sub: 'pending triggers' },
-    { icon: Layers, label: 'Feed Events', value: status.feed_events ?? '—', sub: 'ambient context' },
     { icon: HardDrive, label: 'Last Backup', value: status.last_backup ? '✓' : 'None', sub: status.last_backup ?? 'run a backup' },
     { icon: Cpu, label: 'Active Model', value: (status.active_model ?? activeModel).replace(/_/g, ' '), sub: status.has_api_key ? 'API key ✓' : 'no key set' },
   ] : [];
@@ -141,6 +243,104 @@ export const KnowledgePage = ({ activeModel = "llama-3.3-70b-versatile" }: { act
             </section>
           )}
 
+          {/* Model Library */}
+          <section className="space-y-4 border-t border-on-surface/5 pt-10">
+            <div className="flex items-center justify-between">
+              <h3 className="text-on-surface text-lg font-bold tracking-tight italic flex items-center gap-3">
+                <Volume2 size={18} className="text-primary" />
+                Model Library
+              </h3>
+              {dirty ? (
+                <Button variant="solid" onClick={saveModelLibrary}>Save changes</Button>
+              ) : saved ? (
+                <span className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--green)]"><Check size={12} />Saved</span>
+              ) : null}
+            </div>
+            <p className="text-xs text-on-surface/55 leading-relaxed">
+              Every model available from an API key you've entered — chat and voice-synthesis. Picking a voice-synthesis
+              model here saves your preference; actual voice output still uses the local text-to-speech engine until a
+              future update wires cloud playback in.
+            </p>
+
+            <div className="space-y-3">
+              {[...BUILTIN_PROVIDERS.map(p => ({ key: p.key as string, name: p.label, isCustom: false })),
+                ...customProviders.map(p => ({ key: p.id, name: p.name, isCustom: true }))].map(({ key, name, isCustom }) => (
+                <div key={key} className="p-4 bg-surface border border-on-surface/5 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-on-surface flex items-center gap-2">
+                      {name}
+                      {(() => {
+                        const currentActive = status?.active_model ?? activeModel;
+                        const isActive = currentActive === 'Custom'
+                          ? key === activeCustomProviderId
+                          : key === BUILTIN_PROVIDERS.find(p => p.activeModel === currentActive)?.key;
+                        return isActive && (
+                          <span className="font-mono text-[8px] bg-primary/10 text-primary px-2 py-0.5 rounded-full uppercase tracking-wider">active</span>
+                        );
+                      })()}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => { chatModels.detectModelsFor(key); if (!isCustom) ttsModels.detectModelsFor(key); }}
+                        aria-label={`Refresh models for ${name}`}
+                        className="p-1.5 text-on-surface/50 hover:text-on-surface transition-colors"
+                        title="Refresh model list"
+                      >
+                        <RefreshCw size={12} className={chatModels.detectingProvider === key || ttsModels.detectingProvider === key ? 'animate-spin' : ''} />
+                      </button>
+                      {isCustom && (
+                        <>
+                          <button onClick={() => setCustomFormState(customProviders.find(p => p.id === key)!)}
+                            aria-label={`Edit ${name}`} className="p-1.5 text-on-surface/50 hover:text-on-surface transition-colors">
+                            <Pencil size={12} />
+                          </button>
+                          <button onClick={() => deleteCustomProfile(key)}
+                            aria-label={`Delete ${name}`} className="p-1.5 text-on-surface/50 hover:text-error transition-colors">
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <span className="font-mono text-[9px] uppercase tracking-widest text-on-surface/50">Chat model</span>
+                      <Select
+                        value={chatModelFor(key)}
+                        onChange={(v) => markDirty(() => setChatModelFor(key, v))}
+                        options={(chatModels.providerModelsCache[key]?.models || []).map(m => ({ value: m, label: m }))}
+                      />
+                    </div>
+                    {!isCustom && (
+                      <div className="space-y-1.5">
+                        <span className="font-mono text-[9px] uppercase tracking-widest text-on-surface/50">Voice synthesis model</span>
+                        {ttsModels.providerModelsCache[key]?.models?.length ? (
+                          <Select
+                            value={ttsModelFor(key)}
+                            onChange={(v) => markDirty(() => setTtsModelFor(key, v))}
+                            options={ttsModels.providerModelsCache[key].models.map(m => ({ value: m, label: m }))}
+                          />
+                        ) : (
+                          <Status tone="muted">No voice models from this provider</Status>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {customFormState === 'closed' ? (
+                <Button onClick={() => setCustomFormState('new')}><Plus size={11} className="inline mr-2" />Add custom endpoint</Button>
+              ) : (
+                <CustomProviderForm
+                  editing={customFormState === 'new' ? null : customFormState}
+                  onSave={handleCustomSaved}
+                  onCancel={() => setCustomFormState('closed')}
+                />
+              )}
+            </div>
+          </section>
+
           {/* Architecture sections */}
           <section className="space-y-4 border-t border-on-surface/5 pt-10">
             <h3 className="text-on-surface text-lg font-bold tracking-tight italic flex items-center gap-3">
@@ -168,7 +368,7 @@ export const KnowledgePage = ({ activeModel = "llama-3.3-70b-versatile" }: { act
                   <span className="text-on-surface font-bold">Llama-3.2-11b-vision</span>
                 </li>
                 <li className="flex justify-between border-b border-on-surface/5 pb-2">
-                  <span>Voice Synthesis:</span>
+                  <span>Transcription (STT):</span>
                   <span className="text-on-surface font-bold">Whisper-large-v3-turbo</span>
                 </li>
                 <li className="flex justify-between">

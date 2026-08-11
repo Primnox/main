@@ -110,9 +110,19 @@ class OutlookCalendarProvider(BaseCalendarProvider):
                     end_s    = item["end"]["dateTime"]
                     tz_name  = item["start"].get("timeZone", "UTC")
 
-                    # Graph returns naive times in the event's timezone
-                    from zoneinfo import ZoneInfo
-                    tz = ZoneInfo(tz_name)
+                    # Graph returns naive times in the event's timezone. Without
+                    # a `Prefer: outlook.timezone` header, Graph can return a
+                    # legacy Windows timezone name (e.g. "Pacific Standard
+                    # Time") instead of an IANA key — zoneinfo doesn't know
+                    # those, so fall back to UTC rather than silently dropping
+                    # the whole event (better to show it at a possibly-wrong
+                    # hour than not show it at all).
+                    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+                    try:
+                        tz = ZoneInfo(tz_name)
+                    except ZoneInfoNotFoundError:
+                        log.warning(f"Outlook event has unrecognized timezone '{tz_name}' — falling back to UTC")
+                        tz = timezone.utc
                     start = datetime.fromisoformat(start_s).replace(tzinfo=tz)
                     end_  = datetime.fromisoformat(end_s).replace(tzinfo=tz)
 

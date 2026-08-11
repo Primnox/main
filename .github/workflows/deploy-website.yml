@@ -22,7 +22,13 @@ jobs:
         with:
           sparse-checkout: |
             website
+            scripts/check-shell.mjs
           sparse-checkout-cone-mode: false
+
+      # There is no build step, so the nav/footer/fx shell is physically copied
+      # into every page. This fails the deploy if those copies drift apart.
+      - name: Check shell parity across pages
+        run: node scripts/check-shell.mjs
 
       # Uses RELEASE_TOKEN (the same PAT build-windows.yml already uses for
       # cross-repo publishing) — it needs Contents:write on

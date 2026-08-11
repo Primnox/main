@@ -295,6 +295,28 @@ export function usePrimnox() {
           // what was remembered is always inspectable in the Memory view.
           fetchMemory();
         }
+        else if (type === 'permission_request') {
+          // The backend is blocked mid-tool-call waiting on this (see
+          // permission_manager.py) — render it as an Allow/Deny chat card
+          // using the same structured-block shape a model reply can emit,
+          // reusing StructuredBlock's `buttons` rendering rather than a
+          // separate confirm-dialog component.
+          const token = payload?.token;
+          if (token) {
+            setMessages(prev => [...prev, {
+              sender: 'Primnox',
+              text: payload?.description || 'This action needs your confirmation.',
+              timestamp: Date.now(),
+              blocks: [{
+                type: 'buttons',
+                buttons: [
+                  { label: 'Allow', action: `permission:${token}:allow` },
+                  { label: 'Deny', action: `permission:${token}:deny` },
+                ],
+              }],
+            }]);
+          }
+        }
         else if (type === 'daily_debrief') {
           const briefText = payload?.debrief || 'Daily brief generated.';
           setMessages(prev => [...prev, {
@@ -349,6 +371,20 @@ export function usePrimnox() {
         else if (type === 'tool_executing') {
           // LLM is calling a tool — show briefly in the island status area
           if (payload?.tool) addToast('info', `using: ${payload.tool.replace('_', ' ')}`);
+        }
+        else if (type === 'tool_call' || type === 'tool_result') {
+          // What the model actually ran (and what came back), appended live to
+          // the in-flight Primnox message so it's visible as it happens. The
+          // final "message" broadcast carries the same blocks, so this stays
+          // consistent after the turn completes and on reload.
+          const block = { type, ...payload };
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            let i = newMsgs.length - 1;
+            while (i >= 0 && newMsgs[i].sender?.toUpperCase() !== 'PRIMNOX') i--;
+            if (i >= 0) newMsgs[i] = { ...newMsgs[i], blocks: [...(newMsgs[i].blocks || []), block] };
+            return newMsgs;
+          });
         }
         else if (type === 'privacy_scrub') {
           // What was pseudonymized before this turn hit the cloud. Attach to the
@@ -503,6 +539,14 @@ export function usePrimnox() {
         body: JSON.stringify({ text, sessionId })
       });
     }
+  }, []);
+
+  const respondToPermission = useCallback(async (token: string, allow: boolean) => {
+    await fetch(`${API_BASE_URL}/api/permission_response`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, allow }),
+    });
   }, []);
 
   const toggleMic = useCallback(async () => {
@@ -689,7 +733,7 @@ export function usePrimnox() {
     flowState, errorStreak, nowPlaying, productivityScore, parallelTasks, proactiveAlert, dismissProactiveAlert,
     islandSkills,
     triggerSmartPaste, triggerMediaControl,
-    sendMessage, toggleMic, toggleIncognito, manualReconnect, addToast, updateSettings, exportNotes, fetchNotes, fetchLogs,
+    sendMessage, respondToPermission, toggleMic, toggleIncognito, manualReconnect, addToast, updateSettings, exportNotes, fetchNotes, fetchLogs,
     chatSessions,
     chatFolders,
     activeChatId,

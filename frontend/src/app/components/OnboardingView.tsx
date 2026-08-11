@@ -2,10 +2,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Sparkles, Check, Brain, Shield, Eye, ShieldAlert,
-  Loader2, Terminal, Compass, LayoutDashboard, MessageSquare, Cpu
+  Loader2, Terminal, Compass, LayoutDashboard, MessageSquare, Cpu, Plug, RefreshCw
 } from 'lucide-react';
 import { FlowLocal, FlowCloud } from './FlowDiagram';
 import { API_BASE } from '../../config';
+
+/** Mirrors brain.py's _is_local_url / SettingsView's isCustomUrlLocal — a Custom
+ *  provider's local-vs-cloud classification (and therefore whether Privacy
+ *  Mirror applies) is auto-detected from the base URL, not a separate toggle. */
+const isCustomUrlLocal = (url: string): boolean =>
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test((url || '').trim());
 // Props are injected from App so we share the single WebSocket connection.
 interface OnboardingViewProps {
   onComplete: () => void;
@@ -119,11 +125,37 @@ const Step1Welcome = ({ next, skip }: any) => (
 
 const Step2Privacy = ({ next, updateSettings, settings }: any) => {
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
-  const [selected, setSelected] = useState<'cloud' | 'ollama' | 'llamacpp' | null>(null);
+  const [selected, setSelected] = useState<'cloud' | 'ollama' | 'llamacpp' | 'custom' | null>(null);
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [ollamaModel, setOllamaModel] = useState('llama3.2');
   const [llamaUrl, setLlamaUrl] = useState('http://localhost:8080');
   const [llamaModel, setLlamaModel] = useState('');
+  const [customApiType, setCustomApiType] = useState<'openai' | 'anthropic'>('openai');
+  const [customBaseUrl, setCustomBaseUrl] = useState('');
+  const [customApiKey, setCustomApiKey] = useState('');
+  const [customModel, setCustomModel] = useState('');
+  const [customAvailableModels, setCustomAvailableModels] = useState<string[]>([]);
+  const [detectingCustomModels, setDetectingCustomModels] = useState(false);
+  const [customModelsError, setCustomModelsError] = useState<string | null>(null);
+
+  const detectCustomModels = async () => {
+    setDetectingCustomModels(true);
+    setCustomModelsError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/api/custom_provider/models`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base_url: customBaseUrl, api_type: customApiType, api_key: customApiKey }),
+      });
+      const d = await resp.json();
+      if (d?.models?.length) setCustomAvailableModels(d.models);
+      else { setCustomAvailableModels([]); setCustomModelsError(d?.error || 'No models found at that URL.'); }
+    } catch {
+      setCustomAvailableModels([]);
+      setCustomModelsError('Could not reach that URL.');
+    }
+    setDetectingCustomModels(false);
+  };
 
   useEffect(() => {
     fetch(`${API_BASE}/api/ollama/status`)
@@ -148,6 +180,22 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
     const current = settings?.active_model;
     const model = cloudModels.includes(current) ? current : 'Groq_Llama_3';
     updateSettings({ ...settings, active_model: model, privacy_mirror_enabled: true });
+    next();
+  };
+  const confirmCustom = () => {
+    // Settings stores custom endpoints as a named-profile list (so you can save
+    // more than one later in Settings), not the flat fields this screen used
+    // to write — this profile becomes profile #1, selected as active.
+    const id = (crypto.randomUUID?.() || `${Date.now()}`).replace(/-/g, '').slice(0, 8);
+    updateSettings({
+      ...settings,
+      active_model: 'Custom',
+      active_custom_provider_id: id,
+      custom_providers: [
+        ...(settings?.custom_providers || []),
+        { id, name: 'Custom', api_type: customApiType, base_url: customBaseUrl, api_key: customApiKey, model: customModel },
+      ],
+    });
     next();
   };
 
@@ -196,6 +244,16 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
           <Cpu size={22} className="text-primary mb-3" />
           <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">llama.cpp — Local GGUF</h3>
           <p className="text-[10px] text-on-surface/50 leading-relaxed">Run any GGUF model via llama-server. Fully offline.</p>
+        </button>
+
+        {/* Custom endpoint */}
+        <button
+          onClick={() => setSelected(s => s === 'custom' ? null : 'custom')}
+          className={`${cardBase} ${selected === 'custom' ? 'border-primary/60 bg-primary/10' : 'border-primary/20 bg-primary/5 hover:bg-primary/10 hover:scale-[1.02]'}`}
+        >
+          <Plug size={22} className="text-primary mb-3" />
+          <h3 className="font-bold lowercase italic tracking-wide text-sm mb-1">Custom</h3>
+          <p className="text-[10px] text-on-surface/50 leading-relaxed">Your own endpoint — vLLM, LM Studio, OpenRouter, a self-hosted proxy, etc.</p>
         </button>
 
         {/* Local Only — coming soon */}
@@ -284,6 +342,69 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
           </motion.div>
         )}
 
+        {/* Custom config panel */}
+        {selected === 'custom' && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+            <div className="border border-primary/20 bg-primary/5 rounded-xl p-5 space-y-4">
+              <p className="font-mono text-[10px] text-primary/70 uppercase tracking-widest font-bold">Custom Endpoint Config</p>
+              <div className="flex gap-2">
+                <button onClick={() => setCustomApiType('openai')}
+                  className={`flex-1 py-2 text-[10px] uppercase tracking-wider font-bold rounded border transition-all ${customApiType === 'openai' ? 'bg-primary/20 border-primary text-on-surface' : 'bg-transparent border-on-surface/10 text-on-surface/50 hover:bg-on-surface/5'}`}>
+                  OpenAI-compatible
+                </button>
+                <button onClick={() => setCustomApiType('anthropic')}
+                  className={`flex-1 py-2 text-[10px] uppercase tracking-wider font-bold rounded border transition-all ${customApiType === 'anthropic' ? 'bg-primary/20 border-primary text-on-surface' : 'bg-transparent border-on-surface/10 text-on-surface/50 hover:bg-on-surface/5'}`}>
+                  Anthropic-compatible
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">Base URL</label>
+                  <input value={customBaseUrl} onChange={e => setCustomBaseUrl(e.target.value)}
+                    className="w-full bg-surface/60 border border-on-surface/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-primary/40 text-on-surface/80"
+                    placeholder="http://localhost:8000 or https://api.example.com" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">API Key <span className="text-on-surface/48">(optional)</span></label>
+                  <input type="password" value={customApiKey} onChange={e => setCustomApiKey(e.target.value)}
+                    className="w-full bg-surface/60 border border-on-surface/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-primary/40 text-on-surface/80"
+                    placeholder="leave blank if none needed" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="font-mono text-[9px] text-on-surface/55 uppercase tracking-widest">Model</label>
+                <div className="flex gap-2">
+                  <input value={customModel} onChange={e => setCustomModel(e.target.value)}
+                    className="flex-1 bg-surface/60 border border-on-surface/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-primary/40 text-on-surface/80"
+                    placeholder="model-name" />
+                  <button onClick={detectCustomModels} disabled={detectingCustomModels || !customBaseUrl}
+                    className="px-4 bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95 disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap">
+                    <RefreshCw size={11} className={detectingCustomModels ? 'animate-spin' : ''} />
+                    {detectingCustomModels ? 'Detecting' : 'Detect'}
+                  </button>
+                </div>
+                {customModelsError && <p className="text-[10px] text-error font-mono">{customModelsError}</p>}
+                {customAvailableModels.length > 0 && (
+                  <select value={customModel} onChange={e => setCustomModel(e.target.value)}
+                    className="w-full bg-surface/60 border border-on-surface/10 rounded-lg py-2 px-3 font-mono text-[11px] outline-none focus:border-primary/40 text-on-surface/80 appearance-none">
+                    {customAvailableModels.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                )}
+              </div>
+              <div className="border-t border-primary/10 pt-2">
+                {isCustomUrlLocal(customBaseUrl) ? <FlowLocal /> : <FlowCloud />}
+              </div>
+              <p className="text-[10px] text-on-surface/55 font-mono">
+                Local vs cloud is auto-detected from the URL — localhost/127.0.0.1 skips Privacy Mirror, anything else is scrubbed like a cloud provider.
+              </p>
+              <button onClick={confirmCustom} disabled={!customBaseUrl}
+                className="w-full py-2.5 bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary rounded-lg font-mono text-[10px] uppercase tracking-widest font-bold transition-all active:scale-95 disabled:opacity-40">
+                Use Custom → Continue
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {/* Cloud continue */}
         {selected === 'cloud' && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
@@ -308,8 +429,8 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
 const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
   const [key, setKey] = useState('');
   const [status, setStatus] = useState<'idle'|'testing'|'success'|'error'>('idle');
-  const isLocalMode = settings?.active_model === 'Ollama_Local' || settings?.active_model === 'LlamaCpp_Local';
-  const localModelName = settings?.active_model === 'LlamaCpp_Local' ? 'llama.cpp' : 'Ollama';
+  const isLocalMode = settings?.active_model === 'Ollama_Local' || settings?.active_model === 'LlamaCpp_Local' || settings?.active_model === 'Custom';
+  const localModelName = settings?.active_model === 'LlamaCpp_Local' ? 'llama.cpp' : settings?.active_model === 'Custom' ? 'your custom endpoint' : 'Ollama';
 
   const testKey = async () => {
     setStatus('testing');

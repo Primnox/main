@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy — Primnox</title>
+  <meta name="description" content="Why Primnox scrubs your context on-device before it reaches any cloud AI, how the pipeline works, and what is not built yet." />
+  <link rel="canonical" href="https://primnox.github.io/privacy/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="Privacy — Primnox" />
+  <meta property="og:description" content="You can't trust a server. You can trust local code. The Primnox privacy thesis." />
+  <meta property="og:url" content="https://primnox.github.io/privacy/" />
+  <meta name="theme-color" content="#070707" />
+
+  <script>
+    (function () {
+      var d = document.documentElement;
+      d.classList.add('js-ready');
+      // Apply the stored theme before first paint, or every visit flashes the
+      // default palette before switching.
+      try {
+        var t = localStorage.getItem('primnox-theme');
+        if (t && t !== 'dark' && /^[a-z]+$/.test(t)) d.setAttribute('data-theme', t);
+      } catch (e) { /* private mode */ }
+      // Debug overrides. ?intro replays the intro on every load and forces the
+      // motion path; ?motion=on|off forces it either way. Must run pre-paint so
+      // the CSS escape hatch is in place before the first frame.
+      var q = location.search;
+      var replayIntro = /[?&]intro(=|&|$)/.test(q);
+      if (replayIntro || /[?&]motion=on(&|$)/.test(q)) d.classList.add('force-motion');
+      try {
+        var home = location.pathname === '/' || location.pathname === '/index.html';
+        var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches &&
+                      !d.classList.contains('force-motion');
+        if (home && !reduced &&
+            (replayIntro || sessionStorage.getItem('primnox:intro-seen') !== '1')) {
+          d.classList.add('intro-pending');
+        }
+      } catch (e) { /* storage blocked: skip the intro rather than trap content */ }
+    })();
+  </script>
+
+  <link rel="preload" href="/assets/fonts/syne-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/assets/fonts/dmsans-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/assets/css/tokens.css" />
+  <link rel="stylesheet" href="/assets/css/base.css" />
+  <link rel="stylesheet" href="/assets/css/motion.css" />
+  <link rel="stylesheet" href="/assets/css/pages.css" />
+
+  <script src="/assets/js/vendor/gsap.min.js" defer></script>
+  <script type="module" src="/assets/js/boot.js"></script>
+  <link rel="modulepreload" href="/assets/js/core.js" />
+  <link rel="modulepreload" href="/assets/js/router.js" />
+  <link rel="modulepreload" href="/assets/js/curtain.js" />
+</head>
+<body data-page="privacy">
+<a class="skip-link" href="#app">Skip to content</a>
+
+<!-- shell:start -->
+<div id="fx" aria-hidden="true"><div class="blob-layer"></div></div>
+
+<svg class="goo-defs" aria-hidden="true" focusable="false">
+  <filter id="goo" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="b" />
+    <feColorMatrix in="b" type="matrix"
+      values="1 0 0 0 0
+              0 1 0 0 0
+              0 0 1 0 0
+              0 0 0 20 -9" />
+  </filter>
+</svg>
+
+<div id="curtain" aria-hidden="true">
+  <div class="curtain-panels">
+    <div class="curtain-panel"></div><div class="curtain-panel"></div>
+    <div class="curtain-panel"></div><div class="curtain-panel"></div>
+    <div class="curtain-panel"></div>
+  </div>
+  <div class="curtain-label"><div class="curtain-word">Primnox</div></div>
+  <div class="curtain-wait">Loading</div>
+</div>
+
+<div id="intro" aria-hidden="true">
+  <canvas id="introCanvas" class="intro-canvas"></canvas>
+  <div class="intro-sub">Your personal OS</div>
+</div>
+
+<div class="cursor" id="cursor"></div>
+
+<nav id="nav">
+  <a href="/" class="nav-logo"><span class="logo-dot"></span>Primnox</a>
+  <ul class="nav-links">
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/" aria-current="page">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed</a></li>
+  </ul>
+  <a href="/download/" class="nav-dl">↓ Beta</a>
+  <span class="theme-wrap">
+    <button class="theme-tg" id="themeTg" aria-label="Cycle colour theme" title="Cycle theme (T)"></button>
+    <span class="theme-name" id="themeName" aria-hidden="true">Dark</span>
+  </span>
+  <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navDrawer" aria-label="Open menu">
+    <span></span><span></span>
+  </button>
+</nav>
+<div class="nav-drawer" id="navDrawer" inert>
+  <ul>
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed Phrase</a></li>
+    <li><a href="https://github.com/Primnox/public" target="_blank" rel="noopener external">GitHub</a></li>
+  </ul>
+</div>
+
+<!-- shell:end -->
+
+<main id="app">
+
+  <header class="page-head">
+    <span class="page-eyebrow">02 / Privacy</span>
+    <h1 class="page-h1">You Can't Trust<br>A <i>Server.</i></h1>
+    <p class="page-lede">Every useful assistant needs your context, and every assistant that holds your context can leak it. Primnox's answer is architectural, not contractual — and as of v0.1.1 it is shipping.</p>
+  </header>
+
+  <section class="sec">
+    <div class="priv-grid ri">
+      <div class="priv-l">
+        <p class="priv-desc">Raw context stays on your machine. A small on-device model plus deterministic rules scrub it, and only de-identified text reaches the frontier model — which then gets rehydrated locally so you still read real names. Trust should come from code you can read, not a policy you have to believe.</p>
+        <div class="priv-note live">
+          <span aria-hidden="true">●</span>
+          <span><strong>Live as of v0.1.1.</strong> Privacy Mirror scrubs PII on every cloud call — local models get raw text — and you still control exactly what context you share.</span>
+        </div>
+        <div class="priv-stats-grid">
+          <div class="pstat">
+            <div class="pstat-n sm" style="color:var(--green)">Live</div>
+            <div class="pstat-t">Local scrubbing</div>
+          </div>
+          <div class="pstat">
+            <div class="pstat-n">0</div>
+            <div class="pstat-t">Telemetry events</div>
+          </div>
+          <div class="pstat">
+            <div class="pstat-n sm" style="color:var(--primary)">BIP-39</div>
+            <div class="pstat-t">Backup encryption</div>
+          </div>
+          <div class="pstat">
+            <div class="pstat-n sm" style="color:var(--green)">OSS</div>
+            <div class="pstat-t">Open source core</div>
+          </div>
+        </div>
+      </div>
+      <div class="priv-r">
+        <div class="priv-steps">
+          <div class="priv-step">
+            <div class="ps-n">01</div>
+            <div>
+              <div class="ps-t">Your Device</div>
+              <div class="ps-s">Raw context lives here — screen, memory, calendar, notes. Nothing leaves without your say-so.</div>
+            </div>
+          </div>
+          <div class="priv-step">
+            <div class="ps-n">02</div>
+            <div>
+              <div class="ps-t">Local Scrubber <span class="cs-tag live">live</span></div>
+              <div class="ps-s">A small on-device model strips names, emails, passwords and keys before anything hits the network, swapping them for placeholders. Deterministic regex rules backstop the model, because a model that misses once is a leak.</div>
+            </div>
+          </div>
+          <div class="priv-step">
+            <div class="ps-n">03</div>
+            <div>
+              <div class="ps-t">Cloud Brain</div>
+              <div class="ps-s">Frontier models receive de-identified context only. They get the problem; they never get the person.</div>
+            </div>
+          </div>
+          <div class="priv-step">
+            <div class="ps-n">04</div>
+            <div>
+              <div class="ps-t">Back To You</div>
+              <div class="ps-s">Re-identification happens locally, so the answer lands with your real names and details restored. Frontier power, privacy intact. That's the thesis, and it's shipping now.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="manifesto">
+    <div class="sec-head">
+      <div class="sec-n ri">03 /</div>
+      <h2 class="sec-t ri d1">The<br><i>Manifesto.</i></h2>
+    </div>
+    <div class="mani">
+      <div class="sec-n ri" aria-hidden="true"></div>
+      <div class="mani-body">
+        <p class="mani-lead ri">We built Primnox because the useful version of this product kept being the one that knew too much about us.</p>
+
+        <p class="ri d1">Assistants get better the more context they have. That's not a design choice, it's the shape of the technology. The best scheduling advice comes from a model that has seen your calendar; the best writing help comes from one that has read your drafts. So the industry did the obvious thing: upload everything, and put a promise in the privacy policy.</p>
+
+        <p class="ri d2"><strong>A promise is not an architecture.</strong> It's a statement about intent, made by a company whose intent can change with a funding round, an acquisition, or a subpoena. It transfers risk to you and calls it trust.</p>
+
+        <div class="mani-pull ri d3">The question isn't whether a company will behave. It's whether it is structurally capable of misbehaving.</div>
+
+        <p class="ri d4">Primnox is arranged so the answer is no, and since v0.1.1 that arrangement is running rather than promised. Raw context never leaves your machine. A small local model — one that does the boring, mechanical work of finding names, emails, tokens and addresses — rewrites your context into something de-identified. Deterministic rules run behind it, because a probabilistic scrubber that misses once has already failed. Only the scrubbed version travels.</p>
+
+        <p class="ri d5">The frontier model still does the hard thinking. It just does it about <em>a person</em> rather than about you specifically. When the answer comes back, your device puts the real details in. The intelligence is remote; the identity stays local.</p>
+
+        <div class="mani-rule ri"></div>
+
+        <p class="mani-lead ri">The second thing: we wanted an assistant that isn't a coward.</p>
+
+        <p class="ri d1">Most assistants are optimised to be agreeable, which makes them useless at exactly the moments you need something else. Ask one whether you should drop out of university to go all-in on a two-month-old side project and it will help you write the announcement.</p>
+
+        <p class="ri d2">Primnox pushes back. Not about small things — it isn't going to lecture you for staying out on a Tuesday. About real ones. It will tell you when a plan is adrenaline rather than a signal, and it will say so in a way that sounds like a friend rather than a compliance department.</p>
+
+        <p class="ri d3">It also roasts you if you insult it, and apologises later. That isn't a gimmick. An assistant you talk to every day needs a shape you can push against. A tool that agrees with everything isn't a friend, it's a mirror — and nobody takes advice from a mirror.</p>
+
+        <div class="mani-pull ri d4">It will never guilt you, pressure you, or hold your unfinished tasks over your head. Whatever an assistant is for, that isn't it.</div>
+
+        <p class="ri d5">Both halves are the same bet: that the version of this product worth using every day is the one that has your context and hasn't taken anything from you to get it.</p>
+
+        <p class="mani-sign ri">— The Primnox team</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <h2 class="cta-t ri">Read The<br><i>Code.</i></h2>
+    <p class="cta-s ri d1">The core is open source. If the architecture claim matters to you, verify it rather than take our word for it.</p>
+    <div class="cta-btns ri d2">
+      <a href="https://github.com/Primnox/public" class="btn-solid" target="_blank" rel="noopener external">GitHub ↗</a>
+      <a href="/download/" class="btn-outline">Download the beta <span>→</span></a>
+    </div>
+  </section>
+
+</main>
+
+<!-- shell:start -->
+<footer>
+  <a href="/" class="f-logo"><span class="logo-dot"></span>Primnox</a>
+  <ul class="f-links">
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed Phrase</a></li>
+    <li><a href="https://github.com/Primnox/public" target="_blank" rel="noopener external">GitHub</a></li>
+  </ul>
+  <span class="f-copy">© 2026 Primnox</span>
+</footer>
+<div id="a11y-live" role="status" aria-live="polite" class="sr-only"></div>
+<!-- shell:end -->
+</body>
+</html>

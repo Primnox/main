@@ -1,0 +1,281 @@
+/* Design tokens, font faces, reset. Loaded first, before every other sheet. */
+
+@font-face {
+  font-family: 'Syne';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('/assets/fonts/syne-var-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 300 500;
+  font-display: swap;
+  src: url('/assets/fonts/dmsans-var-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('/assets/fonts/jetbrainsmono-var-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  --bg:      #070707;
+  --text:    #f0ede6;
+  --muted:   rgba(240, 237, 230, 0.50);
+  --border:  rgba(240, 237, 230, 0.09);
+  --border-strong: rgba(240, 237, 230, 0.2);
+  --primary: #c3c0ff;
+  --accent:  #ffb695;
+  --green:   #34d399;
+
+  --display: 'Syne', system-ui, sans-serif;
+  --body:    'DM Sans', system-ui, sans-serif;
+  --mono:    'JetBrains Mono', ui-monospace, monospace;
+
+  --pad-x: 44px;
+  --shell-max: 1440px;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --z-fx: 0;
+  --z-content: 1;
+  --z-nav: 200;
+  --z-curtain: 9000;
+  --z-cursor: 9999;
+
+  /* Surfaces and states. Themed, so nothing downstream hardcodes a colour. */
+  --hover:       rgba(255,255,255,0.018);
+  --surface:     rgba(255,255,255,0.04);
+  --surface-brd: rgba(255,255,255,0.08);
+  --ring:        rgba(255,255,255,0.10);
+  --nav-bg:      rgba(7,7,7,0.85);
+  --scroll:      rgba(240,237,230,0.12);
+  --cursor-ring: rgba(240,237,230,0.50);
+  --sel-fg:      #0d0099;
+  --you:         rgba(240,237,230,0.55);
+  --shadow-op:   0.4;
+
+  /* Tinted primary */
+  --p-faint:  rgba(195,192,255,0.06);
+  --p-fill:   rgba(195,192,255,0.07);
+  --p-soft:   rgba(195,192,255,0.08);
+  --p-line:   rgba(195,192,255,0.28);
+  --p-line-2: rgba(195,192,255,0.35);
+  --p-line-3: rgba(195,192,255,0.40);
+
+  /* Tinted accent */
+  --a-fill: rgba(255,182,149,0.05);
+  --a-pill: rgba(255,182,149,0.22);
+  --a-line: rgba(255,182,149,0.18);
+  --a-text: rgba(255,182,149,0.85);
+
+  /* Tinted green */
+  --g-line: rgba(52,211,153,0.30);
+
+  /* Canvas compositing. Light themes cannot use additive blending. */
+  --fx-blend: plus-lighter;
+  --fx-op:    0.34;
+}
+
+@media (max-width: 700px) {
+  :root { --pad-x: 24px; }
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ─── THEMES ───
+   Ported from the live site (Primnox/primnox.github.io @ 3c0d80a). The default
+   "dark" theme lives on :root and carries no data-theme attribute, so the
+   toggle removes the attribute rather than setting data-theme="dark". */
+
+/* == VOID == pure black, monochrome, one hot signal == */
+[data-theme="void"] {
+  --bg: #000000; --text: #ffffff;
+  --muted: rgba(255,255,255,0.5); --border: rgba(255,255,255,0.1);
+  --primary: #ffffff; --accent: #ff4f2b; --green: #00e08a;
+  --hover: rgba(255,255,255,0.035); --surface: rgba(255,255,255,0.06);
+  --surface-brd: rgba(255,255,255,0.12); --ring: rgba(255,255,255,0.16);
+  --nav-bg: rgba(0,0,0,0.88); --scroll: rgba(255,255,255,0.13);
+  --cursor-ring: rgba(255,255,255,0.5); --sel-fg: #000000;
+  --you: rgba(255,255,255,0.54); --shadow-op: 0.6;
+  --p-faint: rgba(255,255,255,0.08); --p-fill: rgba(255,255,255,0.09);
+  --p-soft: rgba(255,255,255,0.12); --p-line: rgba(255,255,255,0.3);
+  --p-line-2: rgba(255,255,255,0.42); --p-line-3: rgba(255,255,255,0.50);
+  --a-fill: rgba(255,79,43,0.06); --a-pill: rgba(255,79,43,0.26);
+  --a-line: rgba(255,79,43,0.21); --a-text: rgba(255,79,43,0.9);
+  --g-line: rgba(0,224,138,0.34);
+}
+
+/* == CARBON == cool graphite, cyan and amber == */
+[data-theme="carbon"] {
+  --bg: #0e1014; --text: #e3e7ee;
+  --muted: rgba(227,231,238,0.5); --border: rgba(227,231,238,0.1);
+  --primary: #5fd8ff; --accent: #ffcc66; --green: #2dd4a7;
+  --hover: rgba(255,255,255,0.024); --surface: rgba(255,255,255,0.05);
+  --surface-brd: rgba(255,255,255,0.09); --ring: rgba(255,255,255,0.12);
+  --nav-bg: rgba(14,16,20,0.85); --scroll: rgba(227,231,238,0.13);
+  --cursor-ring: rgba(227,231,238,0.5); --sel-fg: #0e1014;
+  --you: rgba(227,231,238,0.54); --shadow-op: 0.42;
+  --p-faint: rgba(95,216,255,0.08); --p-fill: rgba(95,216,255,0.09);
+  --p-soft: rgba(95,216,255,0.12); --p-line: rgba(95,216,255,0.3);
+  --p-line-2: rgba(95,216,255,0.42); --p-line-3: rgba(95,216,255,0.50);
+  --a-fill: rgba(255,204,102,0.06); --a-pill: rgba(255,204,102,0.26);
+  --a-line: rgba(255,204,102,0.21); --a-text: rgba(255,204,102,0.9);
+  --g-line: rgba(45,212,167,0.34);
+}
+
+/* == MIDNIGHT == deep navy, azure and pink == */
+[data-theme="midnight"] {
+  --bg: #060a1a; --text: #e7eaf7;
+  --muted: rgba(231,234,247,0.5); --border: rgba(231,234,247,0.1);
+  --primary: #6ea8ff; --accent: #ff7ab8; --green: #4ade80;
+  --hover: rgba(255,255,255,0.024); --surface: rgba(255,255,255,0.05);
+  --surface-brd: rgba(255,255,255,0.09); --ring: rgba(255,255,255,0.12);
+  --nav-bg: rgba(6,10,26,0.86); --scroll: rgba(231,234,247,0.13);
+  --cursor-ring: rgba(231,234,247,0.5); --sel-fg: #060a1a;
+  --you: rgba(231,234,247,0.54); --shadow-op: 0.46;
+  --p-faint: rgba(110,168,255,0.08); --p-fill: rgba(110,168,255,0.09);
+  --p-soft: rgba(110,168,255,0.12); --p-line: rgba(110,168,255,0.3);
+  --p-line-2: rgba(110,168,255,0.42); --p-line-3: rgba(110,168,255,0.50);
+  --a-fill: rgba(255,122,184,0.06); --a-pill: rgba(255,122,184,0.26);
+  --a-line: rgba(255,122,184,0.21); --a-text: rgba(255,122,184,0.9);
+  --g-line: rgba(74,222,128,0.34);
+}
+
+/* == EMBER == warm charcoal, amber and coral, no cool hues == */
+[data-theme="ember"] {
+  --bg: #140f0b; --text: #f6ece0;
+  --muted: rgba(246,236,224,0.5); --border: rgba(246,236,224,0.1);
+  --primary: #f5a524; --accent: #ff6b5e; --green: #b5c26a;
+  --hover: rgba(255,240,225,0.028); --surface: rgba(255,240,225,0.05);
+  --surface-brd: rgba(255,240,225,0.09); --ring: rgba(255,240,225,0.12);
+  --nav-bg: rgba(20,15,11,0.86); --scroll: rgba(246,236,224,0.13);
+  --cursor-ring: rgba(246,236,224,0.5); --sel-fg: #140f0b;
+  --you: rgba(246,236,224,0.54); --shadow-op: 0.4;
+  --p-faint: rgba(245,165,36,0.08); --p-fill: rgba(245,165,36,0.09);
+  --p-soft: rgba(245,165,36,0.12); --p-line: rgba(245,165,36,0.3);
+  --p-line-2: rgba(245,165,36,0.42); --p-line-3: rgba(245,165,36,0.50);
+  --a-fill: rgba(255,107,94,0.06); --a-pill: rgba(255,107,94,0.26);
+  --a-line: rgba(255,107,94,0.21); --a-text: rgba(255,107,94,0.9);
+  --g-line: rgba(181,194,106,0.34);
+}
+
+/* == PHOSPHOR == green-black CRT, phosphor and lime == */
+[data-theme="phosphor"] {
+  --bg: #040a06; --text: #d4e8d6;
+  --muted: rgba(212,232,214,0.5); --border: rgba(212,232,214,0.1);
+  --primary: #4ade80; --accent: #d9f99d; --green: #4ade80;
+  --hover: rgba(180,255,200,0.03); --surface: rgba(180,255,200,0.055);
+  --surface-brd: rgba(180,255,200,0.09); --ring: rgba(180,255,200,0.12);
+  --nav-bg: rgba(4,10,6,0.87); --scroll: rgba(212,232,214,0.13);
+  --cursor-ring: rgba(212,232,214,0.5); --sel-fg: #040a06;
+  --you: rgba(212,232,214,0.54); --shadow-op: 0.5;
+  --p-faint: rgba(74,222,128,0.08); --p-fill: rgba(74,222,128,0.09);
+  --p-soft: rgba(74,222,128,0.12); --p-line: rgba(74,222,128,0.3);
+  --p-line-2: rgba(74,222,128,0.42); --p-line-3: rgba(74,222,128,0.50);
+  --a-fill: rgba(217,249,157,0.06); --a-pill: rgba(217,249,157,0.26);
+  --a-line: rgba(217,249,157,0.21); --a-text: rgba(217,249,157,0.9);
+  --g-line: rgba(74,222,128,0.34);
+}
+
+/* == PAPER == warm off-white, violet and burnt orange == */
+[data-theme="paper"] {
+  --bg: #f6f4ef; --text: #100f0e;
+  --muted: rgba(16,15,14,0.58); --border: rgba(16,15,14,0.13);
+  --primary: #4b3fbf; --accent: #b8501f; --green: #0d8a5f;
+  --hover: rgba(16,15,14,0.035); --surface: rgba(16,15,14,0.035);
+  --surface-brd: rgba(16,15,14,0.13); --ring: rgba(16,15,14,0.17);
+  --nav-bg: rgba(246,244,239,0.85); --scroll: rgba(16,15,14,0.2);
+  --cursor-ring: rgba(16,15,14,0.45); --sel-fg: #f6f4ef;
+  --you: rgba(16,15,14,0.52); --shadow-op: 0.14;
+  --p-faint: rgba(75,63,191,0.08); --p-fill: rgba(75,63,191,0.07);
+  --p-soft: rgba(75,63,191,0.12); --p-line: rgba(75,63,191,0.32);
+  --p-line-2: rgba(75,63,191,0.42); --p-line-3: rgba(75,63,191,0.50);
+  --a-fill: rgba(184,80,31,0.07); --a-pill: rgba(184,80,31,0.3);
+  --a-line: rgba(184,80,31,0.26); --a-text: rgba(184,80,31,0.95);
+  --g-line: rgba(13,138,95,0.34);
+}
+
+/* == CLINICAL == pure white, electric blue and crimson == */
+[data-theme="clinical"] {
+  --bg: #ffffff; --text: #0a0a0a;
+  --muted: rgba(10,10,10,0.58); --border: rgba(10,10,10,0.13);
+  --primary: #1447e6; --accent: #d81b4a; --green: #047857;
+  --hover: rgba(10,10,10,0.028); --surface: rgba(10,10,10,0.03);
+  --surface-brd: rgba(10,10,10,0.11); --ring: rgba(10,10,10,0.14);
+  --nav-bg: rgba(255,255,255,0.85); --scroll: rgba(10,10,10,0.2);
+  --cursor-ring: rgba(10,10,10,0.45); --sel-fg: #ffffff;
+  --you: rgba(10,10,10,0.52); --shadow-op: 0.12;
+  --p-faint: rgba(20,71,230,0.08); --p-fill: rgba(20,71,230,0.07);
+  --p-soft: rgba(20,71,230,0.12); --p-line: rgba(20,71,230,0.32);
+  --p-line-2: rgba(20,71,230,0.42); --p-line-3: rgba(20,71,230,0.50);
+  --a-fill: rgba(216,27,74,0.07); --a-pill: rgba(216,27,74,0.3);
+  --a-line: rgba(216,27,74,0.26); --a-text: rgba(216,27,74,0.95);
+  --g-line: rgba(4,120,87,0.34);
+}
+
+/* == SAND == beige paper, forest green and terracotta == */
+[data-theme="sand"] {
+  --bg: #ece5d8; --text: #241d13;
+  --muted: rgba(36,29,19,0.58); --border: rgba(36,29,19,0.13);
+  --primary: #1c6b47; --accent: #b0451a; --green: #1c6b47;
+  --hover: rgba(36,29,19,0.042); --surface: rgba(36,29,19,0.04);
+  --surface-brd: rgba(36,29,19,0.15); --ring: rgba(36,29,19,0.19);
+  --nav-bg: rgba(236,229,216,0.86); --scroll: rgba(36,29,19,0.2);
+  --cursor-ring: rgba(36,29,19,0.45); --sel-fg: #ece5d8;
+  --you: rgba(36,29,19,0.52); --shadow-op: 0.15;
+  --p-faint: rgba(28,107,71,0.08); --p-fill: rgba(28,107,71,0.07);
+  --p-soft: rgba(28,107,71,0.12); --p-line: rgba(28,107,71,0.32);
+  --p-line-2: rgba(28,107,71,0.42); --p-line-3: rgba(28,107,71,0.50);
+  --a-fill: rgba(176,69,26,0.07); --a-pill: rgba(176,69,26,0.3);
+  --a-line: rgba(176,69,26,0.26); --a-text: rgba(176,69,26,0.95);
+  --g-line: rgba(28,107,71,0.34);
+}
+
+/* == MONO == greyscale, zero colour, editorial == */
+[data-theme="mono"] {
+  --bg: #f2f1ee; --text: #121212;
+  --muted: rgba(18,18,18,0.58); --border: rgba(18,18,18,0.13);
+  --primary: #121212; --accent: #3f3f3f; --green: #2f6f4f;
+  --hover: rgba(18,18,18,0.035); --surface: rgba(18,18,18,0.035);
+  --surface-brd: rgba(18,18,18,0.13); --ring: rgba(18,18,18,0.17);
+  --nav-bg: rgba(242,241,238,0.86); --scroll: rgba(18,18,18,0.2);
+  --cursor-ring: rgba(18,18,18,0.45); --sel-fg: #f2f1ee;
+  --you: rgba(18,18,18,0.52); --shadow-op: 0.16;
+  --p-faint: rgba(18,18,18,0.08); --p-fill: rgba(18,18,18,0.07);
+  --p-soft: rgba(18,18,18,0.12); --p-line: rgba(18,18,18,0.32);
+  --p-line-2: rgba(18,18,18,0.42); --p-line-3: rgba(18,18,18,0.50);
+  --a-fill: rgba(63,63,63,0.07); --a-pill: rgba(63,63,63,0.3);
+  --a-line: rgba(63,63,63,0.26); --a-text: rgba(63,63,63,0.95);
+  --g-line: rgba(47,111,79,0.34);
+}
+
+/* Light themes composite the particle canvas subtractively — additive blending
+   is invisible on a light ground, and the goo needs far less opacity. */
+[data-theme="paper"], [data-theme="clinical"],
+[data-theme="sand"],  [data-theme="mono"] {
+  --fx-blend: multiply;
+  --fx-op:    0.22;
+}

@@ -1,5 +1,6 @@
 # backend/meeting_recorder.py
 import re
+import shutil
 import sys
 import threading
 import time
@@ -49,6 +50,31 @@ BROWSER_MEETING_KEYWORDS = [
 # consider the meeting over. 150 × 2 s = 5 minutes — enough grace time for
 # switching to a doc-sharing window during the call.
 _BROWSER_ABSENT_LIMIT = 150
+
+# Screenshots fire every 10s with no prior cap — a 2h meeting meant ~700
+# images. 180 × 10s = 30 minutes of coverage, which is enough to show what
+# was being screen-shared without an unboundedly growing meeting folder.
+_MAX_MEETING_SCREENSHOTS = 180
+
+# How long a cached is_meeting_running() native-app check stays valid before
+# re-scanning every process on the system.
+_NATIVE_CHECK_INTERVAL = 8
+
+
+def create_tasks_from_summary(summary_text: str, meeting_name: str) -> int:
+    """Parse action-item-shaped lines out of a meeting summary and create a
+    real Task per item, instead of leaving them buried in note prose that's
+    easy to never re-read. Returns the number of tasks created."""
+    from notes_manager import add_task, extract_action_items
+    items = list(dict.fromkeys(extract_action_items(summary_text)))[:10]
+    created = 0
+    for item in items:
+        try:
+            add_task(f"[{meeting_name}] {item}", priority="normal")
+            created += 1
+        except Exception as e:
+            log.warning(f"Could not create task from action item: {e}")
+    return created
 
 
 def transcribe_meeting_audio(audio_path) -> str:
@@ -116,9 +142,22 @@ class MeetingRecorder:
         self.mic_stream = None
         self.mic_channels = 1
         self.mic_rate = 44100
+        # Raw tracks are streamed to disk incrementally (see
+        # _flush_audio_to_disk) instead of held in audio_frames/mic_frames
+        # for the whole meeting — a long call used to mean multi-GB of RAM
+        # held for as long as the call lasted.
+        self._spk_writer = None
+        self._mic_writer = None
+        self._frame_lock = threading.Lock()
         # Browser-meeting tracking
         self._active_in_browser = False
         self._browser_absent_checks = 0
+        self._screenshot_count = 0
+        # is_meeting_running()'s native-app path scans every process on the
+        # system — caching it for a few seconds avoids doing that on every
+        # single 2s poll tick for the whole meeting.
+        self._native_check_at = 0.0
+        self._native_check_cached = True
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -175,13 +214,22 @@ class MeetingRecorder:
             except Exception:
                 return True  # be conservative
 
+        # Enumerating every process on the system is real work — a native
+        # meeting app doesn't quit and relaunch inside a couple of seconds,
+        # so cache the result instead of re-scanning on every 2s poll tick.
+        now = time.time()
+        if now - self._native_check_at < _NATIVE_CHECK_INTERVAL:
+            return self._native_check_cached
+        self._native_check_at = now
+
         try:
-            return any(
+            self._native_check_cached = any(
                 any(app in (p.info.get('name') or '').lower() for app in MEETING_APPS)
                 for p in psutil.process_iter(['name'])
             )
         except Exception:
-            return False
+            self._native_check_cached = False
+        return self._native_check_cached
 
     # ── Call signal helpers ────────────────────────────────────────────────────
 
@@ -416,6 +464,9 @@ class MeetingRecorder:
             self.capture_channels = channels
             self.capture_rate = int(default_speakers["defaultSampleRate"])
             log.debug(f"Capturing '{default_speakers['name']}' — {self.capture_channels}ch @ {self.capture_rate}Hz")
+            self._spk_writer = self._open_wav_writer(
+                self.current_meeting_dir / "audio_speakers.wav", self.capture_channels, self.capture_rate
+            )
 
             self.audio_stream = self.p.open(
                 format=pyaudio.paInt16,
@@ -439,6 +490,9 @@ class MeetingRecorder:
             self.mic_channels = min(int(mic_info.get("maxInputChannels", 1)) or 1, 2)
             self.mic_rate = int(mic_info["defaultSampleRate"])
             log.debug(f"Capturing mic '{mic_info['name']}' — {self.mic_channels}ch @ {self.mic_rate}Hz")
+            self._mic_writer = self._open_wav_writer(
+                self.current_meeting_dir / "audio_mic.wav", self.mic_channels, self.mic_rate
+            )
             self.mic_stream = self.p.open(
                 format=pyaudio.paInt16,
                 channels=self.mic_channels,
@@ -454,12 +508,14 @@ class MeetingRecorder:
 
     def _audio_callback_win(self, in_data, frame_count, time_info, status):
         if self.active_meeting:
-            self.audio_frames.append(in_data)
+            with self._frame_lock:
+                self.audio_frames.append(in_data)
         return (in_data, self._pyaudio_mod.paContinue)
 
     def _mic_callback_win(self, in_data, frame_count, time_info, status):
         if self.active_meeting:
-            self.mic_frames.append(in_data)
+            with self._frame_lock:
+                self.mic_frames.append(in_data)
         return (in_data, self._pyaudio_mod.paContinue)
 
     def _start_audio_capture_sd(self) -> None:
@@ -476,6 +532,9 @@ class MeetingRecorder:
             except Exception as e:
                 log.warning(f"Could not query input device; using defaults (44100/1ch): {e}")
 
+            self._spk_writer = self._open_wav_writer(
+                self.current_meeting_dir / "audio_speakers.wav", self.capture_channels, self.capture_rate
+            )
             self._sd_stop_event = threading.Event()
 
             def _record():
@@ -490,7 +549,8 @@ class MeetingRecorder:
                             try:
                                 data, _ = stream.read(1024)
                                 if self.active_meeting:
-                                    self.audio_frames.append(data.tobytes())
+                                    with self._frame_lock:
+                                        self.audio_frames.append(data.tobytes())
                             except Exception as e:
                                 log.error(f"Audio read error mid-stream: {e}")
                                 break
@@ -501,6 +561,54 @@ class MeetingRecorder:
             self._sd_thread.start()
         except Exception as e:
             log.error(f"Sounddevice audio setup error: {e}")
+
+    # ── Streaming-to-disk (bounded memory) ──────────────────────────────────────
+
+    def _open_wav_writer(self, path: Path, channels: int, rate: int):
+        """Open a WAV file for incremental writeframes() calls. wave patches
+        the header's data-length field on close(), so this doesn't need to
+        know the total duration up front."""
+        try:
+            w = wave.open(str(path), 'wb')
+            w.setnchannels(max(1, channels))
+            w.setsampwidth(2)  # int16
+            w.setframerate(rate)
+            return w
+        except Exception as e:
+            log.error(f"Could not open WAV writer for {path}: {e}")
+            return None
+
+    def _flush_audio_to_disk(self) -> None:
+        """Drain audio_frames/mic_frames to their WAV writers and clear the
+        in-memory lists. Called periodically from the polling loop — NOT the
+        audio callback, which must stay fast — so a long meeting's memory
+        footprint stays bounded to a couple of seconds of audio instead of
+        growing for the entire call."""
+        with self._frame_lock:
+            spk_chunk = self.audio_frames
+            self.audio_frames = []
+            mic_chunk = self.mic_frames
+            self.mic_frames = []
+        if self._spk_writer and spk_chunk:
+            try:
+                self._spk_writer.writeframes(b''.join(spk_chunk))
+            except Exception as e:
+                log.error(f"Speaker audio flush failed: {e}")
+        if self._mic_writer and mic_chunk:
+            try:
+                self._mic_writer.writeframes(b''.join(mic_chunk))
+            except Exception as e:
+                log.error(f"Mic audio flush failed: {e}")
+
+    def _close_wav_writers(self) -> None:
+        for attr in ("_spk_writer", "_mic_writer"):
+            writer = getattr(self, attr)
+            if writer:
+                try:
+                    writer.close()
+                except Exception as e:
+                    log.error(f"Error closing {attr}: {e}")
+                setattr(self, attr, None)
 
     def _stop_audio_capture(self) -> None:
         if PLATFORM == 'win32':
@@ -535,38 +643,49 @@ class MeetingRecorder:
                     self._sd_stop_event = None
                     self._sd_thread = None
 
+        # Streams are fully stopped now, so no callback can still be appending
+        # — safe to catch whatever's left since the last periodic flush, then
+        # close the writers (this is what finalizes the WAV headers).
+        self._flush_audio_to_disk()
+        self._close_wav_writers()
+
     # ── Save + summarise ───────────────────────────────────────────────────────
 
-    def _write_wav(self, path, frames, channels, rate) -> bool:
-        if not frames:
-            return False
+    @staticmethod
+    def _read_wav(path: Path):
+        """Returns (raw_pcm_bytes, channels, rate), or (b'', 0, 0) if the file
+        doesn't exist or has no frames — same as an empty/absent track."""
+        if not path.exists():
+            return b"", 0, 0
         try:
-            with wave.open(str(path), 'wb') as wf:
-                wf.setnchannels(channels)
-                wf.setsampwidth(2)  # int16
-                wf.setframerate(rate)
-                wf.writeframes(b''.join(frames))
-            return True
+            with wave.open(str(path), 'rb') as wf:
+                return wf.readframes(wf.getnframes()), wf.getnchannels(), wf.getframerate()
         except Exception as e:
-            log.error(f"Failed to write {getattr(path, 'name', path)}: {e}")
-            return False
+            log.error(f"Could not read {path.name}: {e}")
+            return b"", 0, 0
 
-    def _save_mixed_wav(self, path) -> bool:
+    def _save_mixed_wav(self, path: Path, spk_path: Path, mic_path: Path) -> bool:
         """Mix the speaker (loopback) and mic tracks into one mono 16 kHz WAV —
         the format that works best for downstream speech transcription. Both
         tracks are downmixed to mono, resampled to a common rate, and summed
         with clip protection. Returns False if mixing isn't possible (caller
-        then falls back to a raw single-source track)."""
-        if not self.audio_frames and not self.mic_frames:
+        then falls back to a raw single-source track).
+
+        Reads the tracks back from the WAV files written incrementally during
+        the meeting (see _flush_audio_to_disk) rather than from in-memory
+        buffers — this is the one place the full call's audio needs to be in
+        memory at once, and it happens here only, once, at save time, not
+        held for the whole meeting's duration."""
+        if not spk_path.exists() and not mic_path.exists():
             return False
         try:
             import numpy as np
             TARGET_RATE = 16000  # speech-optimal, compact
 
-            def to_mono_target(frames, channels, rate):
-                if not frames:
+            def to_mono_target(raw: bytes, channels: int, rate: int):
+                if not raw:
                     return np.zeros(0, dtype=np.float32)
-                arr = np.frombuffer(b''.join(frames), dtype=np.int16).astype(np.float32)
+                arr = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
                 if channels and channels > 1:
                     usable = (arr.size // channels) * channels
                     arr = arr[:usable].reshape(-1, channels).mean(axis=1)
@@ -577,8 +696,10 @@ class MeetingRecorder:
                     arr = resample_poly(arr, TARGET_RATE // g, int(rate) // g).astype(np.float32)
                 return arr
 
-            spk = to_mono_target(self.audio_frames, self.capture_channels, self.capture_rate)
-            mic = to_mono_target(self.mic_frames, self.mic_channels, self.mic_rate)
+            spk_raw, spk_ch, spk_rate = self._read_wav(spk_path)
+            mic_raw, mic_ch, mic_rate = self._read_wav(mic_path)
+            spk = to_mono_target(spk_raw, spk_ch, spk_rate)
+            mic = to_mono_target(mic_raw, mic_ch, mic_rate)
             n = max(spk.size, mic.size)
             if n == 0:
                 return False
@@ -605,8 +726,14 @@ class MeetingRecorder:
         return transcribe_meeting_audio(audio_path)
 
     def _save_meeting(self) -> None:
-        if not self.audio_frames and not self.mic_frames:
-            log.warning("No audio frames captured during meeting.")
+        d = self.current_meeting_dir
+        spk_path = d / "audio_speakers.wav" if d else None
+        mic_path = d / "audio_mic.wav" if d else None
+        # Raw per-source tracks are already fully written — _flush_audio_to_disk
+        # streamed them incrementally during the meeting, and _stop_audio_capture
+        # closed the writers (which finalizes the WAV headers) before this runs.
+        if not (spk_path and spk_path.exists()) and not (mic_path and mic_path.exists()):
+            log.warning("No audio captured during meeting.")
             return
 
         # Read the name that was written at recording start
@@ -619,21 +746,19 @@ class MeetingRecorder:
                 except Exception:
                     pass
 
-        log.info(f"Saving meeting to {self.current_meeting_dir}...")
-        d = self.current_meeting_dir
-        # Raw per-source tracks — always written when present, so nothing is lost
-        # even if the mix step fails. Useful later for speaker diarization too.
-        wrote_spk = self._write_wav(d / "audio_speakers.wav", self.audio_frames, self.capture_channels, self.capture_rate)
-        wrote_mic = self._write_wav(d / "audio_mic.wav", self.mic_frames, self.mic_channels, self.mic_rate)
-        log.info(f"Captured tracks — speakers: {wrote_spk}, mic: {wrote_mic}")
+        log.info(f"Saving meeting to {d}...")
+        log.info(f"Captured tracks — speakers: {spk_path.exists()}, mic: {mic_path.exists()}")
         # Primary combined recording (keeps the meeting_audio.wav name other code
-        # expects). Prefer the mic+speaker mix; fall back to a raw track if the
-        # mix can't be produced.
-        if not self._save_mixed_wav(d / "meeting_audio.wav"):
-            if self.audio_frames:
-                self._write_wav(d / "meeting_audio.wav", self.audio_frames, self.capture_channels, self.capture_rate)
-            elif self.mic_frames:
-                self._write_wav(d / "meeting_audio.wav", self.mic_frames, self.mic_channels, self.mic_rate)
+        # expects). Prefer the mic+speaker mix; fall back to whichever raw track
+        # exists if the mix can't be produced.
+        mixed_path = d / "meeting_audio.wav"
+        if not self._save_mixed_wav(mixed_path, spk_path, mic_path):
+            fallback = spk_path if spk_path.exists() else (mic_path if mic_path.exists() else None)
+            if fallback:
+                try:
+                    shutil.copyfile(fallback, mixed_path)
+                except Exception as e:
+                    log.error(f"Could not create fallback meeting_audio.wav: {e}")
 
         # Transcribe the audio FIRST so the summary reflects what was actually
         # said, not a guess. The full transcript is saved alongside the summary.
@@ -668,12 +793,20 @@ class MeetingRecorder:
                 with open(self.current_meeting_dir / "summary.txt", "w", encoding="utf-8") as f:
                     f.write(summary_text)
                 try:
-                    from notes_manager import add_note, get_notes, init_db
+                    from notes_manager import add_note, note_title_exists, init_db
                     init_db()  # ensure the notes table exists before inserting
                     meeting_title = f"Meeting: {meeting_name}"
-                    if not any(n.get("title") == meeting_title for n in get_notes()):
+                    if not note_title_exists(meeting_title):
                         add_note(summary_text, title=meeting_title)
                         log.info(f"Meeting summary saved to notes: {meeting_title}")
+
+                        # The summary prompt already asks the LLM for action items —
+                        # previously that just sat as prose in the note, easy to never
+                        # re-read. Turn them into real tasks so they show up where
+                        # tasks actually get looked at.
+                        created = create_tasks_from_summary(summary_text, meeting_name)
+                        if created:
+                            log.info(f"Created {created} task(s) from meeting action items.")
                 except Exception as e:
                     log.error(f"Failed to save meeting summary to notes: {e}")
             log.info("Meeting summary saved.")
@@ -707,6 +840,7 @@ class MeetingRecorder:
                     self._browser_absent_checks = 0
                     log.info(f"Meeting detected — recording started: {meeting_name}")
                     self.active_meeting = True
+                    self._screenshot_count = 0
                     timestamp = time.strftime("%Y%m%d_%H%M%S")
                     safe = re.sub(r'[^\w\s\-]', '', meeting_name)[:50].strip()
                     folder = f"Meeting_{timestamp}_{safe}" if safe else f"Meeting_{timestamp}"
@@ -730,7 +864,6 @@ class MeetingRecorder:
                         self.audio_frames = []
                         self.mic_frames = []
                         if self.current_meeting_dir and self.current_meeting_dir.exists():
-                            import shutil
                             try:
                                 shutil.rmtree(self.current_meeting_dir)
                             except Exception as e:
@@ -738,11 +871,18 @@ class MeetingRecorder:
                     else:
                         self._save_meeting()
                 else:
-                    # Screenshot every 10 seconds while recording
+                    # Bounds memory to a couple of seconds of audio instead of
+                    # letting it grow for the entire meeting — see
+                    # _flush_audio_to_disk's docstring.
+                    self._flush_audio_to_disk()
+
+                    # Screenshot every 10 seconds while recording, up to a cap
                     if time.time() - last_ss > 10:
-                        fname = self.current_meeting_dir / f"ss_{int(time.time())}.png"
-                        log.debug(f"Capturing screenshot: {fname.name}")
-                        self._capture_screenshot(fname)
+                        if self._screenshot_count < _MAX_MEETING_SCREENSHOTS:
+                            fname = self.current_meeting_dir / f"ss_{int(time.time())}.png"
+                            log.debug(f"Capturing screenshot: {fname.name}")
+                            self._capture_screenshot(fname)
+                            self._screenshot_count += 1
                         last_ss = time.time()
 
             time.sleep(2)

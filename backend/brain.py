@@ -42,6 +42,41 @@ GEMINI_MODELS = [
     "gemini-1.5-flash",
 ]
 
+# Curated last-resort model lists for the per-provider picker in Settings —
+# shown when live /v1/models detection fails (no key yet, network error, bad
+# key). Not exhaustive, just enough that the dropdown is never empty. These
+# drift as providers ship new models — worth re-checking periodically.
+OPENAI_FALLBACK_MODELS = ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o1", "o1-mini"]
+ANTHROPIC_FALLBACK_MODELS = [
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-20240229",
+]
+
+# Substrings that flag a /v1/models entry as non-chat (audio transcription,
+# TTS, image generation, embeddings, moderation, ancient completion-only
+# snapshots) — OpenAI's and Groq's model-list endpoints return everything the
+# account can see, not just chat models, so the Settings model picker would
+# otherwise be cluttered with entries that will just 400 if picked for chat.
+_NON_CHAT_MODEL_MARKERS = (
+    "whisper", "tts", "dall-e", "embed", "guard", "moderation", "davinci", "babbage", "ada", "orpheus",
+)
+
+# Substrings that flag a model as text-to-speech (voice synthesis) — used by
+# the Knowledge Nexus "Model Library" picker. Deliberately excludes "whisper"
+# (that's transcription/speech-to-text, the opposite direction).
+_TTS_MODEL_MARKERS = ("tts", "orpheus")
+
+
+def _is_chat_model(model_id: str) -> bool:
+    lowered = model_id.lower()
+    return not any(marker in lowered for marker in _NON_CHAT_MODEL_MARKERS)
+
+
+def _is_tts_model(model_id: str) -> bool:
+    lowered = model_id.lower()
+    return any(marker in lowered for marker in _TTS_MODEL_MARKERS)
+
 # Global Load Balancer State for Groq
 _groq_lb_lock = threading.Lock()
 _groq_lb_state = {
@@ -154,6 +189,173 @@ def _safe_local_url(url: str, default_port: int) -> str:
     log.warning(f"Rejected unsafe local model URL '{url}' — falling back to localhost:{default_port}")
     return f"http://localhost:{default_port}"
 
+def _is_local_url(url: str) -> bool:
+    """True if url points at localhost/127.0.0.1 — same host check as
+    _safe_local_url's SSRF guard, factored out so a Custom provider can be
+    classified local-vs-cloud without also inheriting that guard's port
+    rewriting (a custom endpoint's URL should be used as typed, or rejected
+    outright — never silently swapped for a different port)."""
+    import re
+    return bool(re.match(r'^https?://(localhost|127\.0\.0\.1)(:\d+)?/?$', (url or "").strip()))
+
+
+def get_active_custom_provider(settings: dict) -> dict | None:
+    """Resolves whichever saved custom-endpoint profile is currently active
+    (settings["active_custom_provider_id"]) out of the named-profile list.
+    Returns None if no profiles exist or none match — callers should treat
+    that as "no custom provider configured", the same as an empty base URL
+    used to mean under the old single-slot design."""
+    active_id = settings.get("active_custom_provider_id")
+    if not active_id:
+        return None
+    for profile in settings.get("custom_providers", []):
+        if profile.get("id") == active_id:
+            return profile
+    return None
+
+
+def _is_local_provider(active_model: str, settings: dict) -> bool:
+    """Local providers skip Privacy Mirror scrubbing entirely — nothing
+    leaves the device, so there's nothing to scrub. Ollama/LlamaCpp are
+    always local by construction. A Custom provider is classified by its
+    base URL: pointed at localhost, it's local; anything else is treated as
+    cloud and scrubbed like Groq/OpenAI/Anthropic/Gemini by default."""
+    if active_model in ("Ollama_Local", "LlamaCpp_Local"):
+        return True
+    if active_model == "Custom":
+        profile = get_active_custom_provider(settings)
+        return _is_local_url(profile.get("base_url", "")) if profile else False
+    return False
+
+
+def fetch_custom_provider_models(base_url: str, api_type: str, api_key: str) -> dict:
+    """Query a custom endpoint's /v1/models so the Settings UI can offer a
+    dropdown instead of asking the user to type the exact model id.
+    Best-effort: connection problems are reported back as a message, not an
+    exception — failing to auto-detect models isn't fatal, the user can still
+    type a model name by hand."""
+    base_url = (base_url or "").strip().rstrip("/")
+    if not base_url:
+        return {"models": [], "error": "No base URL provided."}
+
+    headers = {}
+    if api_type == "anthropic":
+        if api_key:
+            headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+    else:
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        resp = requests.get(f"{base_url}/v1/models", headers=headers, timeout=5)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        models = sorted({m.get("id") for m in data if m.get("id")})
+        return {"models": models}
+    except requests.exceptions.ConnectionError:
+        log.debug(f"Custom provider model detection: connection refused at {base_url}")
+        return {"models": [], "error": f"Couldn't connect to {base_url} — is it running?"}
+    except requests.exceptions.Timeout:
+        log.debug(f"Custom provider model detection: timed out at {base_url}")
+        return {"models": [], "error": f"{base_url} didn't respond in time."}
+    except requests.exceptions.HTTPError as e:
+        log.debug(f"Custom provider model detection: HTTP error from {base_url}: {e}")
+        status = e.response.status_code if e.response is not None else "?"
+        return {"models": [], "error": f"{base_url} returned an error (HTTP {status})."}
+    except Exception as e:
+        # Anything else (bad URL scheme, DNS failure, malformed JSON, ...) —
+        # still a clean user-facing message, not a raw exception dump.
+        log.debug(f"Custom provider model detection failed for {base_url}: {e}")
+        return {"models": [], "error": f"Couldn't reach {base_url}."}
+
+
+def fetch_gemini_models(api_key: str) -> dict:
+    """Google's List Models API has a different shape than the OpenAI-style
+    /v1/models used everywhere else in this file: the key is a query param
+    (not a header), and entries are named "models/gemini-..." with a
+    supportedGenerationMethods list rather than a flat id — filter to models
+    that actually support chat (generateContent) so e.g. embedding models
+    don't show up in the picker."""
+    if not api_key:
+        return {"models": [], "error": "No API key provided."}
+    try:
+        resp = requests.get(
+            "https://generativelanguage.googleapis.com/v1beta/models",
+            params={"key": api_key},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("models", [])
+        models = sorted({
+            m["name"].split("/", 1)[-1]
+            for m in data
+            if "generateContent" in (m.get("supportedGenerationMethods") or []) and m.get("name")
+        })
+        return {"models": models}
+    except requests.exceptions.ConnectionError:
+        return {"models": [], "error": "Couldn't reach Google's API — check your connection."}
+    except requests.exceptions.Timeout:
+        return {"models": [], "error": "Google's API didn't respond in time."}
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "?"
+        return {"models": [], "error": f"Google's API returned an error (HTTP {status})."}
+    except Exception as e:
+        log.debug(f"Gemini model detection failed: {e}")
+        return {"models": [], "error": "Couldn't reach Google's API."}
+
+
+_PROVIDER_BASE_URLS = {
+    "groq": ("https://api.groq.com/openai", "openai"),
+    "openai": ("https://api.openai.com", "openai"),
+    "anthropic": ("https://api.anthropic.com", "anthropic"),
+}
+_PROVIDER_FALLBACKS = {
+    "groq": GROQ_FALLBACK_CHAIN,
+    "openai": OPENAI_FALLBACK_MODELS,
+    "anthropic": ANTHROPIC_FALLBACK_MODELS,
+    "gemini": GEMINI_MODELS,
+}
+
+
+def fetch_provider_models(provider: str, api_key: str, capability: str = "chat") -> dict:
+    """Unified model-list fetch for the 4 built-in providers, backing the
+    Settings and Knowledge Nexus model pickers. Always returns a usable list —
+    real detection when it works ("source": "live"), a curated static list
+    when it doesn't ("source": "fallback") — so the dropdown is never empty
+    just because a key isn't set yet or the provider's API hiccuped.
+
+    capability="tts" asks for voice-synthesis models instead of chat models —
+    most providers don't offer any (Anthropic has none at all), in which case
+    this just returns an empty live list, not an error. There's no curated
+    fallback for TTS since, unlike chat, there's no safe "this always exists"
+    default to guess at."""
+    provider = (provider or "").lower()
+    if not api_key or api_key == "sk-****":
+        api_key = get_api_key(provider) or ""
+    model_filter = _is_tts_model if capability == "tts" else _is_chat_model
+
+    if provider == "gemini":
+        result = fetch_gemini_models(api_key)
+        if result.get("models"):
+            result["models"] = [m for m in result["models"] if model_filter(m)]
+    elif provider in _PROVIDER_BASE_URLS:
+        base_url, api_type = _PROVIDER_BASE_URLS[provider]
+        result = fetch_custom_provider_models(base_url, api_type, api_key)
+        if result.get("models"):
+            result["models"] = [m for m in result["models"] if model_filter(m)]
+    else:
+        return {"models": [], "error": f"Unknown provider: {provider}"}
+
+    if result.get("models") or (capability == "tts" and not result.get("error")):
+        result["source"] = "live"
+        result.setdefault("models", [])
+        return result
+
+    fallback = _PROVIDER_FALLBACKS.get(provider, []) if capability == "chat" else []
+    return {"models": fallback, "source": "fallback", "error": result.get("error")}
+
+
 def _safe_int_header(val, default: int) -> int:
     """Parse an HTTP header value as int without crashing on non-integer strings."""
     try:
@@ -182,6 +384,23 @@ def get_ollama_status(base_url: str = "http://localhost:11434") -> dict:
 # instead of re-probing.
 _LOCAL_UNREACHABLE_UNTIL = 0.0
 _LOCAL_CIRCUIT_COOLDOWN = 30  # seconds
+
+
+def resolve_think_text(response: dict, fallback: str) -> str:
+    """Pull the reply text out of a think()-shaped response, but only if it's
+    an actual completion. think() reports a missing-key/provider failure as a
+    200 with an "error" key sitting alongside a well-formed
+    choices[].message.content — that content is a human-readable apology
+    ("please add your API key..."), not a real transform. A caller like Smart
+    Paste that blindly extracts content and hands it back to the OS clipboard
+    would silently overwrite the user's data with that apology and report
+    success (a real bug, found live) — so callers that can't tell the
+    difference between "no error" and "error with borrowed apology text" must
+    go through this instead of reading choices[] directly."""
+    if response.get("error"):
+        return fallback
+    text = (response.get("choices") or [{}])[0].get("message", {}).get("content", fallback)
+    return text.strip() or fallback
 
 
 def think_local(prompt, system_override=None, timeout=90, model=None):
@@ -390,7 +609,7 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
     # Local models keep the raw payload on-device; cloud routes get a reversibly
     # pseudonymized payload, and think()'s wrapper rehydrates the reply.
     sess = None
-    if active_model not in ("Ollama_Local", "LlamaCpp_Local") and settings.get("privacy_mirror_enabled", True):
+    if not _is_local_provider(active_model, settings) and settings.get("privacy_mirror_enabled", True):
         try:
             from privacy_mirror import ScrubSession, ensure_model_ready
             ensure_model_ready(timeout=45)  # wait for the scrubber on a cold start so the
@@ -434,7 +653,7 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
-                    "model": "gpt-4o",
+                    "model": settings.get("openai_model") or "gpt-4o",
                     "messages": [
                         {"role": "system", "content": system_content},
                         {"role": "user", "content": msg_content}
@@ -473,7 +692,7 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                     "content-type": "application/json"
                 },
                 json={
-                    "model": "claude-3-5-sonnet-20241022",
+                    "model": settings.get("anthropic_model") or "claude-3-5-sonnet-20241022",
                     "max_tokens": 1024,
                     "system": system_content,
                     "messages": anthropic_messages
@@ -546,6 +765,60 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                 log.error("llama.cpp not reachable — is the server running?")
                 return {"choices": [{"message": {"content": "llama.cpp server isn't running. start it with `./llama-server -m your_model.gguf`"}}]}
 
+        elif active_model == "Custom":
+            profile = get_active_custom_provider(settings)
+            custom_url = (profile.get("base_url") or "").strip().rstrip("/") if profile else ""
+            custom_model = profile.get("model", "") if profile else ""
+            custom_api_type = profile.get("api_type", "openai") if profile else "openai"
+            api_key = profile.get("api_key", "") if profile else ""
+            if not custom_url:
+                log.error("Custom provider has no base URL set!")
+                return {"choices": [{"message": {"content": "no custom endpoint selected. add or pick one in Settings."}}]}
+            log.info(f"Routing think() → Custom {custom_api_type} ({custom_model} @ {custom_url})")
+            try:
+                if custom_api_type == "anthropic":
+                    headers = {"anthropic-version": "2023-06-01", "content-type": "application/json"}
+                    if api_key:
+                        headers["x-api-key"] = api_key
+                    resp = requests.post(
+                        f"{custom_url}/v1/messages",
+                        headers=headers,
+                        json={
+                            "model": custom_model,
+                            "max_tokens": 1024,
+                            "system": system_content,
+                            "messages": [{"role": "user", "content": user_content}],
+                        },
+                        timeout=60,
+                    )
+                    res = resp.json()
+                    content = res.get("content", [{}])[0].get("text", "")
+                    return {"choices": [{"message": {"content": content}}]}
+                else:
+                    headers = {"Content-Type": "application/json"}
+                    if api_key:
+                        headers["Authorization"] = f"Bearer {api_key}"
+                    resp = requests.post(
+                        f"{custom_url}/v1/chat/completions",
+                        headers=headers,
+                        json={
+                            "model": custom_model,
+                            "messages": [
+                                {"role": "system", "content": system_content},
+                                {"role": "user", "content": user_content},
+                            ],
+                            "stream": False,
+                        },
+                        timeout=60,
+                    )
+                    return resp.json()
+            except requests.exceptions.Timeout:
+                log.error("Custom provider timed out.")
+                return {"choices": [{"message": {"content": "custom provider timed out."}}]}
+            except requests.exceptions.ConnectionError:
+                log.error("Custom provider not reachable.")
+                return {"choices": [{"message": {"content": f"couldn't reach the custom provider at {custom_url}."}}]}
+
         elif active_model == "Gemini_Flash":
             api_key = get_api_key("gemini")
             if not api_key:
@@ -597,7 +870,13 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                 with _groq_lb_lock:
                     idx = _groq_lb_state["current_idx"]
                 models_to_try = GROQ_FALLBACK_CHAIN[idx:] + GROQ_FALLBACK_CHAIN[:idx]
-                
+                pinned = settings.get("groq_model")
+                if pinned:
+                    # Try the user's pinned model first, then fall back to the
+                    # existing reliability chain if it fails — preserves
+                    # today's robustness for anyone who doesn't set this.
+                    models_to_try = [pinned] + [m for m in models_to_try if m != pinned]
+
             last_res = {
                 "error": "all_models_failed",
                 "choices": [{"message": {"content": "all AI models unavailable right now — please try again in a moment."}}]
@@ -680,11 +959,45 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
 
 # Control tokens that must pass through the stream verbatim (never rehydrated,
 # and they flush any held partial placeholder first to preserve ordering).
-_STREAM_CONTROL_PREFIXES = ("[SYSTEM:", "[API ERROR", "[Error", "[Anthropic", "[Gemini", "[Ollama", "[[PRIVACY]]")
+_STREAM_CONTROL_PREFIXES = (
+    "[SYSTEM:", "[API ERROR", "[Error", "[Anthropic", "[Gemini", "[Ollama",
+    "[[PRIVACY]]", "[[TOOL]]", "[[TOOL_RESULT]]",
+)
 
 
 def _is_stream_control(tok) -> bool:
     return isinstance(tok, str) and tok.lstrip().startswith(_STREAM_CONTROL_PREFIXES)
+
+
+# Tool output echoed into the chat is for the user's eyes, not the model's —
+# keep it readable rather than dumping a multi-megabyte blob into the UI.
+_TOOL_ECHO_MAX_CHARS = 4000
+
+
+def _tool_start_sentinel(func_name: str, args: dict) -> str:
+    """One-shot ``[[TOOL]]{...}`` sentinel announcing a tool call *with its
+    actual arguments* — the exact code for run_python, the exact command for
+    run_shell. The older ``[SYSTEM: Executing X]`` marker carried only a
+    name, so the UI could say "using: run shell" but could never show what
+    was about to run. core.py turns this into a `tool_call` event and a
+    persisted chat block."""
+    import json as _json
+    try:
+        payload = _json.dumps({"name": func_name, "args": args})
+    except Exception:
+        payload = _json.dumps({"name": func_name, "args": {}})
+    return "[[TOOL]]" + payload
+
+
+def _tool_result_sentinel(func_name: str, result) -> str:
+    import json as _json
+    text = str(result)
+    truncated = len(text) > _TOOL_ECHO_MAX_CHARS
+    if truncated:
+        text = text[:_TOOL_ECHO_MAX_CHARS] + f"\n...[truncated, {len(str(result)) - _TOOL_ECHO_MAX_CHARS} more chars]"
+    return "[[TOOL_RESULT]]" + _json.dumps({
+        "name": func_name, "output": text, "truncated": truncated,
+    })
 
 
 def think_stream(prompt, context="", session_id="", images_b64=None):
@@ -778,7 +1091,9 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
     if session_id:
         try:
             from chat_manager import get_session_messages
-            history = get_session_messages(session_id)[-20:] # Limit to 20 to prevent Groq crash
+            from context_manager import build_history
+            raw_history = get_session_messages(session_id)
+            history = build_history(raw_history, active_model, _is_local_provider(active_model, settings))
             for i, msg in enumerate(history):
                 # Skip if it's the exact same prompt at the end (just added by core.py)
                 if i == len(history) - 1 and msg["text"] == prompt and msg["speaker"] != "Primnox":
@@ -816,7 +1131,7 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
     # wrapper (for rehydration + the UI reveal), and scrub tool results too.
     _scrub_box["model"] = active_model
     sess = None
-    is_local_route = active_model in ("Ollama_Local", "LlamaCpp_Local")
+    is_local_route = _is_local_provider(active_model, settings)
     if not is_local_route and settings.get("privacy_mirror_enabled", True):
         try:
             from privacy_mirror import ScrubSession, ensure_model_ready
@@ -845,18 +1160,17 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
     url = ""
     model_name = ""
     headers = {}
-    is_ollama = False
-    is_gemini = False
+    pinned_groq_model = None
 
     if active_model == "OpenAI_GPT_4o":
         api_key = get_api_key("openai")
         url = "https://api.openai.com/v1/chat/completions"
-        model_name = "gpt-4o"
+        model_name = settings.get("openai_model") or "gpt-4o"
         headers = {"Authorization": f"Bearer {api_key}"}
     elif active_model == "Anthropic_Claude_3":
         api_key = get_api_key("anthropic")
         url = "https://api.anthropic.com/v1/messages"
-        model_name = "claude-3-5-sonnet-20241022"
+        model_name = settings.get("anthropic_model") or "claude-3-5-sonnet-20241022"
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
     elif active_model == "Ollama_Local":
         ollama_url = _safe_local_url(settings.get("ollama_base_url", "http://localhost:11434"), 11434)
@@ -873,7 +1187,6 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
         url = f"{ollama_url}/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
         api_key = "ollama"   # sentinel — Ollama needs no real key
-        is_ollama = True
         log.info(f"Routing think_stream() → Ollama ({model_name} @ {ollama_url})")
     elif active_model == "LlamaCpp_Local":
         llamacpp_url = _safe_local_url(settings.get("llamacpp_base_url", "http://localhost:8080"), 8080)
@@ -881,93 +1194,85 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
         url = f"{llamacpp_url}/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
         api_key = "llamacpp"  # sentinel — llama.cpp needs no real key
-        is_ollama = True       # shares the same OpenAI-compat streaming path as Ollama
         log.info(f"Routing think_stream() → llama.cpp ({model_name} @ {llamacpp_url})")
+    elif active_model == "Custom":
+        profile = get_active_custom_provider(settings)
+        custom_url = (profile.get("base_url") or "").strip().rstrip("/") if profile else ""
+        model_name = profile.get("model", "") if profile else ""
+        custom_api_type = profile.get("api_type", "openai") if profile else "openai"
+        api_key = profile.get("api_key", "") if profile else ""
+        if custom_api_type == "anthropic":
+            # Falls through to the Anthropic streaming branch below, which
+            # only relies on url/headers/model_name (already generic) — no
+            # separate handling needed for a custom Anthropic-compatible host.
+            url = f"{custom_url}/v1/messages"
+            headers = {"anthropic-version": "2023-06-01", "content-type": "application/json"}
+            if api_key:
+                headers["x-api-key"] = api_key
+            api_key = api_key or "custom"  # sentinel: some custom hosts need no key
+        else:
+            url = f"{custom_url}/v1/chat/completions"
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            api_key = api_key or "custom"  # sentinel — same role as Ollama/LlamaCpp's above
+        log.info(f"Routing think_stream() → Custom {custom_api_type} ({model_name} @ {custom_url})")
     elif active_model == "Gemini_Flash":
         api_key = get_api_key("gemini")
         gemini_model = settings.get("gemini_model", "gemini-2.0-flash")
         url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         model_name = gemini_model
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        is_gemini = True
         log.info(f"Routing think_stream() → Gemini ({model_name})")
     else:
         api_key = get_api_key("groq")
         url = "https://api.groq.com/openai/v1/chat/completions"
+        pinned_groq_model = settings.get("groq_model") or None
         if images_b64:
             # See GROQ_VISION_MODEL — llama-4-scout was hardcoded here and 404s.
             model_name = GROQ_VISION_MODEL or GROQ_FALLBACK_CHAIN[0]
         else:
             with _groq_lb_lock:
-                model_name = GROQ_FALLBACK_CHAIN[_groq_lb_state["current_idx"]]
+                model_name = pinned_groq_model or GROQ_FALLBACK_CHAIN[_groq_lb_state["current_idx"]]
         headers = {"Authorization": f"Bearer {api_key}"}
 
     if not api_key:
         yield "Sorry, cannot process this request without AI. Please add your API key in Settings."
         return
 
-    # ── Ollama fast-path: no tool-calling loop, direct streaming ─────────────
-    if is_ollama:
-        try:
-            resp_stream = requests.post(
-                url, headers=headers,
-                json={"model": model_name, "messages": messages, "stream": True},
-                stream=True, timeout=120
-            )
-            if resp_stream.status_code != 200:
-                yield f"[Ollama error {resp_stream.status_code}]: {resp_stream.text}"
-                return
-            for line in resp_stream.iter_lines():
-                if line:
-                    decoded = line.decode("utf-8")
-                    if decoded.startswith("data: "):
-                        data_str = decoded[6:]
-                        if data_str.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            token = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                            if token:
-                                yield token
-                        except Exception:
-                            pass
-        except requests.exceptions.Timeout:
-            yield "ollama timed out — the model might still be loading. try again in a few seconds."
-        except requests.exceptions.ConnectionError:
-            yield "ollama isn't running bro. start it with `ollama serve`."
-        return
+    # Ollama/LlamaCpp/Custom-openai and Gemini used to fast-path here straight
+    # to plain streaming with no tools param at all — meaning run_python,
+    # web_search, save_note etc. were entirely unreachable on those
+    # providers regardless of settings. They all speak the same
+    # OpenAI-compatible tools/tool_calls wire format OpenAI_GPT_4o already
+    # uses successfully in the loop below (a non-Groq provider proven to
+    # work there today), so they now fall through into it instead of
+    # returning early. If a specific self-hosted model doesn't actually
+    # support function-calling, the request may come back as an error
+    # rather than silently degrading to plain text — a real but accepted
+    # tradeoff for giving every provider genuine tool access.
 
-    # ── Gemini fast-path: direct streaming, no tool-calling loop ─────────────
-    if is_gemini:
-        try:
-            resp_stream = requests.post(
-                url, headers=headers,
-                json={"model": model_name, "messages": messages, "stream": True},
-                stream=True, timeout=60
-            )
-            if resp_stream.status_code != 200:
-                yield f"[Gemini error {resp_stream.status_code}]: {resp_stream.text[:200]}"
-                return
-            for line in resp_stream.iter_lines():
-                if line:
-                    decoded = line.decode("utf-8")
-                    if decoded.startswith("data: "):
-                        data_str = decoded[6:]
-                        if data_str.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            token = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                            if token:
-                                yield token
-                        except Exception:
-                            pass
-        except Exception as e:
-            yield f"gemini error: {e}"
-        return
-
+    _active_custom_profile = get_active_custom_provider(settings) if active_model == "Custom" else None
+    custom_uses_anthropic = bool(_active_custom_profile and _active_custom_profile.get("api_type") == "anthropic")
+    # run_python/run_shell stay out of what's offered to the model entirely
+    # when code execution is disabled — not just "gated behind a permission
+    # prompt", genuinely absent from the tool list the model can even see.
+    # Filtered once and reused for both the request payload and the
+    # tool-name validation set below, so a disabled setting can't be
+    # bypassed by the model hallucinating a call anyway.
+    active_tool_definitions = TOOL_DEFINITIONS
+    if not settings.get("code_execution_enabled"):
+        active_tool_definitions = [
+            td for td in TOOL_DEFINITIONS
+            if td["function"]["name"] not in ("run_python", "run_shell")
+        ]
     try:
-        if active_model not in ("Anthropic_Claude_3", "Gemini_Flash"):
+        # Only genuinely Anthropic-shaped providers (native or Custom-anthropic)
+        # need the separate Anthropic Messages-API branch below — every other
+        # provider (including Gemini's OpenAI-compatible endpoint, Ollama,
+        # LlamaCpp, and Custom-openai) speaks the same tools/tool_calls format
+        # this loop already sends.
+        if active_model != "Anthropic_Claude_3" and not custom_uses_anthropic:
             max_steps = 5
             for step in range(max_steps):
                 tried_groq = set()
@@ -979,13 +1284,13 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
                         json={
                             "model": model_name,
                             "messages": messages,
-                            "tools": TOOL_DEFINITIONS,
+                            "tools": active_tool_definitions,
                             "tool_choice": "auto"
                         },
                         timeout=60
                     )
                     if resp.status_code == 429:
-                        if "groq.com" in url and model_name in GROQ_FALLBACK_CHAIN:
+                        if "groq.com" in url and (model_name in GROQ_FALLBACK_CHAIN or model_name == pinned_groq_model):
                             tried_groq.add(model_name)
                             if len(tried_groq) < len(GROQ_FALLBACK_CHAIN):
                                 model_name = rotate_groq_model()
@@ -1061,13 +1366,17 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
                                     json={"model": model_name, "messages": messages}, timeout=60
                                 )
                                 if resp.status_code == 429:
-                                    if "groq.com" in url and model_name in GROQ_FALLBACK_CHAIN:
-                                        current_idx = GROQ_FALLBACK_CHAIN.index(model_name)
-                                        if current_idx + 1 < len(GROQ_FALLBACK_CHAIN):
-                                            next_model = GROQ_FALLBACK_CHAIN[current_idx + 1]
-                                            log.warning(f"Rate limit hit. Falling back to {next_model}...")
-                                            model_name = next_model
-                                            continue
+                                    if "groq.com" in url and (model_name in GROQ_FALLBACK_CHAIN or model_name == pinned_groq_model):
+                                        # rotate_groq_model() only reads/advances the global
+                                        # rotation index — safe to call even when model_name
+                                        # is a pinned model outside GROQ_FALLBACK_CHAIN, unlike
+                                        # the old GROQ_FALLBACK_CHAIN.index(model_name) approach
+                                        # this replaced (which raised ValueError for a pinned
+                                        # model not in the chain).
+                                        next_model = rotate_groq_model()
+                                        log.warning(f"Rate limit hit. Falling back to {next_model}...")
+                                        model_name = next_model
+                                        continue
                                     log.warning("Rate limit hit. Retrying in 2 seconds...")
                                     import time
                                     time.sleep(2)
@@ -1087,7 +1396,7 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
                 
                 tool_calls = response_msg.get("tool_calls")
                 if tool_calls:
-                    log.info(f"LLM decided to use {len(tool_calls)} tools (Step {step+1}).")
+                    log.info(f"LLM decided to use {len(tool_calls)} tools (Step {step+1}).", extra={"session_id": session_id})
                     
                     # SANITIZE JSON TO PREVENT HTTP 400 ON NEXT REQUEST
                     for tc in tool_calls:
@@ -1108,7 +1417,7 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
                     
                     messages.append(response_msg)
                     
-                    _valid_tool_names = {td["function"]["name"] for td in TOOL_DEFINITIONS}
+                    _valid_tool_names = {td["function"]["name"] for td in active_tool_definitions}
                     for tool_call in tool_calls:
                         func_name = tool_call.get("function", {}).get("name")
                         if func_name not in _valid_tool_names:
@@ -1119,9 +1428,10 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
                         except Exception:
                             args = {}
 
-                        log.info(f"Executing tool {func_name}...")
-                        yield f"\n[SYSTEM: Executing {func_name}]\n"
+                        log.info(f"Executing tool {func_name}...", extra={"session_id": session_id, "tool": func_name})
+                        yield _tool_start_sentinel(func_name, args)
                         result = execute_tool(func_name, args, session_id=session_id)
+                        yield _tool_result_sentinel(func_name, result)
 
                         # Tool output re-enters the cloud conversation — scrub it
                         # through the same session so new PII gets stable placeholders.
@@ -1163,7 +1473,7 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
                     timeout=60
                 )
                 if resp_stream.status_code == 429:
-                    if "groq.com" in url and model_name in GROQ_FALLBACK_CHAIN:
+                    if "groq.com" in url and (model_name in GROQ_FALLBACK_CHAIN or model_name == pinned_groq_model):
                         tried_groq.add(model_name)
                         if len(tried_groq) < len(GROQ_FALLBACK_CHAIN):
                             model_name = rotate_groq_model()
@@ -1199,11 +1509,95 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
                             pass
 
         else:
-            # Anthropic streaming — pass full conversation history.
-            # Anthropic requires system prompt in its own "system" field,
-            # and messages must only contain role=user/assistant (no system).
+            # Anthropic Messages API — native Anthropic_Claude_3 and
+            # Custom-anthropic share this branch. Anthropic requires the
+            # system prompt in its own "system" field, and messages must
+            # only contain role=user/assistant (no system).
+            #
+            # Tool-calling here mirrors the Groq/OpenAI loop's own structure
+            # (non-streaming requests while tool calls might still be
+            # happening, one streaming request only for the genuine final
+            # answer) rather than accumulating tool_use blocks across a live
+            # SSE stream — Anthropic's input_json_delta chunks would need to
+            # be buffered per content-block index before they're valid JSON,
+            # which adds real complexity for no behavioral difference from
+            # the non-streaming shape used everywhere else in this function.
             anthropic_messages = [m for m in messages if m["role"] != "system"]
-            resp = requests.post(
+            anthropic_tools = [
+                {
+                    "name": td["function"]["name"],
+                    "description": td["function"]["description"],
+                    "input_schema": td["function"]["parameters"],
+                }
+                for td in active_tool_definitions
+            ]
+
+            max_steps = 5
+            for step in range(max_steps):
+                resp = requests.post(
+                    url,
+                    headers=headers,
+                    json={
+                        "model": model_name,
+                        "messages": anthropic_messages,
+                        "system": system_content,
+                        "tools": anthropic_tools,
+                        "max_tokens": 1024,
+                    },
+                    timeout=60,
+                )
+                if resp.status_code != 200:
+                    yield f"[Anthropic error {resp.status_code}]: {resp.text[:200]}"
+                    return
+
+                data = resp.json()
+                content_blocks = data.get("content", [])
+                tool_use_blocks = [b for b in content_blocks if b.get("type") == "tool_use"]
+
+                if data.get("stop_reason") == "tool_use" and tool_use_blocks:
+                    log.info(f"LLM decided to use {len(tool_use_blocks)} tools (Step {step+1}).", extra={"session_id": session_id})
+                    # The assistant turn must be echoed back verbatim (text +
+                    # tool_use blocks together) — Anthropic ties tool_result
+                    # blocks to a specific prior tool_use id, so the history
+                    # has to carry the exact block Anthropic itself produced.
+                    anthropic_messages.append({"role": "assistant", "content": content_blocks})
+
+                    tool_result_content = []
+                    for block in tool_use_blocks:
+                        func_name = block.get("name")
+                        tool_input = block.get("input", {})
+                        yield _tool_start_sentinel(func_name, tool_input)
+                        result = execute_tool(func_name, tool_input, session_id=session_id)
+                        yield _tool_result_sentinel(func_name, result)
+
+                        tool_content = str(result)
+                        if sess is not None:
+                            tool_content = sess.scrub(tool_content)
+                            _scrub_box["map"] = sess.mapping
+
+                        tool_result_content.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.get("id"),
+                            "content": tool_content,
+                        })
+
+                    anthropic_messages.append({"role": "user", "content": tool_result_content})
+
+                    if step == max_steps - 1:
+                        log.warning("Max steps reached, forcing final response.")
+                        break
+                    continue
+                else:
+                    # No tool use — this response IS the final answer.
+                    text = "".join(b.get("text", "") for b in content_blocks if b.get("type") == "text")
+                    for word in text.split(" "):
+                        yield word + " "
+                    return
+
+            # Hit max_steps with a tool call still pending — force one more,
+            # tool-less, streaming pass so the user gets a real answer
+            # instead of nothing.
+            resp_stream = requests.post(
                 url,
                 headers=headers,
                 json={
@@ -1211,15 +1605,15 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
                     "messages": anthropic_messages,
                     "system": system_content,
                     "stream": True,
-                    "max_tokens": 1024
+                    "max_tokens": 1024,
                 },
                 stream=True,
-                timeout=60
+                timeout=60,
             )
-            if resp.status_code != 200:
-                yield f"[Anthropic error {resp.status_code}]: {resp.text[:200]}"
+            if resp_stream.status_code != 200:
+                yield f"[Anthropic error {resp_stream.status_code}]: {resp_stream.text[:200]}"
                 return
-            for line in resp.iter_lines():
+            for line in resp_stream.iter_lines():
                 if line:
                     decoded = line.decode('utf-8')
                     if decoded.startswith("data: "):

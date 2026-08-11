@@ -3,7 +3,7 @@ import { Search, Plus, FileText, ChevronRight, Trash2, Sparkles, X, Loader2, Fol
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { BlockNoteView } from "@blocknote/mantine";
-import { useCreateBlockNote, SuggestionMenuController, getDefaultReactSlashMenuItems } from "@blocknote/react";
+import { useCreateBlockNote, SuggestionMenuController, getDefaultReactSlashMenuItems, DefaultReactSuggestionItem } from "@blocknote/react";
 import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 import { NoteGeneratorPanel } from './NoteGeneratorPanel';
 import { API_BASE } from '../../config';
@@ -140,6 +140,14 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
 
   const activeNote = notes.find(n => n.id === activeNoteId) ?? notes[0];
 
+  // Every workspace that actually has a note in it, "General" always first.
+  // Shared by the workspace tab row, the AI builder's folder picker, and the
+  // "move to workspace" control below, so all three agree on the same list.
+  const allWorkspaces = useMemo(
+    () => ['General', ...Array.from(new Set(notes.map(n => n.project).filter((p): p is string => Boolean(p)))).filter(p => p !== 'General')],
+    [notes]
+  );
+
   const prevNoteIdRef = useRef<number | null | undefined>(undefined);
 
   // Sync editor state when switching notes
@@ -179,15 +187,28 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
   const editorOptions = useMemo(() => ({ schema }), []);
   const editor = useCreateBlockNote(editorOptions);
 
+  // editor.replaceBlocks() below fires BlockNote's onChange the same as a
+  // real keystroke would — with nothing to distinguish them, switching to a
+  // newly-created note replayed a stale `editTitle` closure (still holding
+  // the PREVIOUS note's title, since that state update hadn't re-rendered
+  // yet) into a debounced save aimed at the NEW note's id, silently
+  // overwriting it with the old title and empty text. Found live by
+  // creating a note right after editing another one. This flag brackets
+  // every programmatic content load so onEditorChange can tell "the note
+  // switched under us" apart from "the user actually typed something."
+  const isLoadingContentRef = useRef(false);
+
   useEffect(() => {
     async function loadContent() {
       if (activeNote && prevNoteIdRef.current === activeNote?.id) {
+        isLoadingContentRef.current = true;
         if (activeNote.text) {
           const blocks = await editor.tryParseMarkdownToBlocks(activeNote.text);
           editor.replaceBlocks(editor.document, blocks);
         } else {
           editor.replaceBlocks(editor.document, [{ type: "paragraph", content: "" }]);
         }
+        isLoadingContentRef.current = false;
       }
     }
     // Only load if the text has changed significantly or we just switched (we rely on the previous effect to set text)
@@ -195,6 +216,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
   }, [activeNote?.id, editor]); // We trigger this when activeNote?.id changes
 
   const onEditorChange = async () => {
+    if (isLoadingContentRef.current) return; // programmatic load, not a user edit — see note above
     const markdown = await editor.blocksToMarkdownLossy(editor.document);
     setEditText(markdown);
     // Capture the current note ID at the moment of the edit, not lazily
@@ -202,6 +224,36 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
     const currentTitle = editTitle;
     debouncedSave(currentTitle, markdown, currentNoteId, activeWorkspace);
   };
+
+  // [[ ]] wiki-link autocomplete. By the time onItemClick fires, BlockNote
+  // has already removed the "[[query" text (same mechanism as the "/"
+  // slash-menu) — so the brackets have to be re-added here for the saved
+  // markdown to contain a literal [[Title]] the backend can parse
+  // (notes_manager.py's WIKILINK_PATTERN / _resolve_and_set_links).
+  const getWikiLinkItems = useCallback(async (query: string): Promise<DefaultReactSuggestionItem[]> => {
+    try {
+      const res = await fetch(`${API_BASE}/api/notes/search-titles?q=${encodeURIComponent(query)}&limit=8`);
+      const data = await res.json();
+      const results: { id: number; title: string }[] = data?.notes ?? [];
+      if (results.length === 0) {
+        return [{
+          title: query ? `No notes match "${query}"` : 'Start typing a note title…',
+          onItemClick: () => {},
+          icon: <Hash size={14} />,
+        }];
+      }
+      return results.map(n => ({
+        title: n.title,
+        subtext: 'Link to note',
+        icon: <FileText size={14} />,
+        onItemClick: () => {
+          editor.insertInlineContent(`[[${n.title}]] `);
+        },
+      }));
+    } catch {
+      return [];
+    }
+  }, [editor]);
 
   // ─── Auto-Save with Debounce ────────────────────────────────
   const persistNote = useCallback(async (title: string, text: string, id: number, project: string) => {
@@ -232,6 +284,20 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
     }, 1500);
   }, [persistNote]);
 
+  // ─── Move to a different workspace ─────────────────────────────
+  // There was no way to change a note's project after creation — the
+  // Project field in Page Details was a read-only label. Every other save
+  // path uses `activeWorkspace` (the currently selected tab) rather than
+  // the note's own project, which is fine as long as you're only ever
+  // editing notes within the tab you're viewing; this is the one place that
+  // deliberately overrides it, since moving IS the point.
+  const moveToWorkspace = useCallback((newProject: string) => {
+    if (!activeNote?.id || newProject === (activeNote.project || 'General')) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    persistNote(editTitle, editText, activeNote.id, newProject);
+    setActiveWorkspace(newProject);
+  }, [activeNote, editTitle, editText, persistNote]);
+
   const deleteNote = async () => {
     if (notes.length === 0 || !activeNote?.id) return;
     try {
@@ -244,6 +310,30 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
       console.error("Delete failed:", e);
     }
   };
+
+  // ─── AI Note Builder result ───────────────────────────────────
+  // If the AI edited the note that's currently open, its id doesn't change
+  // — the switch-note effects above only refire on an id change, so they'd
+  // never pick up the new content. Patch the editor directly here instead
+  // of fighting that effect's timing. A different/new note just switches to
+  // it normally, which the existing effects already handle correctly.
+  const handleGeneratedNote = useCallback(async (note: { id: number; title: string; text: string }) => {
+    if (activeNote && note.id === activeNote.id) {
+      isLoadingContentRef.current = true;
+      setEditTitle(note.title || "");
+      setEditText(note.text || "");
+      if (note.text) {
+        const blocks = await editor.tryParseMarkdownToBlocks(note.text);
+        editor.replaceBlocks(editor.document, blocks);
+      } else {
+        editor.replaceBlocks(editor.document, [{ type: "paragraph", content: "" }]);
+      }
+      isLoadingContentRef.current = false;
+    } else {
+      setActiveNoteId(note.id);
+    }
+    onRefresh?.();
+  }, [activeNote, editor, onRefresh]);
 
   // ─── New Note ───────────────────────────────────────────────
   const handleNewNote = useCallback(async () => {
@@ -428,7 +518,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
         <div className="p-4 space-y-4 pt-8">
           <div className="flex justify-between items-center mb-2">
             <div className="flex gap-2 bg-surface/40 p-1 rounded-lg w-full text-xs overflow-x-auto custom-scrollbar flex-nowrap shrink-0">
-              {['General', ...Array.from(new Set(notes.map(n => n.project).filter((p): p is string => Boolean(p)))).filter(p => p !== 'General')].map(ws => (
+              {allWorkspaces.map(ws => (
                 <button
                   key={ws}
                   onClick={() => setActiveWorkspace(ws)}
@@ -474,7 +564,7 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
               <Folder size={14} /> {activeWorkspace}
             </h2>
             <div className="flex gap-1">
-              <button onClick={() => setShowGenerator(!showGenerator)} title="Generate AI Notes" className="w-6 h-6 flex items-center justify-center hover:bg-on-surface/10 rounded transition-colors text-success/70 hover:text-success">
+              <button onClick={() => setShowGenerator(!showGenerator)} title="AI Note Builder — write a new note or edit this one" className="w-6 h-6 flex items-center justify-center hover:bg-on-surface/10 rounded transition-colors text-success/70 hover:text-success">
                 <Sparkles size={14} />
               </button>
               <button onClick={handleNewNote} title="New page (Ctrl+N)" className="w-6 h-6 flex items-center justify-center hover:bg-on-surface/10 rounded transition-colors text-on-surface/50 hover:text-on-surface">
@@ -492,7 +582,15 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          {showGenerator && <NoteGeneratorPanel onDone={() => setShowGenerator(false)} activeWorkspace={activeWorkspace} />}
+          {showGenerator && (
+            <NoteGeneratorPanel
+              onDone={() => setShowGenerator(false)}
+              activeWorkspace={activeWorkspace}
+              activeNote={activeNote ? { id: activeNote.id!, title: activeNote.title, text: activeNote.text } : null}
+              onGenerated={handleGeneratedNote}
+              workspaces={allWorkspaces}
+            />
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar px-2 space-y-0.5">
@@ -635,6 +733,10 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
                         )
                       }
                     />
+                    <SuggestionMenuController
+                      triggerCharacter={"[["}
+                      getItems={getWikiLinkItems}
+                    />
                   </BlockNoteView>
                 </div>
               </div>
@@ -694,7 +796,14 @@ export const NotesIconSidebar = ({ notes = [], onExport, onRefresh }: { notes: N
                   <div className="flex items-center gap-3">
                     <Folder size={13} className="text-on-surface/55 shrink-0" />
                     <span className="text-on-surface/60 w-16 shrink-0">Project</span>
-                    <span className="text-on-surface/70">{activeNote.project || 'General'}</span>
+                    <select
+                      value={activeNote.project || 'General'}
+                      onChange={e => moveToWorkspace(e.target.value)}
+                      title="Move this note to a different workspace"
+                      className="flex-1 bg-transparent text-on-surface/70 outline-none focus-visible:ring-1 focus-visible:ring-success/50 rounded cursor-pointer hover:text-on-surface"
+                    >
+                      {allWorkspaces.map(ws => <option key={ws} value={ws} className="bg-surface text-on-surface">{ws}</option>)}
+                    </select>
                   </div>
                   <div className="flex items-center gap-3">
                     <Hash size={13} className="text-on-surface/55 shrink-0" />

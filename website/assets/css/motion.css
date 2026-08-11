@@ -1,0 +1,228 @@
+/* Curtain transition, intro, gooey blob layer, particle canvas, reduced motion. */
+
+/* ─── CURTAIN ───
+   Hidden unless JS booted. A script failure must never leave a black panel
+   covering the site, so `display:none` is the default state in CSS. */
+#curtain { display: none; }
+html.js-ready #curtain {
+  display: block;
+  position: fixed; inset: 0; z-index: var(--z-curtain);
+  pointer-events: none;
+}
+#curtain.busy { pointer-events: all; }
+
+.curtain-panels { position: absolute; inset: 0; display: flex; }
+.curtain-panel {
+  flex: 1; background: var(--bg);
+  transform: scaleY(0); transform-origin: bottom;
+  will-change: transform;
+}
+/* Panel seams are invisible against a flat fill, but sub-pixel gaps show at
+   fractional zoom levels. Overlap by a pixel. */
+.curtain-panel + .curtain-panel { margin-left: -1px; }
+
+.curtain-label {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0;
+}
+.curtain-word {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(38px, 7vw, 92px);
+  letter-spacing: -0.03em; text-transform: uppercase;
+  display: flex; overflow: hidden; line-height: 1;
+}
+.curtain-word span { display: inline-block; will-change: transform; }
+
+/* Shown inside the curtain only after a slow fetch, so a stalled navigation
+   still reads as progress rather than a frozen screen. */
+.curtain-wait {
+  position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%);
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--muted);
+  opacity: 0; transition: opacity 0.3s;
+}
+#curtain.waiting .curtain-wait { opacity: 1; transition-delay: 0.4s; }
+
+/* ─── INTRO ─── */
+#intro { display: none; }
+html.js-ready #intro.on {
+  display: flex;
+  position: fixed; inset: 0; z-index: calc(var(--z-curtain) + 10);
+  background: var(--bg);
+  align-items: center; justify-content: center; flex-direction: column;
+  gap: 28px;
+}
+/* The wordmark is assembled from a field of lit 3D cubes on a canvas — see
+   introcubes.js. The canvas is full-bleed; the mark is composed in its centre. */
+.intro-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+}
+.intro-sub {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.3em;
+  text-transform: uppercase; color: var(--muted); opacity: 0;
+}
+/* Content sits hidden until the intro hands off, so the reveal is not spoiled
+   by a flash of the hero behind the wordmark. */
+html.intro-pending main,
+html.intro-pending nav,
+html.intro-pending footer { opacity: 0; }
+
+/* During the handoff the page is visible but the real logo is not — the cubes
+   are still standing in for it. --logo-op flips to 1 as they land. */
+html.logo-handoff .nav-logo { opacity: var(--logo-op, 0); transition: opacity 0.25s; }
+html.logo-handoff #intro { background: transparent; pointer-events: none; }
+
+/* ─── GOO BLOB ───
+   Deliberately a small fixed-size layer, not full-viewport: SVG filter cost
+   scales with filter-region area, and a full-screen goo is ~35x more pixels
+   through the Gaussian every frame. */
+#fx {
+  position: fixed; inset: 0; z-index: var(--z-fx);
+  pointer-events: none; overflow: hidden;
+}
+.blob-layer {
+  position: fixed; top: 0; left: 0;
+  width: 520px; height: 520px;
+  margin: -260px 0 0 -260px;
+  filter: url('#goo');
+  opacity: 0;   /* raised by JS only while the hero is on screen */
+  mix-blend-mode: var(--fx-blend);
+  will-change: transform;
+  pointer-events: none;
+}
+.blob {
+  position: absolute; top: 50%; left: 50%;
+  border-radius: 50%;
+  will-change: transform;
+  transform: translate(-50%, -50%);
+}
+.goo-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* ─── HERO LINE REVEAL ───
+   Each line clips its own overflow so the text slides up from behind the line
+   above it. Scoped to the hero headline only — used anywhere else it stops
+   reading as an entrance and starts reading as a tic. */
+.hero-h1 .hl {
+  display: block;
+  overflow: hidden;
+  /* line-height is 0.9, so the clip box is shorter than the glyph ink and
+     would shave the tops and tails off. Pad the mask and pull the padding
+     back out of the layout so the line rhythm is unchanged. */
+  padding: 0.08em 0 0.16em;
+  margin: -0.08em 0 -0.16em;
+}
+.hero-h1 .hl-i { display: block; will-change: transform; }
+/* Pre-hidden only while JS is going to animate them, so a script failure or a
+   no-JS visit still shows the headline. Beyond 100% to clear the extra pad. */
+html.js-ready .hero-h1.reveal-armed .hl-i { transform: translateY(130%); }
+
+/* ─── HERO GRADIENT TEXT OVERLAY ───
+   A second copy of the headline clipped to the glyphs. The blob colour shows
+   only *inside* the letterforms, which raises contrast instead of washing it
+   out the way a blob sitting behind the text would. */
+.hero-h1 { position: relative; }
+.hero-h1 .h1-tint {
+  position: absolute; inset: 0;
+  color: transparent;
+  background-image: radial-gradient(
+    circle at var(--tint-x, 50%) var(--tint-y, 50%),
+    var(--primary) 0%, rgba(195, 192, 255, 0.42) 26%, transparent 52%);
+  -webkit-background-clip: text; background-clip: text;
+  pointer-events: none;
+}
+
+/* ─── PARTICLE CANVAS ─── */
+.fx-anchor {
+  position: relative;
+  width: 100%;
+  height: clamp(220px, 26vw, 340px);
+}
+.fx-anchor canvas {
+  position: absolute; inset: 0;
+  mix-blend-mode: var(--fx-blend);
+  width: 100%; height: 100%;
+  display: block;
+}
+.fx-fallback {
+  position: absolute; inset: 0;
+  display: none;
+  align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+}
+.fx-fallback.on { display: flex; }
+.fx-fallback-word {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(30px, 5vw, 62px); letter-spacing: -0.03em;
+  text-transform: uppercase; color: var(--primary);
+}
+.fx-fallback-sub {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--muted);
+}
+
+/* ─── REDUCED MOTION ───
+   Every set-piece degrades to a defined resting state rather than simply
+   having its duration zeroed, which would leave elements mid-transform. */
+/* Every selector is scoped to :not(.force-motion) so the ?motion=on debug
+   override can bypass the whole block. Without that, JS can force the motion
+   path all it likes and CSS still hides the result. */
+@media (prefers-reduced-motion: reduce) {
+  html:not(.force-motion) { scroll-behavior: auto; }
+
+  html:not(.force-motion) *,
+  html:not(.force-motion) *::before,
+  html:not(.force-motion) *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  html:not(.force-motion) .mq-track { animation: none; transform: none; }
+  html:not(.force-motion) .mq-wrap { overflow-x: auto; }
+  html:not(.force-motion) .logo-dot { animation: none; opacity: 1; }
+  html:not(.force-motion) .hero-foot-arrow { animation: none; }
+  html:not(.force-motion) .td { animation: none; opacity: 0.5; }
+
+  html:not(.force-motion) .ri { opacity: 1; transform: none; transition: none; }
+
+  html:not(.force-motion) .blob-layer { display: none; }
+  html:not(.force-motion) .fx-anchor canvas { display: none; }
+  html:not(.force-motion) .fx-fallback { display: flex; }
+
+  html:not(.force-motion) #intro { display: none !important; }
+  html:not(.force-motion) .hero-h1 .hl-i { transform: none !important; }
+  html:not(.force-motion).intro-pending main,
+  html:not(.force-motion).intro-pending nav,
+  html:not(.force-motion).intro-pending footer { opacity: 1; }
+
+  /* The curtain still exists so navigation has a defined cover, but it
+     cross-fades rather than sweeping. 120ms sits under the vestibular
+     trigger threshold while still avoiding a jarring instant content flip. */
+  html:not(.force-motion) .curtain-panel { transition: opacity 0.12s linear; }
+  html:not(.force-motion) .curtain-label { display: none; }
+}
+
+/* ─── THEME TOGGLE ─── */
+.theme-tg {
+  width: 26px; height: 26px; padding: 0; flex-shrink: 0;
+  border: 1px solid var(--border); border-radius: 50%;
+  background: none; position: relative;
+  transition: border-color 0.2s, transform 0.3s var(--ease-spring);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.theme-tg:hover { border-color: var(--ring); transform: rotate(35deg); }
+.theme-tg::before {
+  content: ''; width: 11px; height: 11px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary) 0 50%, var(--accent) 50% 100%);
+}
+.theme-name {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--muted);
+  margin-left: 8px; min-width: 62px; text-align: left;
+  opacity: 0; transition: opacity 0.3s;
+}
+.theme-wrap { display: inline-flex; align-items: center; }
+.theme-wrap:hover .theme-name, .theme-wrap:focus-within .theme-name { opacity: 1; }
+@media (max-width: 760px) { .theme-name { display: none; } }

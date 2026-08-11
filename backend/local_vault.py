@@ -242,6 +242,21 @@ def setup_vault(db_path: Path, mnemonic: Optional[str] = None) -> str:
     return mnemonic
 
 
+def _invalidate_memory_connection_cache(db_path: Path) -> None:
+    """memory.py now keeps a long-lived connection open per thread instead of
+    reconnecting on every call. That connection has no way to notice this
+    module rewriting the file underneath it, so anything here that changes
+    db_path's actual content must explicitly drop the cache — otherwise a
+    thread that touched memory before an unlock/lock keeps talking to a
+    connection object pointed at the pre-change file state."""
+    try:
+        import memory
+        if Path(db_path) == Path(memory.DB_PATH):
+            memory._reset_db_connection()
+    except Exception as e:
+        log.warning(f"Could not invalidate memory connection cache: {e}")
+
+
 def unlock_vault(db_path: Path, mnemonic: Optional[str] = None) -> None:
     """
     Decrypt db_path.vault → db_path (plaintext) using either the supplied
@@ -269,6 +284,7 @@ def unlock_vault(db_path: Path, mnemonic: Optional[str] = None) -> None:
 
     if data:
         db_path.write_bytes(data)
+        _invalidate_memory_connection_cache(db_path)
     if mnemonic:
         _keychain_store(key)
     log.info(f"Local vault unlocked for {db_path.name}")
@@ -278,6 +294,15 @@ def lock_vault(db_path: Path, key: Optional[bytes] = None) -> None:
     """
     Re-encrypt the current plaintext db_path → db_path.vault and securely
     delete the plaintext copy. Call on shutdown.
+
+    _secure_delete() overwrites the plaintext file in place before unlinking
+    it — if the process is killed mid-overwrite (e.g. a forceful process
+    kill during shutdown, which happened for real in production), the
+    plaintext DB is left corrupted with a malformed disk image and there was
+    previously no check that a *good* .vault copy actually existed before
+    that happened. Decrypting the just-written .vault blob back and
+    confirming it matches before touching the plaintext turns "corrupt the
+    only copy" into "worst case, skip the delete and leave plaintext as-is."
     """
     if not db_path.exists():
         return
@@ -289,8 +314,20 @@ def lock_vault(db_path: Path, key: Optional[bytes] = None) -> None:
 
     data = db_path.read_bytes()
     blob = _encrypt_bytes(data, key)
-    vault_path(db_path).write_bytes(blob)
+    vp = vault_path(db_path)
+    vp.write_bytes(blob)
+
+    try:
+        roundtrip = _decrypt_bytes(vp.read_bytes(), key)
+    except Exception as e:
+        log.error(f"lock_vault: .vault blob failed to verify after write ({e}) — leaving plaintext in place")
+        return
+    if roundtrip != data:
+        log.error("lock_vault: .vault blob does not match source data after write — leaving plaintext in place")
+        return
+
     _secure_delete(db_path)
+    _invalidate_memory_connection_cache(db_path)
     log.info(f"Local vault locked for {db_path.name}")
 
 

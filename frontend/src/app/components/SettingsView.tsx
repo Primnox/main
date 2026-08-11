@@ -14,22 +14,25 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   User, Shield, Cpu, Calendar, Cloud, Plus, Trash2, RefreshCw,
-  Check, AlertTriangle, Copy, Eye, EyeOff, HardDrive, Brain,
+  Check, AlertTriangle, Copy, Eye, EyeOff, HardDrive, Brain, Plug, Pencil,
 } from 'lucide-react';
 import { FlowLocal, FlowCloud, FlowRaw } from './FlowDiagram';
 import { useTheme } from '../hooks/useTheme';
-import { getJson, postJson, apiUrl } from './settings/api';
+import {
+  BUILTIN_PROVIDERS, FRONTEND_LAST_RESORT, useProviderModels, selectedProviderKeyFor, selectProviderAction,
+  type CustomProvider,
+} from '../hooks/useProviderModels';
+import { getJson, postJson, deleteJson, apiUrl } from './settings/api';
 import {
   Section, Row, Toggle, Field, SecretField, Select, Slider, Button, Choice, Status,
 } from './settings/primitives';
+import { CustomProviderForm } from './settings/CustomProviderForm';
 
 type ScreenId =
   | 'summaries_expanded'
   | 'notes_icon_sidebar'
-  | 'summaries_sidebar_hidden'
   | 'summaries_empty_state'
   | 'island_settings'
-  | 'summaries_icon_sidebar'
   | 'chat_expanded_sidebar'
   | 'settings_neural'
   | 'logs'
@@ -40,27 +43,21 @@ type ScreenId =
   | 'meetings'
   | 'research_workspace';
 
-const CLOUD_MODELS = ['Groq_Llama_3', 'OpenAI_GPT_4o', 'Anthropic_Claude_3', 'Gemini_Flash'];
-
-const CLOUD_MODEL_OPTIONS = [
-  { value: 'Groq_Llama_3',       label: 'Groq — Llama 3.3 70B (HyperSpeed)' },
-  { value: 'OpenAI_GPT_4o',      label: 'OpenAI — GPT-4o' },
-  { value: 'Anthropic_Claude_3', label: 'Anthropic — Claude 3' },
-  { value: 'Gemini_Flash',       label: 'Google — Gemini Flash' },
-];
-
 /** The stored settings do not carry an "architecture" field — it is implied by
- *  which model is active, whether a cloud key exists, and whether the mirror is
- *  on. This reconstructs it so the selector shows the real current state. */
-const deriveArch = (
-  model: string,
-  mirror: boolean,
-  key: string
-): 'local' | 'hybrid' | 'cloud_shield' | 'cloud_raw' => {
+ *  which model is active and whether a local engine key is set. This
+ *  reconstructs it so the selector shows the real current state. */
+const deriveArch = (model: string, key: string): 'local' | 'hybrid' | 'cloud' => {
   if (model === 'Ollama_Local' || model === 'LlamaCpp_Local')
     return key ? 'hybrid' : 'local';
-  return mirror ? 'cloud_shield' : 'cloud_raw';
+  return 'cloud';
 };
+
+/** Mirrors brain.py's _is_local_url — a Custom provider's local-vs-cloud
+ *  classification (and therefore whether Privacy Mirror applies) is
+ *  auto-detected from the base URL, not a separate toggle, so the UI reads
+ *  it the same way the backend decides it. */
+const isCustomUrlLocal = (url: string): boolean =>
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test((url || '').trim());
 
 const TABS = [
   { id: 'System_Core', icon: Cpu },
@@ -89,6 +86,12 @@ export const IslandSettings = ({
   llamacppBaseUrl, setLlamacppBaseUrl,
   llamacppModel, setLlamacppModel,
   geminiApiKey, setGeminiApiKey,
+  openaiModel, setOpenaiModel,
+  anthropicModel, setAnthropicModel,
+  groqModel, setGroqModel,
+  geminiModel, setGeminiModel,
+  customProviders, setCustomProviders,
+  activeCustomProviderId, setActiveCustomProviderId,
   calendarProviders, setCalendarProviders,
   meetingRetentionDays, setMeetingRetentionDays,
   onSync,
@@ -110,6 +113,12 @@ export const IslandSettings = ({
   llamacppBaseUrl: string, setLlamacppBaseUrl: (v: string) => void,
   llamacppModel: string, setLlamacppModel: (v: string) => void,
   geminiApiKey: string, setGeminiApiKey: (v: string) => void,
+  openaiModel: string, setOpenaiModel: (v: string) => void,
+  anthropicModel: string, setAnthropicModel: (v: string) => void,
+  groqModel: string, setGroqModel: (v: string) => void,
+  geminiModel: string, setGeminiModel: (v: string) => void,
+  customProviders: CustomProvider[], setCustomProviders: (v: CustomProvider[]) => void,
+  activeCustomProviderId: string, setActiveCustomProviderId: (v: string) => void,
   calendarProviders: any[], setCalendarProviders: (v: any[]) => void,
   meetingRetentionDays: number, setMeetingRetentionDays: (v: number) => void,
   onSync: () => void
@@ -118,12 +127,9 @@ export const IslandSettings = ({
   const { theme, setTheme, themes } = useTheme();
 
   // ── Engine / architecture ───────────────────────────────────────────────
-  const [archMode, setArchMode] = useState(() => deriveArch(activeModel, privacyMirrorEnabled, apiKey));
+  const [archMode, setArchMode] = useState(() => deriveArch(activeModel, apiKey));
   const [localEngine, setLocalEngine] = useState<'ollama' | 'llamacpp'>(
     activeModel === 'LlamaCpp_Local' ? 'llamacpp' : 'ollama'
-  );
-  const [cloudModel, setCloudModel] = useState(
-    () => CLOUD_MODELS.includes(activeModel) ? activeModel : 'Groq_Llama_3'
   );
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean, models: string[] } | null>(null);
   const [checkingOllama, setCheckingOllama] = useState(false);
@@ -131,10 +137,9 @@ export const IslandSettings = ({
   // Re-sync once the parent finishes its async settings load — the lazy
   // initialisers above may have run while activeModel was still the default.
   useEffect(() => {
-    setArchMode(deriveArch(activeModel, privacyMirrorEnabled, apiKey));
+    setArchMode(deriveArch(activeModel, apiKey));
     setLocalEngine(activeModel === 'LlamaCpp_Local' ? 'llamacpp' : 'ollama');
-    if (CLOUD_MODELS.includes(activeModel)) setCloudModel(activeModel);
-  }, [activeModel, privacyMirrorEnabled, apiKey]);
+  }, [activeModel, apiKey]);
 
   const checkOllama = async () => {
     setCheckingOllama(true);
@@ -145,6 +150,66 @@ export const IslandSettings = ({
     setCheckingOllama(false);
   };
   useEffect(() => { if (activeModel === 'Ollama_Local') checkOllama(); }, [activeModel]);
+
+  // ── Cloud provider list (built-ins + saved custom endpoints) ────────────
+  // Which provider is "selected" is derived from activeModel/activeCustomProviderId
+  // rather than tracked separately, so there's one source of truth.
+  const selectedProviderKey = selectedProviderKeyFor(activeModel, activeCustomProviderId);
+  const selectProvider = (key: string) => selectProviderAction(key, setActiveModel, setActiveCustomProviderId);
+
+  const modelForProvider = (key: string): string => {
+    if (key === 'groq') return groqModel;
+    if (key === 'openai') return openaiModel;
+    if (key === 'anthropic') return anthropicModel;
+    if (key === 'gemini') return geminiModel;
+    return customProviders.find(p => p.id === key)?.model || '';
+  };
+  const setModelForProvider = (key: string, model: string) => {
+    if (key === 'groq') setGroqModel(model);
+    else if (key === 'openai') setOpenaiModel(model);
+    else if (key === 'anthropic') setAnthropicModel(model);
+    else if (key === 'gemini') setGeminiModel(model);
+    else setCustomProviders(customProviders.map(p => p.id === key ? { ...p, model } : p));
+  };
+
+  const { providerModelsCache, detectingProvider, detectModelsFor, clearCache } = useProviderModels({
+    apiKeys: { groq: apiKey, openai: openaiApiKey, anthropic: anthropicApiKey, gemini: geminiApiKey },
+    customProviders,
+  });
+
+  // Auto-fetch once per provider the first time it's selected under Cloud —
+  // manual "Detect models" button still lets you refresh after changing a key.
+  useEffect(() => {
+    if (archMode !== 'cloud' || !selectedProviderKey) return;
+    if (providerModelsCache[selectedProviderKey]) return;
+    detectModelsFor(selectedProviderKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [archMode, selectedProviderKey]);
+
+  // ── Add / edit custom endpoint ───────────────────────────────────────────
+  // 'closed' | 'new' | the profile being edited — CustomProviderForm owns its
+  // own draft state, this just tracks whether/what it's open for.
+  const [customFormState, setCustomFormState] = useState<'closed' | 'new' | CustomProvider>('closed');
+  const openAddForm = () => setCustomFormState('new');
+  const openEditForm = (p: CustomProvider) => setCustomFormState(p);
+  const closeForm = () => setCustomFormState('closed');
+
+  const handleCustomSaved = (profile: CustomProvider, isNew: boolean) => {
+    setCustomProviders(
+      isNew ? [...customProviders, profile] : customProviders.map(p => p.id === profile.id ? profile : p)
+    );
+    clearCache(profile.id);
+    if (isNew) selectProvider(profile.id);
+    setCustomFormState('closed');
+  };
+
+  const deleteCustomProfile = async (id: string) => {
+    const ok = await deleteJson(`/api/custom_providers/${id}`);
+    if (!ok) return;
+    setCustomProviders(customProviders.filter(p => p.id !== id));
+    clearCache(id);
+    if (activeCustomProviderId === id) selectProvider('groq');
+  };
 
   // ── Security tab state ──────────────────────────────────────────────────
   const [piiModelStatus, setPiiModelStatus] = useState<string | null>(null);
@@ -418,8 +483,8 @@ export const IslandSettings = ({
                 </Section>
 
                 <Section index="02" title="Intelligence">
-                  <Row label="Privacy architecture" hint="Where your text is processed, and what leaves this machine." stack>
-                    <div className="grid grid-cols-2 gap-2.5">
+                  <Row label="Architecture" hint="Where your text is processed." stack>
+                    <div className="grid grid-cols-3 gap-2.5">
                       <Choice
                         selected={archMode === 'local'}
                         onClick={() => { setArchMode('local'); setActiveModel(localEngine === 'llamacpp' ? 'LlamaCpp_Local' : 'Ollama_Local'); }}
@@ -435,18 +500,11 @@ export const IslandSettings = ({
                         hint="Local model for chat. Cloud transcription for voice."
                       />
                       <Choice
-                        selected={archMode === 'cloud_shield'}
-                        onClick={() => { setArchMode('cloud_shield'); setActiveModel(cloudModel); setPrivacyMirrorEnabled(true); }}
-                        icon={<Shield size={12} />}
-                        title="Cloud + Mirror"
-                        hint="Cloud model with PII scrubbed before it leaves this machine."
-                      />
-                      <Choice
-                        selected={archMode === 'cloud_raw'}
-                        onClick={() => { setArchMode('cloud_raw'); setActiveModel(cloudModel); setPrivacyMirrorEnabled(false); }}
+                        selected={archMode === 'cloud'}
+                        onClick={() => setArchMode('cloud')}
                         icon={<Cloud size={12} />}
-                        title="Cloud Raw"
-                        hint="Cloud model, no scrubbing. Data reaches the provider as-is."
+                        title="Cloud"
+                        hint="Pick a provider below. Privacy Mirror scrubs PII if enabled."
                       />
                     </div>
 
@@ -454,7 +512,11 @@ export const IslandSettings = ({
                     <div className="mt-5 p-5 border border-on-surface/10 bg-[var(--hover)]">
                       {archMode === 'local' || archMode === 'hybrid'
                         ? <FlowLocal />
-                        : archMode === 'cloud_shield' ? <FlowCloud /> : <FlowRaw />}
+                        : archMode === 'cloud'
+                          ? (activeModel === 'Custom' && isCustomUrlLocal(customProviders.find(p => p.id === activeCustomProviderId)?.base_url || '')
+                              ? <FlowLocal />
+                              : privacyMirrorEnabled ? <FlowCloud /> : <FlowRaw />)
+                        : <FlowCloud />}
                     </div>
                   </Row>
 
@@ -510,14 +572,92 @@ export const IslandSettings = ({
                     </>
                   )}
 
-                  {(archMode === 'cloud_shield' || archMode === 'cloud_raw') && (
-                    <Row label="Cloud model" hint="Keys are set under Security." stack>
-                      <Select
-                        value={cloudModel}
-                        onChange={(v) => { setCloudModel(v); setActiveModel(v); }}
-                        options={CLOUD_MODEL_OPTIONS}
-                      />
-                    </Row>
+                  {archMode === 'cloud' && (
+                    <>
+                      <Row label="Privacy Mirror" hint="Scrubs PII from every cloud request before it leaves this machine. Skipped automatically for a custom endpoint pointed at localhost.">
+                        <Toggle checked={privacyMirrorEnabled} onChange={setPrivacyMirrorEnabled} label="Privacy Mirror" />
+                      </Row>
+
+                      <Row label="Provider" hint="Groq/OpenAI/Anthropic/Gemini, or any custom endpoint you've saved." stack>
+                        <div className="space-y-2">
+                          {BUILTIN_PROVIDERS.map(p => (
+                            <button
+                              key={p.key}
+                              onClick={() => selectProvider(p.key)}
+                              className={`w-full flex items-center justify-between px-4 py-3 border text-left transition-all ${
+                                selectedProviderKey === p.key
+                                  ? 'border-[var(--p-line-2)] bg-[var(--p-fill)]'
+                                  : 'border-on-surface/10 hover:border-on-surface/25 hover:bg-[var(--hover)]'
+                              }`}
+                            >
+                              <span className={`font-mono text-[11px] uppercase tracking-[0.1em] ${selectedProviderKey === p.key ? 'text-primary' : 'text-on-surface/70'}`}>
+                                {p.label}
+                              </span>
+                              {selectedProviderKey === p.key && <Check size={12} className="text-primary shrink-0" />}
+                            </button>
+                          ))}
+                          {customProviders.map(p => (
+                            <div
+                              key={p.id}
+                              className={`w-full flex items-center justify-between px-4 py-3 border transition-all ${
+                                selectedProviderKey === p.id
+                                  ? 'border-[var(--p-line-2)] bg-[var(--p-fill)]'
+                                  : 'border-on-surface/10 hover:border-on-surface/25 hover:bg-[var(--hover)]'
+                              }`}
+                            >
+                              <button onClick={() => selectProvider(p.id)} className="flex-1 text-left flex items-center gap-2 min-w-0">
+                                <Plug size={11} className={selectedProviderKey === p.id ? 'text-primary shrink-0' : 'text-on-surface/50 shrink-0'} />
+                                <span className={`font-mono text-[11px] uppercase tracking-[0.1em] truncate ${selectedProviderKey === p.id ? 'text-primary' : 'text-on-surface/70'}`}>
+                                  {p.name}
+                                </span>
+                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {selectedProviderKey === p.id && <Check size={12} className="text-primary mr-1" />}
+                                <button onClick={() => openEditForm(p)} aria-label={`Edit ${p.name}`} className="p-1.5 text-on-surface/50 hover:text-on-surface transition-colors">
+                                  <Pencil size={12} />
+                                </button>
+                                <button onClick={() => deleteCustomProfile(p.id)} aria-label={`Delete ${p.name}`} className="p-1.5 text-on-surface/50 hover:text-error transition-colors">
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                          {customFormState === 'closed' && (
+                            <Button onClick={openAddForm}><Plus size={11} className="inline mr-2" />Add custom endpoint</Button>
+                          )}
+                        </div>
+                      </Row>
+
+                      {customFormState !== 'closed' && (
+                        <CustomProviderForm
+                          editing={customFormState === 'new' ? null : customFormState}
+                          onSave={handleCustomSaved}
+                          onCancel={closeForm}
+                        />
+                      )}
+
+                      <Row label="Model" hint="Live-detected where possible, with a safe fallback list otherwise." stack>
+                        <div className="flex gap-2">
+                          <Select
+                            value={modelForProvider(selectedProviderKey)}
+                            onChange={(v) => setModelForProvider(selectedProviderKey, v)}
+                            options={(providerModelsCache[selectedProviderKey]?.models?.length
+                              ? providerModelsCache[selectedProviderKey].models
+                              : FRONTEND_LAST_RESORT[selectedProviderKey] || []
+                            ).map(m => ({ value: m, label: m }))}
+                          />
+                          <Button onClick={() => detectModelsFor(selectedProviderKey)} disabled={detectingProvider === selectedProviderKey}>
+                            <RefreshCw size={11} className={`inline mr-2 ${detectingProvider === selectedProviderKey ? 'animate-spin' : ''}`} />
+                            {detectingProvider === selectedProviderKey ? 'Detecting' : 'Refresh'}
+                          </Button>
+                        </div>
+                        {providerModelsCache[selectedProviderKey]?.source === 'fallback' && (
+                          <p className="mt-2 font-mono text-[10px] text-on-surface/50">
+                            Showing a known model list — {providerModelsCache[selectedProviderKey]?.error || 'live detection unavailable'}.
+                          </p>
+                        )}
+                      </Row>
+                    </>
                   )}
                 </Section>
 
@@ -574,8 +714,8 @@ export const IslandSettings = ({
                 </Section>
 
                 <Section index="02" title="Privacy Shield">
-                  <Row label="Privacy Mirror" hint="Scrubs PII from every request before it leaves this machine.">
-                    <Toggle checked={privacyMirrorEnabled} onChange={setPrivacyMirrorEnabled} label="Privacy Mirror" />
+                  <Row label="Privacy Mirror" hint="Toggle lives under System_Core → Intelligence → Cloud, next to the provider picker.">
+                    <Status tone={privacyMirrorEnabled ? 'good' : 'muted'}>{privacyMirrorEnabled ? 'On' : 'Off'}</Status>
                   </Row>
                   <Row label="Scrubber model" hint="DeBERTa NER. Loads in the background; regex patterns cover the gap.">
                     <Status tone={

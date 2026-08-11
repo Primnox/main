@@ -6,12 +6,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { usePrimnox } from '../hooks/usePrimnox';
+import { BUILTIN_PROVIDERS } from './hooks/useProviderModels';
 import { CommandPalette } from './components/CommandPalette';
 
 // Components
 import { Layout } from './components/Layout';
 import { TitleBar } from './components/TitleBar';
-import { SummariesExpanded, SummariesSidebarHidden, SummariesEmptyState, SummariesIconSidebar } from './components/SummaryViews';
+import { SummariesExpanded, SummariesEmptyState } from './components/SummaryViews';
 import { NotesIconSidebar } from './components/NotesView';
 import { IslandSettings } from './components/SettingsView';
 import { ChatExpandedSidebar } from './components/ChatView';
@@ -29,10 +30,8 @@ import { MeetingsView } from './components/MeetingsView';
 export type ScreenId =
   | 'summaries_expanded'
   | 'notes_icon_sidebar'
-  | 'summaries_sidebar_hidden'
   | 'summaries_empty_state'
   | 'island_settings'
-  | 'summaries_icon_sidebar'
   | 'chat_expanded_sidebar'
   | 'research_workspace'
   | 'settings_neural'
@@ -65,6 +64,7 @@ export default function App() {
     manualReconnect,
 
     sendMessage,
+    respondToPermission,
     updateSettings,
     exportNotes,
     fetchNotes,
@@ -202,6 +202,16 @@ export default function App() {
   const [llamacppBaseUrl, setLlamacppBaseUrl] = useState('http://localhost:8080');
   const [llamacppModel, setLlamacppModel] = useState('');
   const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [openaiModel, setOpenaiModel] = useState('');
+  const [anthropicModel, setAnthropicModel] = useState('');
+  const [groqModel, setGroqModel] = useState('');
+  const [geminiModel, setGeminiModel] = useState('gemini-2.0-flash');
+  const [groqTtsModel, setGroqTtsModel] = useState('');
+  const [openaiTtsModel, setOpenaiTtsModel] = useState('');
+  const [anthropicTtsModel, setAnthropicTtsModel] = useState('');
+  const [geminiTtsModel, setGeminiTtsModel] = useState('');
+  const [customProviders, setCustomProviders] = useState<any[]>([]);
+  const [activeCustomProviderId, setActiveCustomProviderId] = useState('');
   const [calendarProviders,   setCalendarProviders]   = useState<any[]>([]);
   const [meetingRetentionDays,setMeetingRetentionDays]= useState(10);
 
@@ -223,6 +233,16 @@ export default function App() {
     if (settings.llamacpp_base_url !== undefined) setLlamacppBaseUrl(settings.llamacpp_base_url);
     if (settings.llamacpp_model !== undefined) setLlamacppModel(settings.llamacpp_model);
     if (settings.gemini_api_key !== undefined) setGeminiApiKey(settings.gemini_api_key);
+    if (settings.openai_model !== undefined) setOpenaiModel(settings.openai_model);
+    if (settings.anthropic_model !== undefined) setAnthropicModel(settings.anthropic_model);
+    if (settings.groq_model !== undefined) setGroqModel(settings.groq_model);
+    if (settings.gemini_model !== undefined) setGeminiModel(settings.gemini_model);
+    if (settings.groq_tts_model !== undefined) setGroqTtsModel(settings.groq_tts_model);
+    if (settings.openai_tts_model !== undefined) setOpenaiTtsModel(settings.openai_tts_model);
+    if (settings.anthropic_tts_model !== undefined) setAnthropicTtsModel(settings.anthropic_tts_model);
+    if (settings.gemini_tts_model !== undefined) setGeminiTtsModel(settings.gemini_tts_model);
+    if (settings.custom_providers !== undefined) setCustomProviders(settings.custom_providers);
+    if (settings.active_custom_provider_id !== undefined) setActiveCustomProviderId(settings.active_custom_provider_id);
     if (settings.calendar_providers !== undefined) setCalendarProviders(settings.calendar_providers);
     if (settings.screenshot_retention !== undefined) setMeetingRetentionDays(settings.screenshot_retention);
   }, [settings]);
@@ -246,11 +266,45 @@ export default function App() {
       llamacpp_base_url: llamacppBaseUrl,
       llamacpp_model: llamacppModel,
       gemini_api_key: geminiApiKey,
+      openai_model: openaiModel,
+      anthropic_model: anthropicModel,
+      groq_model: groqModel,
+      gemini_model: geminiModel,
+      groq_tts_model: groqTtsModel,
+      openai_tts_model: openaiTtsModel,
+      anthropic_tts_model: anthropicTtsModel,
+      gemini_tts_model: geminiTtsModel,
+      custom_providers: customProviders,
+      active_custom_provider_id: activeCustomProviderId,
       calendar_providers: calendarProviders,
       screenshot_retention: meetingRetentionDays,
     });
     setCurrentScreen('summaries_expanded');
   };
+
+  // Switching models mid-chat should take effect immediately, not wait for a
+  // trip to Settings and its manual "Synchronize_Kernel" step — so this
+  // persists right away, spreading the last-*synced* `settings` object (not
+  // in-progress local Settings-tab state) so it can't leak unrelated unsaved
+  // edits from an open Settings tab.
+  const quickSetProviderAndModel = useCallback((providerKey: string, modelValue?: string) => {
+    const builtin = BUILTIN_PROVIDERS.find(p => p.key === providerKey);
+    const partial: Record<string, any> = {};
+    if (builtin) {
+      partial.active_model = builtin.activeModel;
+      const fieldMap: Record<string, string> = {
+        groq: 'groq_model', openai: 'openai_model', anthropic: 'anthropic_model', gemini: 'gemini_model',
+      };
+      if (modelValue !== undefined) partial[fieldMap[providerKey]] = modelValue;
+    } else {
+      partial.active_model = 'Custom';
+      partial.active_custom_provider_id = providerKey;
+      if (modelValue !== undefined) {
+        partial.custom_providers = customProviders.map((p: any) => p.id === providerKey ? { ...p, model: modelValue } : p);
+      }
+    }
+    updateSettings({ ...settings, ...partial });
+  }, [settings, customProviders, updateSettings]);
 
   const renderScreen = () => {
     let targetScreen = currentScreen;
@@ -269,12 +323,26 @@ export default function App() {
         return <LogsPage activity={activity} />;
       case 'archive':
         return <DataVaultPage memory={memory} onMemoryDeleted={() => fetchMemory()} />;
-      case 'summaries_sidebar_hidden':
-        return <SummariesSidebarHidden onNavigate={setCurrentScreen} />;
       case 'summaries_empty_state':
         return <SummariesEmptyState onNavigate={setCurrentScreen} />;
       case 'knowledge':
-        return <KnowledgePage activeModel={activeModel} />;
+        return (
+          <KnowledgePage
+            activeModel={activeModel}
+            apiKey={apiKey} openaiApiKey={openaiApiKey} anthropicApiKey={anthropicApiKey} geminiApiKey={geminiApiKey}
+            openaiModel={openaiModel} setOpenaiModel={setOpenaiModel}
+            anthropicModel={anthropicModel} setAnthropicModel={setAnthropicModel}
+            groqModel={groqModel} setGroqModel={setGroqModel}
+            geminiModel={geminiModel} setGeminiModel={setGeminiModel}
+            groqTtsModel={groqTtsModel} setGroqTtsModel={setGroqTtsModel}
+            openaiTtsModel={openaiTtsModel} setOpenaiTtsModel={setOpenaiTtsModel}
+            anthropicTtsModel={anthropicTtsModel} setAnthropicTtsModel={setAnthropicTtsModel}
+            geminiTtsModel={geminiTtsModel} setGeminiTtsModel={setGeminiTtsModel}
+            customProviders={customProviders} setCustomProviders={setCustomProviders}
+            activeCustomProviderId={activeCustomProviderId}
+            settings={settings} updateSettings={updateSettings}
+          />
+        );
       case 'island_settings':
         return (
           <IslandSettings 
@@ -311,6 +379,18 @@ export default function App() {
             setLlamacppModel={setLlamacppModel}
             geminiApiKey={geminiApiKey}
             setGeminiApiKey={setGeminiApiKey}
+            openaiModel={openaiModel}
+            setOpenaiModel={setOpenaiModel}
+            anthropicModel={anthropicModel}
+            setAnthropicModel={setAnthropicModel}
+            groqModel={groqModel}
+            setGroqModel={setGroqModel}
+            geminiModel={geminiModel}
+            setGeminiModel={setGeminiModel}
+            customProviders={customProviders}
+            setCustomProviders={setCustomProviders}
+            activeCustomProviderId={activeCustomProviderId}
+            setActiveCustomProviderId={setActiveCustomProviderId}
             calendarProviders={calendarProviders}
             setCalendarProviders={setCalendarProviders}
             meetingRetentionDays={meetingRetentionDays}
@@ -318,8 +398,6 @@ export default function App() {
             onSync={handleSync}
           />
         );
-      case 'summaries_icon_sidebar':
-        return <SummariesIconSidebar onNavigate={setCurrentScreen} notes={notes} />;
       case 'notes_icon_sidebar':
         return <NotesIconSidebar notes={notes} onExport={exportNotes} sendMessage={sendMessage} onRefresh={fetchNotes} />;
       case 'chat_expanded_sidebar':
@@ -330,6 +408,7 @@ export default function App() {
             setStatus={setStatus}
             liveMessages={liveMessages}
             sendMessage={sendMessage}
+            respondToPermission={respondToPermission}
             chatSessions={chatSessions}
             chatFolders={chatFolders}
             activeChatId={activeChatId}
@@ -337,6 +416,12 @@ export default function App() {
             createNewChat={createNewChat}
             refreshChats={fetchChats}
             privacyScrub={privacyScrub}
+            activeModel={activeModel}
+            activeCustomProviderId={activeCustomProviderId}
+            quickSetProviderAndModel={quickSetProviderAndModel}
+            apiKey={apiKey} openaiApiKey={openaiApiKey} anthropicApiKey={anthropicApiKey} geminiApiKey={geminiApiKey}
+            groqModel={groqModel} openaiModel={openaiModel} anthropicModel={anthropicModel} geminiModel={geminiModel}
+            customProviders={customProviders}
           />
         );
       case 'research_workspace':

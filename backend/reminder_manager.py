@@ -23,107 +23,86 @@ _lock = threading.Lock()
 
 def init_reminders_table():
     conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            id          TEXT PRIMARY KEY,
+            message     TEXT NOT NULL,
+            fire_at     REAL NOT NULL,
+            fired       INTEGER NOT NULL DEFAULT 0,
+            fired_at    REAL,
+            created_at  REAL NOT NULL
+        )
+    """)
+    # Add fired_at column to existing databases that lack it
     try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS reminders (
-                id          TEXT PRIMARY KEY,
-                message     TEXT NOT NULL,
-                fire_at     REAL NOT NULL,
-                fired       INTEGER NOT NULL DEFAULT 0,
-                fired_at    REAL,
-                created_at  REAL NOT NULL
-            )
-        """)
-        # Add fired_at column to existing databases that lack it
-        try:
-            conn.execute("ALTER TABLE reminders ADD COLUMN fired_at REAL")
-        except Exception:
-            pass  # column already exists
-        conn.commit()
-    finally:
-        conn.close()
+        conn.execute("ALTER TABLE reminders ADD COLUMN fired_at REAL")
+    except Exception:
+        pass  # column already exists
+    conn.commit()
 
 
 def _db_insert(reminder_id: str, message: str, fire_at: float):
     conn = get_db()
-    try:
-        conn.execute(
-            "INSERT INTO reminders (id, message, fire_at, fired, created_at) VALUES (?,?,?,0,?)",
-            (reminder_id, message, fire_at, time.time())
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    conn.execute(
+        "INSERT INTO reminders (id, message, fire_at, fired, created_at) VALUES (?,?,?,0,?)",
+        (reminder_id, message, fire_at, time.time())
+    )
+    conn.commit()
 
 
 def _db_fire(reminder_id: str, fired_at: float):
     conn = get_db()
-    try:
-        conn.execute(
-            "UPDATE reminders SET fired=1, fired_at=? WHERE id=?",
-            (fired_at, reminder_id)
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    conn.execute(
+        "UPDATE reminders SET fired=1, fired_at=? WHERE id=?",
+        (fired_at, reminder_id)
+    )
+    conn.commit()
 
 
 def _db_list_pending() -> list[dict]:
     conn = get_db()
-    try:
-        rows = conn.execute(
-            "SELECT id, message, fire_at FROM reminders WHERE fired=0 ORDER BY fire_at"
-        ).fetchall()
-        return [{"id": r["id"], "message": r["message"], "fire_at": r["fire_at"]} for r in rows]
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT id, message, fire_at FROM reminders WHERE fired=0 ORDER BY fire_at"
+    ).fetchall()
+    return [{"id": r["id"], "message": r["message"], "fire_at": r["fire_at"]} for r in rows]
 
 
 def _db_cancel_by_index(index: int) -> bool:
     """Cancel by 0-based position in fire_at order. Returns False if out of range."""
     conn = get_db()
-    try:
-        rows = conn.execute(
-            "SELECT id FROM reminders WHERE fired=0 ORDER BY fire_at"
-        ).fetchall()
-        if 0 <= index < len(rows):
-            cursor = conn.execute(
-                "UPDATE reminders SET fired=1, fired_at=? WHERE id=? AND fired=0",
-                (time.time(), rows[index]["id"]),
-            )
-            conn.commit()
-            return cursor.rowcount > 0
-        return False
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT id FROM reminders WHERE fired=0 ORDER BY fire_at"
+    ).fetchall()
+    if 0 <= index < len(rows):
+        cursor = conn.execute(
+            "UPDATE reminders SET fired=1, fired_at=? WHERE id=? AND fired=0",
+            (time.time(), rows[index]["id"]),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    return False
 
 
 def _db_cancel_by_id(reminder_id: str) -> bool:
     """Cancel by stable row ID. Preferred over index-based cancel."""
     conn = get_db()
-    try:
-        cursor = conn.execute(
-            "UPDATE reminders SET fired=1, fired_at=? WHERE id=? AND fired=0",
-            (time.time(), reminder_id),
-        )
-        conn.commit()
-        return cursor.rowcount > 0
-    finally:
-        conn.close()
+    cursor = conn.execute(
+        "UPDATE reminders SET fired=1, fired_at=? WHERE id=? AND fired=0",
+        (time.time(), reminder_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 def _db_prune():
     """Remove reminders fired/cancelled more than an hour ago."""
     cutoff = time.time() - 3600
     conn = get_db()
-    try:
-        conn.execute(
-            "DELETE FROM reminders WHERE fired=1 AND fired_at IS NOT NULL AND fired_at < ?",
-            (cutoff,)
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    conn.execute(
+        "DELETE FROM reminders WHERE fired=1 AND fired_at IS NOT NULL AND fired_at < ?",
+        (cutoff,)
+    )
+    conn.commit()
 
 
 # ── Public API ──────────────────────────────────────────────────────────────────

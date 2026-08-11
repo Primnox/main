@@ -11,10 +11,8 @@ type AiStatus = 'idle' | 'listening' | 'thinking' | 'transcript' | 'copy' | 'err
 type ScreenId =
   | 'summaries_expanded'
   | 'notes_icon_sidebar'
-  | 'summaries_sidebar_hidden'
   | 'summaries_empty_state'
   | 'island_settings'
-  | 'summaries_icon_sidebar'
   | 'chat_expanded_sidebar'
   | 'settings_neural'
   | 'logs'

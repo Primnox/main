@@ -80,8 +80,11 @@ pub fn fetch_transform(content: &str) -> Result<Option<String>, String> {
     let url = format!("http://127.0.0.1:{BACKEND_PORT}/api/smart_paste");
     let body = serde_json::json!({ "content": content });
 
+    // The backend's cloud fallback can cold-start a PII-scrubbing model (up to
+    // ~45s) before it ever calls the LLM, so this needs real headroom — a
+    // short timeout here just turns "slow" into a spurious "failed" toast.
     let resp = ureq::post(&url)
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
         .set("Content-Type", "application/json")
         .send_string(&body.to_string())
         .map_err(|e| e.to_string())?;

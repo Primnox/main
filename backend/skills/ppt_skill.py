@@ -2,11 +2,22 @@
 import time
 import json
 import re
-from pathlib import Path
 from skills.base_skill import BaseSkill, SkillContext, SkillResult
 from logger import get_logger
 
 log = get_logger("skill.ppt")
+
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _strip_markdown(text: str) -> str:
+    """python-pptx text runs are plain strings — there's no simple way to
+    turn markdown **bold** into a real bold run from a flat string
+    assignment, unlike reportlab's Paragraph markup (see pdf_skill.py). So
+    unlike the PDF path, this doesn't convert formatting, it just removes
+    the markdown markers — showing "pc wins" instead of the literal
+    "**pc wins**" a slide's text would otherwise contain verbatim."""
+    return _BOLD_RE.sub(r"\1", text)
 
 
 class PPTSkill(BaseSkill):
@@ -17,7 +28,10 @@ class PPTSkill(BaseSkill):
         "create ppt", "make a presentation", "generate powerpoint",
         "create powerpoint", "create a ppt", "make a ppt"
     ]
-    REQUIRES_PIP = ["pptx"]
+    # Fallback for phrasing the exact trigger_words above miss (typos, extra
+    # words) — see skill_router.get_skill_for_trigger / intent_utils.
+    creation_artifact_words = ("ppt", "pptx", "powerpoint", "presentation", "slide deck", "slideshow")
+    REQUIRES_PIP = [("pptx", "python-pptx")]
 
     def execute(self, ctx: SkillContext) -> SkillResult:
         from pptx import Presentation
@@ -26,12 +40,21 @@ class PPTSkill(BaseSkill):
 
         log.info("PPT Specialist (Generate)")
         try:
-            output_dir = Path.home() / "Documents" / "Primnox" / "Generated"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            ppt_path = output_dir / f"presentation_{time.strftime('%Y%m%d_%H%M%S')}.pptx"
+            from sandbox_manager import sandbox_dir, enforce_quota
+            ppt_path = sandbox_dir() / f"presentation_{time.strftime('%Y%m%d_%H%M%S')}.pptx"
+
+            # Same context gap as pdf_skill.py: without this, "make me a ppt
+            # about that" (referring to earlier chat) has nothing to draw on.
+            history_block = ""
+            if ctx.chat_history:
+                lines = [f"{m.get('speaker', '?')}: {(m.get('text') or '')[:300]}" for m in ctx.chat_history[-10:]]
+                history_block = (
+                    "\n\nRECENT CONVERSATION (use this if the request refers to "
+                    "something discussed earlier):\n" + "\n".join(lines) + "\n\n"
+                )
 
             json_prompt = (
-                f"TASK: Generate a presentation outline for: '{ctx.user_message}'. "
+                f"TASK: Generate a presentation outline for: '{ctx.user_message}'.{history_block} "
                 "CRITICAL CONSTRAINTS: "
                 "1. Output a JSON ARRAY of objects representing slides. "
                 "2. Each object must have: 'title' (string) and 'content' (a list of bullet point strings). "
@@ -54,21 +77,33 @@ class PPTSkill(BaseSkill):
                 log.error(f"JSON parse failed: {e}")
                 return SkillResult(success=False, error="failed to structure presentation content.")
 
+            # python-pptx happily saves a valid-but-empty .pptx instead of
+            # raising — without this check, a model reply that parsed as
+            # valid JSON but wasn't a non-empty slide array (e.g. `[]` or a
+            # dict) would report success for a presentation with no slides.
+            if not isinstance(slides_data, list) or not slides_data:
+                return SkillResult(success=False, error="generated content had no slides.")
+
             prs = Presentation()
             for i, slide_info in enumerate(slides_data):
                 layout = prs.slide_layouts[0] if i == 0 else prs.slide_layouts[1]
                 slide = prs.slides.add_slide(layout)
-                slide.shapes.title.text = slide_info.get("title", "Untitled Slide")
+                slide.shapes.title.text = _strip_markdown(slide_info.get("title", "Untitled Slide"))
                 body = slide.placeholders[1] if len(slide.placeholders) > 1 else None
                 if body:
                     tf = body.text_frame
                     tf.text = ""
                     for point in slide_info.get("content", []):
                         p = tf.add_paragraph()
-                        p.text = point
+                        p.text = _strip_markdown(point)
                         p.level = 0
 
             prs.save(str(ppt_path))
+
+            if not ppt_path.exists() or ppt_path.stat().st_size == 0:
+                return SkillResult(success=False, error="ppt build finished but produced no file.")
+
+            enforce_quota()
             log.info(f"PPT generated: {ppt_path}")
             return SkillResult(
                 success=True,

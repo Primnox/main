@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Download — Primnox</title>
+  <meta name="description" content="Download the Primnox Windows beta. macOS and Linux builds are next. Free and open-core." />
+  <link rel="canonical" href="https://primnox.github.io/download/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Download — Primnox" />
+  <meta property="og:description" content="Windows beta available now. macOS and Linux next." />
+  <meta property="og:url" content="https://primnox.github.io/download/" />
+  <meta name="theme-color" content="#070707" />
+
+  <script>
+    (function () {
+      var d = document.documentElement;
+      d.classList.add('js-ready');
+      // Apply the stored theme before first paint, or every visit flashes the
+      // default palette before switching.
+      try {
+        var t = localStorage.getItem('primnox-theme');
+        if (t && t !== 'dark' && /^[a-z]+$/.test(t)) d.setAttribute('data-theme', t);
+      } catch (e) { /* private mode */ }
+      // Debug overrides. ?intro replays the intro on every load and forces the
+      // motion path; ?motion=on|off forces it either way. Must run pre-paint so
+      // the CSS escape hatch is in place before the first frame.
+      var q = location.search;
+      var replayIntro = /[?&]intro(=|&|$)/.test(q);
+      if (replayIntro || /[?&]motion=on(&|$)/.test(q)) d.classList.add('force-motion');
+      try {
+        var home = location.pathname === '/' || location.pathname === '/index.html';
+        var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches &&
+                      !d.classList.contains('force-motion');
+        if (home && !reduced &&
+            (replayIntro || sessionStorage.getItem('primnox:intro-seen') !== '1')) {
+          d.classList.add('intro-pending');
+        }
+      } catch (e) { /* storage blocked: skip the intro rather than trap content */ }
+    })();
+  </script>
+
+  <link rel="preload" href="/assets/fonts/syne-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/assets/fonts/dmsans-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/assets/css/tokens.css" />
+  <link rel="stylesheet" href="/assets/css/base.css" />
+  <link rel="stylesheet" href="/assets/css/motion.css" />
+  <link rel="stylesheet" href="/assets/css/pages.css" />
+
+  <script src="/assets/js/vendor/gsap.min.js" defer></script>
+  <script type="module" src="/assets/js/boot.js"></script>
+  <link rel="modulepreload" href="/assets/js/core.js" />
+  <link rel="modulepreload" href="/assets/js/router.js" />
+  <link rel="modulepreload" href="/assets/js/curtain.js" />
+</head>
+<body data-page="download">
+<a class="skip-link" href="#app">Skip to content</a>
+
+<!-- shell:start -->
+<div id="fx" aria-hidden="true"><div class="blob-layer"></div></div>
+
+<svg class="goo-defs" aria-hidden="true" focusable="false">
+  <filter id="goo" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="b" />
+    <feColorMatrix in="b" type="matrix"
+      values="1 0 0 0 0
+              0 1 0 0 0
+              0 0 1 0 0
+              0 0 0 20 -9" />
+  </filter>
+</svg>
+
+<div id="curtain" aria-hidden="true">
+  <div class="curtain-panels">
+    <div class="curtain-panel"></div><div class="curtain-panel"></div>
+    <div class="curtain-panel"></div><div class="curtain-panel"></div>
+    <div class="curtain-panel"></div>
+  </div>
+  <div class="curtain-label"><div class="curtain-word">Primnox</div></div>
+  <div class="curtain-wait">Loading</div>
+</div>
+
+<div id="intro" aria-hidden="true">
+  <canvas id="introCanvas" class="intro-canvas"></canvas>
+  <div class="intro-sub">Your personal OS</div>
+</div>
+
+<div class="cursor" id="cursor"></div>
+
+<nav id="nav">
+  <a href="/" class="nav-logo"><span class="logo-dot"></span>Primnox</a>
+  <ul class="nav-links">
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/" aria-current="page">Download</a></li>
+    <li><a href="/seed/">Seed</a></li>
+  </ul>
+  <a href="/download/" class="nav-dl">↓ Beta</a>
+  <span class="theme-wrap">
+    <button class="theme-tg" id="themeTg" aria-label="Cycle colour theme" title="Cycle theme (T)"></button>
+    <span class="theme-name" id="themeName" aria-hidden="true">Dark</span>
+  </span>
+  <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navDrawer" aria-label="Open menu">
+    <span></span><span></span>
+  </button>
+</nav>
+<div class="nav-drawer" id="navDrawer" inert>
+  <ul>
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed Phrase</a></li>
+    <li><a href="https://github.com/Primnox/public" target="_blank" rel="noopener external">GitHub</a></li>
+  </ul>
+</div>
+
+<!-- shell:end -->
+
+<main id="app">
+
+  <header class="page-head">
+    <span class="page-eyebrow">04 / Download</span>
+    <h1 class="page-h1">Get<br><i>Primnox.</i></h1>
+    <p class="page-lede">Windows beta is live. It's free, the core is open source, and it is honest about the parts that aren't finished.</p>
+  </header>
+
+  <section class="sec">
+    <div style="padding:48px 0 8px">
+      <div class="dl-grid ri">
+        <div class="dl-card">
+          <div>
+            <div class="dl-icon-os" aria-hidden="true">🪟</div>
+            <div class="dl-os">Windows</div>
+            <div class="dl-tag avail">● Beta · available now</div>
+          </div>
+          <a href="https://github.com/Primnox/public/releases/latest" class="dl-btn" target="_blank" rel="noopener external">Download ↗</a>
+        </div>
+        <div class="dl-card off">
+          <div>
+            <div class="dl-icon-os" aria-hidden="true">🍎</div>
+            <div class="dl-os">macOS</div>
+            <div class="dl-tag soon">◌ Coming soon</div>
+          </div>
+        </div>
+        <div class="dl-card off">
+          <div>
+            <div class="dl-icon-os" aria-hidden="true">🐧</div>
+            <div class="dl-os">Linux</div>
+            <div class="dl-tag soon">◌ Coming soon</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="install-steps ri d1">
+        <div class="inst">
+          <div class="inst-n">01</div>
+          <div class="inst-t">Run the installer</div>
+          <div class="inst-s">Windows SmartScreen may warn you — the beta build isn't code-signed yet. Choose "More info", then "Run anyway".</div>
+        </div>
+        <div class="inst">
+          <div class="inst-n">02</div>
+          <div class="inst-t">Add your API key</div>
+          <div class="inst-s">Primnox talks to a frontier model of your choosing. Paste a key in Settings; it's stored locally and never sent anywhere but the provider.</div>
+        </div>
+        <div class="inst">
+          <div class="inst-n">03</div>
+          <div class="inst-t">Generate a seed phrase</div>
+          <div class="inst-s">Needed only if you turn on encrypted backups. Write it down somewhere physical — it is the only way to recover them.</div>
+        </div>
+      </div>
+
+      <div class="dl-footer ri d2">
+        <a href="https://github.com/Primnox/public" target="_blank" rel="noopener external">Source on GitHub ↗</a>
+        <span class="dl-footer-sep" aria-hidden="true">|</span>
+        <a href="/seed/">Generate a seed phrase →</a>
+        <span class="dl-footer-sep" aria-hidden="true">|</span>
+        <a href="/product/#roadmap">Roadmap →</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <h2 class="cta-t ri">Found A<br><i>Bug?</i></h2>
+    <p class="cta-s ri d1">It's a beta and it will show. Issues on GitHub get read, and the annoying ones get fixed first.</p>
+    <div class="cta-btns ri d2">
+      <a href="https://github.com/Primnox/public/issues" class="btn-solid" target="_blank" rel="noopener external">Report an issue ↗</a>
+      <a href="/product/" class="btn-outline">See what's built <span>→</span></a>
+    </div>
+  </section>
+
+</main>
+
+<!-- shell:start -->
+<footer>
+  <a href="/" class="f-logo"><span class="logo-dot"></span>Primnox</a>
+  <ul class="f-links">
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed Phrase</a></li>
+    <li><a href="https://github.com/Primnox/public" target="_blank" rel="noopener external">GitHub</a></li>
+  </ul>
+  <span class="f-copy">© 2026 Primnox</span>
+</footer>
+<div id="a11y-live" role="status" aria-live="polite" class="sr-only"></div>
+<!-- shell:end -->
+</body>
+</html>

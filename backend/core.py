@@ -5,13 +5,12 @@ load_dotenv()  # ABSOLUTE FIRST LINE
 from pathlib import Path
 import threading
 from settings_manager import load_settings
-from memory import get_memory, add_memory, delete_memory, list_memories, search_memories
+from memory import get_memory, add_memory, delete_memory, list_memories, search_memories, correct_last_inferred_memory
 from notes_manager import add_note, get_notes, add_task, get_tasks, complete_task
-from chat_manager import append_message_to_session
+from chat_manager import append_message_to_session, get_session_messages
 from screen_reader import read_screen
 from sensor_vision import describe_screen
 from vad_listener import VADListener
-from voice_id import identify_speaker
 from brain import transcribe, think, think_stream
 from context_builder import build_context
 from feed_manager import FeedManager
@@ -21,12 +20,35 @@ from tools import web_search
 from voice import speak
 from skills.skill_router import route_skill
 from reminder_manager import parse_reminder, add_reminder, set_callback as set_reminder_callback
+from response_blocks import extract_blocks
 from logger import get_logger
 import time
 import re
 import tempfile
 
 log = get_logger("core")
+
+# ── Per-session processing lock ───────────────────────────────────────────
+# POST /message spawns an independent background thread per request with no
+# serialization — sending a second message while the first is still being
+# processed (e.g. a slow skill invocation) let them run concurrently, each
+# reading whatever chat history existed at ITS OWN start time. A follow-up
+# sent mid-generation would see the conversation as it was before the first
+# reply landed, answer as if that hadn't happened yet, and its response
+# would appear interleaved with the first one's — confusing and out of
+# order. This lock makes _process_input calls for the same session run
+# strictly one at a time; different sessions remain fully concurrent.
+_session_locks: dict = {}
+_session_locks_guard = threading.Lock()
+
+
+def _get_session_lock(session_id: str) -> threading.Lock:
+    with _session_locks_guard:
+        lock = _session_locks.get(session_id)
+        if lock is None:
+            lock = threading.Lock()
+            _session_locks[session_id] = lock
+        return lock
 
 class PrimnoxCore:
     def __init__(self):
@@ -71,6 +93,11 @@ class PrimnoxCore:
             set_tool_broadcast_callback(cb)
         except Exception as e:
             log.warning(f"Could not wire tool broadcast callback: {e}")
+        try:
+            from permission_manager import set_broadcast_callback as set_permission_broadcast_callback
+            set_permission_broadcast_callback(cb)
+        except Exception as e:
+            log.warning(f"Could not wire permission broadcast callback: {e}")
 
     def _background_worker(self):
         """
@@ -231,19 +258,14 @@ class PrimnoxCore:
         if self.broadcast_callback:
             self.broadcast_callback("transcript", {"text": text})
         
+        # Speaker identification was fully disabled (resemblyzer disconnected)
+        # and always returned "Unknown" — removed rather than kept as a no-op.
+        speaker = "Unknown"
         try:
-            speaker, conf = identify_speaker(audio_path)
-            log.info(f"Speaker identified: {speaker} (conf: {conf})")
-        except Exception as e:
-            log.error(f"Speaker identification failed: {e}")
-            speaker = "Unknown"
-        finally:
-            # Cleanup temp file
-            try:
-                import os
-                os.remove(audio_path)
-            except Exception:
-                pass
+            import os
+            os.remove(audio_path)
+        except Exception:
+            pass
         
         self._process_input(text, speaker, input_mode="voice")
 
@@ -268,14 +290,24 @@ class PrimnoxCore:
 
 
     def _process_input(self, raw_text, speaker, input_mode="text", session_id="current", user_text=None, images_b64=None):
-        """Unified Processing Logic for Voice and Text (Agentic).
-        
-        raw_text:  full text sent to LLM (may include extracted file contents).
-        user_text: the original short user message (used for trigger matching).
-        """
+        """Entry point for both voice and text input — see
+        _process_input_locked for the actual pipeline. This wrapper just
+        ensures two messages for the same session_id can never process
+        concurrently (see _get_session_lock above)."""
         if not raw_text:
             log.debug("Empty input, skipping.")
             return
+        with _get_session_lock(session_id):
+            self._process_input_locked(raw_text, speaker, input_mode=input_mode,
+                                        session_id=session_id, user_text=user_text, images_b64=images_b64)
+
+    def _process_input_locked(self, raw_text, speaker, input_mode="text", session_id="current", user_text=None, images_b64=None):
+        """Unified Processing Logic for Voice and Text (Agentic).
+
+        raw_text:  full text sent to LLM (may include extracted file contents).
+        user_text: the original short user message (used for trigger matching).
+        """
+        _request_start = time.time()
 
         # Use user_text for trigger/reminder matching; fall back to raw_text
         trigger_text = user_text or raw_text
@@ -327,9 +359,19 @@ class PrimnoxCore:
                     notes_count = len(get_notes())
                 except Exception:
                     pass
+                # Skills previously got zero conversation context — a skill
+                # invoked mid-conversation (e.g. "create me a pdf for the
+                # debate") had no way to know what "the debate" referred to,
+                # since SkillContext.chat_history was never populated here.
+                recent_history = []
+                try:
+                    recent_history = get_session_messages(session_id)[-10:]
+                except Exception as e:
+                    log.warning(f"Could not load chat history for skill context: {e}")
                 skill_result = route_skill(
                     user_message=raw_text,
                     session_id=session_id,
+                    chat_history=recent_history,
                     metadata={
                         "notes_count": notes_count,
                         "feed_history": list(self.feed.history[-50:]),
@@ -396,6 +438,7 @@ class PrimnoxCore:
             f"Time: {current_time}\n"
             f"Speaker: {speaker}\n"
             f"{memory_context}"
+            f"{ui_context[:2000]}"
         )
 
         # ── Privacy Mirror ────────────────────────────────────────────────
@@ -408,6 +451,7 @@ class PrimnoxCore:
         # Stream response
         response_chunks = []
         token_buffer = []
+        tool_blocks = []          # tool_call / tool_result blocks, in execution order
         last_broadcast = time.time()
         
         if self.broadcast_callback:
@@ -443,9 +487,37 @@ class PrimnoxCore:
                         self.broadcast_callback("message", {"sender": "Primnox", "text": "Sorry, something went wrong. Please try again."})
                     break
 
-                # Strip [SYSTEM: ...] tool-execution notifications from the visible chat
+                # Tool call announced, WITH its real arguments (the code for
+                # run_python, the command for run_shell). Broadcast live so the
+                # UI can show it as it happens, and keep it in tool_blocks so it
+                # survives on the saved message instead of vanishing with a toast.
+                if token.startswith("[[TOOL]]"):
+                    import json as _json
+                    try:
+                        payload = _json.loads(token[len("[[TOOL]]"):])
+                    except Exception:
+                        payload = {}
+                    block = {"type": "tool_call", **payload}
+                    tool_blocks.append(block)
+                    if self.broadcast_callback:
+                        self.broadcast_callback("tool_call", payload)
+                        # Kept for the existing status-line toast in usePrimnox.
+                        self.broadcast_callback("tool_executing", {"tool": payload.get("name", "")})
+                    continue
+
+                if token.startswith("[[TOOL_RESULT]]"):
+                    import json as _json
+                    try:
+                        payload = _json.loads(token[len("[[TOOL_RESULT]]"):])
+                    except Exception:
+                        payload = {}
+                    tool_blocks.append({"type": "tool_result", **payload})
+                    if self.broadcast_callback:
+                        self.broadcast_callback("tool_result", payload)
+                    continue
+
+                # Legacy [SYSTEM: ...] marker — still stripped from visible chat.
                 if "[SYSTEM:" in token:
-                    # Broadcast as a subtle tool event instead of printing to chat
                     import re as _re
                     sys_match = _re.search(r'\[SYSTEM:\s*(.*?)\]', token)
                     if sys_match and self.broadcast_callback:
@@ -488,12 +560,45 @@ class PrimnoxCore:
         
         response = full_text.strip()
 
+        # ── Structured response blocks ────────────────────────────────────
+        # The model may embed ```primnox-card / ```primnox-buttons fenced JSON
+        # blocks in its reply (see system_prompts.py's RESPONSE FORMATTING
+        # guidance). Extracted here — after the full response is assembled,
+        # not token-by-token, since a fenced block can't be safely parsed
+        # mid-stream — and stripped from the plain text that gets
+        # archived/shown. Streaming already sent the raw (unstripped) text to
+        # the frontend via "token" events; when a block is found, a final
+        # "message" broadcast (isTyping: False) replaces that in-flight
+        # message with the cleaned text + parsed blocks, matching how the
+        # frontend already handles a non-typing PRIMNOX "message" event.
+        response, blocks = extract_blocks(response)
+        # Tool activity (what ran, and what it produced) is prepended so the
+        # saved message keeps the full picture — without this the commands
+        # only ever existed as transient WS events and vanished on reload.
+        blocks = tool_blocks + blocks
+        if blocks and self.broadcast_callback:
+            self.broadcast_callback("message", {
+                "sender": "Primnox",
+                "text": response,
+                "speaker": "Primnox",
+                "isTyping": False,
+                "blocks": blocks,
+            })
+
         # Archive Primnox's response
         if not self.incognito and response:
             append_message_to_session(session_id, response, speaker="Primnox")
 
         if self.broadcast_callback:
             self.broadcast_callback("state", {"value": "idle"})
+
+        from context_manager import estimate_tokens
+        log.info("request_complete", extra={
+            "session_id": session_id,
+            "model": self.settings.get("active_model", "Groq_Llama_3"),
+            "duration_ms": round((time.time() - _request_start) * 1000, 1),
+            "tokens_estimated": estimate_tokens(context) + estimate_tokens(response),
+        })
 
         # ── Post-exchange tasks (fire-and-forget background threads) ─────
         if not self.incognito and response and raw_text:
@@ -525,7 +630,7 @@ class PrimnoxCore:
             )
             mem_text = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
             if mem_text and mem_text.lower() not in ("none", "none.", "nothing"):
-                add_memory(mem_text, category="session", session_id=session_id)
+                add_memory(mem_text, category="session", session_id=session_id, provenance="inferred_chat")
                 if self.broadcast_callback:
                     self.broadcast_callback("memory_updated", {"text": mem_text})
                 log.debug(f"Extracted memory: {mem_text[:60]}")
@@ -571,6 +676,12 @@ class PrimnoxCore:
             return "STOP"
         if any(w in t for w in ["forget", "delete memory", "remove memory"]):
             return "FORGET"
+        if any(w in t for w in [
+            "that's wrong", "thats wrong", "that's not right", "thats not right",
+            "that's not true", "thats not true", "that's incorrect", "thats incorrect",
+            "you got that wrong", "no that's wrong", "no thats wrong",
+        ]):
+            return "CORRECT_MEMORY"
         if any(w in t for w in ["look", "see", "what's on screen", "what do you see", "check the screen", "read this", "what does it say", "what's open", "what am i looking at", "check this", "analyse screen", "analyze screen", "what's happening", "describe this", "whats on", "what can you see", "look at this", "screen", "scan", "observe", "visualize"]):
             return "VISION"
         if any(w in t for w in ["what do you remember", "show memory", "list memories"]):
@@ -592,11 +703,30 @@ class PrimnoxCore:
         elif route == "FORGET":
             # Extract the actual content to forget
             target = text.lower().replace("forget", "").replace("delete memory", "").replace("remove memory", "").strip()
-            if target:
-                delete_memory(target)
-                response = f"forgotten: {target}"
-            else:
+            if not target:
                 response = "forget what exactly?"
+            else:
+                # delete_memory() matches by exact key or exact text — a
+                # lowercased, trigger-word-stripped phrase basically never
+                # equals the real stored memory (proper case, punctuation,
+                # extra context), so this used to say "forgotten" and delete
+                # nothing. Find the actual memory first, then delete it by key.
+                matches = search_memories(target, limit=1)
+                if matches:
+                    delete_memory(matches[0]["key"])
+                    response = f"forgotten: {matches[0]['text']}"
+                else:
+                    response = f"couldn't find anything about \"{target}\"."
+        elif route == "CORRECT_MEMORY":
+            # Targets the single most recent *inferred* memory (a guess from
+            # a chat exchange or ambient screen-watching), not anything
+            # explicitly stated — those aren't guesses to correct in the
+            # first place. See memory.py's provenance tagging.
+            corrected = correct_last_inferred_memory()
+            if corrected:
+                response = f"my bad — forgot that I thought \"{corrected}\"."
+            else:
+                response = "nothing recent to correct."
         elif route == "VISION":
             if vision_data and vision_data.get("description"):
                 response = vision_data.get("description")
@@ -604,7 +734,15 @@ class PrimnoxCore:
                 res = describe_screen(uia_context=uia_data)
                 response = res.get("description", "can't see.")
         elif route == "MEMORY":
-            response = str(list_memories())
+            recent = list_memories()[-10:]
+            if not recent:
+                response = "nothing yet."
+            else:
+                lines = [
+                    f"- {m['text']}" + ("" if m.get("provenance", "explicit") == "explicit" else " (I think — correct me if wrong)")
+                    for m in recent
+                ]
+                response = "here's what I've got:\n" + "\n".join(lines)
         elif route == "MEETING":
             response = "on it. summarizing the last call."
         elif route == "SCREENSHOT":

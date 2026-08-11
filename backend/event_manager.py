@@ -1,6 +1,7 @@
 """Local calendar event storage — uses memory.db via memory.get_db()."""
 from __future__ import annotations
 
+import sqlite3
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -13,26 +14,28 @@ log = get_logger("events")
 
 def init_events_table() -> None:
     conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS events (
+            id          TEXT PRIMARY KEY,
+            title       TEXT NOT NULL,
+            start_dt    TEXT NOT NULL,
+            end_dt      TEXT NOT NULL,
+            all_day     INTEGER DEFAULT 0,
+            color       TEXT    DEFAULT '#6366f1',
+            location    TEXT    DEFAULT '',
+            description TEXT    DEFAULT '',
+            recurrence  TEXT    DEFAULT 'none',
+            calendar    TEXT    DEFAULT 'Personal',
+            created_at  TEXT    NOT NULL,
+            updated_at  TEXT    NOT NULL
+        )
+    """)
+    # Optional single link to a note (e.g. meeting prep doc, follow-up notes).
     try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS events (
-                id          TEXT PRIMARY KEY,
-                title       TEXT NOT NULL,
-                start_dt    TEXT NOT NULL,
-                end_dt      TEXT NOT NULL,
-                all_day     INTEGER DEFAULT 0,
-                color       TEXT    DEFAULT '#6366f1',
-                location    TEXT    DEFAULT '',
-                description TEXT    DEFAULT '',
-                recurrence  TEXT    DEFAULT 'none',
-                calendar    TEXT    DEFAULT 'Personal',
-                created_at  TEXT    NOT NULL,
-                updated_at  TEXT    NOT NULL
-            )
-        """)
-        conn.commit()
-    finally:
-        conn.close()
+        conn.execute("ALTER TABLE events ADD COLUMN note_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
 
 
 def list_events(start_iso: Optional[str] = None, end_iso: Optional[str] = None) -> list[dict]:
@@ -46,7 +49,6 @@ def list_events(start_iso: Optional[str] = None, end_iso: Optional[str] = None) 
     else:
         c.execute("SELECT * FROM events ORDER BY start_dt")
     rows = c.fetchall()
-    conn.close()
     return [dict(r) for r in rows]
 
 
@@ -63,6 +65,7 @@ def create_event(data: dict) -> dict:
         "description": data.get("description", "") or "",
         "recurrence":  data.get("recurrence", "none") or "none",
         "calendar":    data.get("calendar", "Personal") or "Personal",
+        "note_id":     data.get("note_id"),
         "created_at":  now,
         "updated_at":  now,
     }
@@ -70,13 +73,12 @@ def create_event(data: dict) -> dict:
     conn.execute(
         """INSERT INTO events
            (id, title, start_dt, end_dt, all_day, color, location, description,
-            recurrence, calendar, created_at, updated_at)
+            recurrence, calendar, note_id, created_at, updated_at)
            VALUES (:id, :title, :start_dt, :end_dt, :all_day, :color, :location,
-                   :description, :recurrence, :calendar, :created_at, :updated_at)""",
+                   :description, :recurrence, :calendar, :note_id, :created_at, :updated_at)""",
         ev,
     )
     conn.commit()
-    conn.close()
     ev["all_day"] = bool(ev["all_day"])
     log.info(f"Created event: {ev['title']} @ {ev['start_dt']}")
     return ev
@@ -88,7 +90,6 @@ def update_event(event_id: str, data: dict) -> Optional[dict]:
     c.execute("SELECT * FROM events WHERE id = ?", (event_id,))
     row = c.fetchone()
     if not row:
-        conn.close()
         return None
     ex = dict(row)
     now = datetime.now().isoformat()
@@ -103,6 +104,7 @@ def update_event(event_id: str, data: dict) -> Optional[dict]:
         "description": data.get("description", ex["description"]) or "",
         "recurrence":  data.get("recurrence",  ex["recurrence"]) or "none",
         "calendar":    data.get("calendar",    ex["calendar"]) or "Personal",
+        "note_id":     data.get("note_id",     ex.get("note_id")),
         "created_at":  ex["created_at"],
         "updated_at":  now,
     }
@@ -110,12 +112,11 @@ def update_event(event_id: str, data: dict) -> Optional[dict]:
         """UPDATE events
            SET title=:title, start_dt=:start_dt, end_dt=:end_dt, all_day=:all_day,
                color=:color, location=:location, description=:description,
-               recurrence=:recurrence, calendar=:calendar, updated_at=:updated_at
+               recurrence=:recurrence, calendar=:calendar, note_id=:note_id, updated_at=:updated_at
            WHERE id=:id""",
         up,
     )
     conn.commit()
-    conn.close()
     up["all_day"] = bool(up["all_day"])
     log.info(f"Updated event {event_id}: {up['title']}")
     return up
@@ -127,5 +128,4 @@ def delete_event(event_id: str) -> bool:
     c.execute("DELETE FROM events WHERE id = ?", (event_id,))
     affected = c.rowcount
     conn.commit()
-    conn.close()
     return bool(affected)

@@ -9,7 +9,7 @@ from pathlib import Path
 from brain import think
 from memory import add_memory
 from logger import get_logger
-from project_context import parse_editor_title
+from project_context import parse_editor_title, get_project_context
 
 log = get_logger("feed")
 
@@ -56,6 +56,27 @@ if HAS_SMTC:
         _get_smtc_loop()
     except Exception:
         pass
+
+# Error detection should scope to "somewhere a real error would actually
+# appear" (an editor or a terminal), not any foreground window — a browser
+# tab, chat app, or support page containing the word "error"/"exception"
+# shouldn't trigger the same debug-offer flow as a real stack trace.
+# parse_editor_title() already covers editors; this covers the terminal half
+# of that distinction. Process-name allowlist (no window-title shape check,
+# since terminal titles vary too much to pattern-match reliably).
+_TERMINAL_PROCESSES = {
+    # Windows
+    "windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe",
+    "conhost.exe", "wt.exe", "hyper.exe",
+    # Cross-platform / macOS / Linux
+    "terminal", "iterm2", "iterm", "gnome-terminal", "konsole", "xterm",
+    "alacritty", "kitty",
+}
+
+
+def _is_terminal_process(process: str) -> bool:
+    return (process or "").strip().lower() in _TERMINAL_PROCESSES
+
 
 class FeedManager:
     def __init__(self, callback=None):
@@ -106,6 +127,31 @@ class FeedManager:
         # error, not a new event worth another Groq+vision round trip.
         self.fired_error_fps: dict = {}         # {fingerprint: last_investigated_time}
         self.fired_error_fp_ttl = 1800          # 30 minutes
+
+        # A fingerprint re-entering fresh_fps below means it went away for at
+        # least fired_error_fp_ttl and then came back — an actual recurrence,
+        # not the same still-open error. Track how many times that's happened
+        # so error detection can eventually say "this keeps happening"
+        # instead of investigating each return trip as if it were new.
+        self.error_recurrence_count: dict = {}       # {fingerprint: count}
+        self.error_recurrence_recorded: set = set()  # fingerprints already written to memory
+        self.RECURRING_ERROR_THRESHOLD = 3
+
+        # ── Focus-mode nudge suppression ─────────────────────────────────
+        # window_start_time (reset on every focus change, below) already
+        # tells us how long the same window has been in the foreground —
+        # free signal, no new tracking needed. Past this many seconds of
+        # sustained focus, proactive nudges queue instead of interrupting,
+        # and fire the moment the user actually switches away.
+        self.FOCUS_SUPPRESSION_SECONDS = 20 * 60
+        self._suppressed_nudges: list = []
+        # In practice each nudge type is already individually rate-limited
+        # (one-shot flags, per-fingerprint cooldowns), so this queue stays
+        # tiny — but nothing stops a pathologically long focus session from
+        # accumulating nudges from every different trigger, so cap it rather
+        # than assume the queue can never grow. Keeps the most recent ones,
+        # since a stale nudge from hours ago is less relevant than a recent one.
+        self.MAX_SUPPRESSED_NUDGES = 20
 
         # ── Feature: Flow State ──────────────────────────────────────────
         self.focus_apps = {
@@ -313,7 +359,22 @@ class FeedManager:
                 # add_memory()'s default, which happened to be "session" too;
                 # now explicit so the category can't silently drift if the
                 # default ever changes.
-                add_memory(content, category="session")
+                #
+                # Topic grounding is free here: if the foreground window is a
+                # recognised editor, get_project_context() (already cached by
+                # the main poll loop) resolves the real project name — no
+                # embeddings, no extra LLM call, just structural identity.
+                topic = None
+                try:
+                    title, process = self.get_active_info()
+                    if parse_editor_title(title, process):
+                        pid = self._get_active_pid()
+                        project = get_project_context(title, process, pid)
+                        if project.get("project_name"):
+                            topic = f"project:{project['project_name']}"
+                except Exception:
+                    pass
+                add_memory(content, category="session", topic=topic, provenance="inferred_screen")
                 if self.callback:
                     self.callback("memory_updated", {"text": content})
         except Exception as e:
@@ -348,7 +409,13 @@ class FeedManager:
             from skills.skill_router import SKILL_REGISTRY, TRIGGER_MAP
             seen = set()
             for skill_cls in list(SKILL_REGISTRY.values()) + list(TRIGGER_MAP.values()):
-                if (issubclass(skill_cls, BaseIslandSkill)
+                # Most entries are now lazy _SkillMeta stubs (see
+                # skill_router.discover_skills), not real classes — island
+                # skills are the one kind still registered eagerly as an
+                # actual class, since this loop needs a live instance.
+                # issubclass() would raise on a non-class, so skip those.
+                if (isinstance(skill_cls, type)
+                        and issubclass(skill_cls, BaseIslandSkill)
                         and skill_cls is not BaseIslandSkill
                         and skill_cls not in seen):
                     seen.add(skill_cls)
@@ -768,6 +835,53 @@ class FeedManager:
     # cost cut here, since Stage 2 is a full-resolution image call.
     STAGE2_CONFIDENCE_GATE = 0.75
 
+    def _is_in_focus_mode(self, current_time: float) -> bool:
+        return (current_time - self.window_start_time) > self.FOCUS_SUPPRESSION_SECONDS
+
+    def _emit_nudge(self, event_type: str, payload: dict, current_time: float) -> None:
+        """Route a proactive nudge through focus-mode suppression instead of
+        firing it immediately — if the user's been heads-down on the same
+        window for a while, queue it and deliver it on the next natural
+        context switch (see the focus_changed flush in _loop) instead of
+        interrupting mid-flow."""
+        if self._is_in_focus_mode(current_time):
+            self._suppressed_nudges.append((event_type, payload))
+            if len(self._suppressed_nudges) > self.MAX_SUPPRESSED_NUDGES:
+                self._suppressed_nudges = self._suppressed_nudges[-self.MAX_SUPPRESSED_NUDGES:]
+            return
+        if self.callback:
+            self.callback(event_type, payload)
+
+    def _flush_suppressed_nudges(self) -> None:
+        if not self._suppressed_nudges:
+            return
+        queued, self._suppressed_nudges = self._suppressed_nudges, []
+        if self.callback:
+            for event_type, payload in queued:
+                self.callback(event_type, payload)
+
+    def _maybe_record_recurring_error(self, fp: str, text: str, uia_data: dict) -> None:
+        """Bump this fingerprint's recurrence count and, once it crosses the
+        threshold, write a single memory noting the pattern — no LLM call,
+        just bookkeeping on data already being computed for the existing
+        fingerprint-gating logic."""
+        count = self.error_recurrence_count.get(fp, 0) + 1
+        self.error_recurrence_count[fp] = count
+        if count < self.RECURRING_ERROR_THRESHOLD or fp in self.error_recurrence_recorded:
+            return
+        self.error_recurrence_recorded.add(fp)
+        try:
+            project = (uia_data.get("project") or {}).get("project_name")
+            topic = f"project:{project}" if project else None
+            add_memory(
+                f"Recurring error (seen {count}+ times): {text}",
+                category="session",
+                topic=topic,
+                provenance="inferred_screen",
+            )
+        except Exception as e:
+            log.warning(f"Could not record recurring error memory: {e}")
+
     def _run_two_stage_error_detect(self, uia_data):
         """
         Fire Stage 1, then Stage 2 only when Stage 1 wasn't confident, in a
@@ -833,7 +947,11 @@ class FeedManager:
                 self.active_window_title = title
                 self.active_process_name = process
                 focus_changed = True
-                
+
+                # Attention just shifted — deliver anything that was queued
+                # while the previous window had focus-mode suppression active.
+                self._flush_suppressed_nudges()
+
                 # Reset Timers
                 self.window_start_time = current_time
                 self.vscode_start_time = current_time
@@ -960,11 +1078,10 @@ class FeedManager:
                                 self.screen_error_frequency[fp] = self.screen_error_frequency.get(fp, 0) + 1
                                 if self.screen_error_frequency[fp] >= 3 and fp not in self.fired_screen_errors:
                                     log.warning(f"Persistent screen error in {editor_info['editor']}: {text}")
-                                    if self.callback:
-                                        self.callback("proactive_message", {
-                                            "message": f"looks like you're facing a persistent error: '{text}'. want me to debug it?",
-                                            "suggestions": ["debug this error", "explain what is wrong"]
-                                        })
+                                    self._emit_nudge("proactive_message", {
+                                        "message": f"looks like you're facing a persistent error: '{text}'. want me to debug it?",
+                                        "suggestions": ["debug this error", "explain what is wrong"]
+                                    }, current_time)
                                     self.fired_screen_errors.add(fp)
 
                             # Clean up resolved errors
@@ -975,7 +1092,7 @@ class FeedManager:
                                         del self.screen_error_frequency[fp]
                                         self.fired_screen_errors.discard(fp)
 
-                        # ── Two-stage error detection (all apps) ─────────────
+                        # ── Two-stage error detection (editors + terminals only) ──
                         # Stage 1: text-only Groq confirms the error from UAI.
                         # Stage 2: screenshot vision extracts full details.
                         # Both run in a background thread; cooldowns prevent spam.
@@ -985,7 +1102,13 @@ class FeedManager:
                         # (and burn a Stage 1 call) every time the cooldown
                         # window happened to elapse, even though nothing new
                         # was on screen.
-                        if active_fps:
+                        # Was "(all apps)" — a browser tab, chat app, or support
+                        # page containing "error"/"exception" tripped the same
+                        # debug-offer flow as a real stack trace. Scoped to
+                        # editors (editor_info, already computed above) and
+                        # terminals, the only places a real error legitimately
+                        # shows up.
+                        if active_fps and (editor_info or _is_terminal_process(process)):
                             now = current_time
                             fresh_fps = {
                                 fp for fp in active_fps
@@ -994,6 +1117,7 @@ class FeedManager:
                             if fresh_fps:
                                 for fp in fresh_fps:
                                     self.fired_error_fps[fp] = now
+                                    self._maybe_record_recurring_error(fp, active_fps[fp], uia_data)
                                 stale_cutoff = now - self.fired_error_fp_ttl
                                 self.fired_error_fps = {
                                     fp: t for fp, t in self.fired_error_fps.items() if t > stale_cutoff
@@ -1004,12 +1128,12 @@ class FeedManager:
             
             # --- 1. Stuck Detection ---
             if not self.fired_stuck_session and (current_time - self.window_start_time > 600): # 10 minutes
-                if self.callback and title != "Unknown":
+                if title != "Unknown":
                     log.info(f"Stuck detected on window: {title}")
-                    self.callback("proactive_message", {
+                    self._emit_nudge("proactive_message", {
                         "message": f"you've been on {title} for a while. need a hand?",
                         "suggestions": ["summarise what i've done", "take a break reminder"]
-                    })
+                    }, current_time)
                     self.fired_stuck_session = True
 
             # --- 4. IDE Stuck ---
@@ -1020,13 +1144,16 @@ class FeedManager:
             # user was just idling in Slack. Cheap string check, safe to run
             # unconditionally.
             is_ide = parse_editor_title(title, process) is not None
+            # Same "editor or terminal only" scoping as the two-stage detector
+            # above — a browser tab or chat app with the word "error" in it
+            # shouldn't trigger the same clipboard-based debug-offer flow.
+            is_error_context = is_ide or _is_terminal_process(process)
             if is_ide and not self.fired_vscode_session and (current_time - self.vscode_start_time > 420): # 7 minutes
-                 if self.callback:
                     log.info("Stuck detected in IDE.")
-                    self.callback("proactive_message", {
+                    self._emit_nudge("proactive_message", {
                         "message": "been on this file a while. stuck?",
                         "suggestions": ["review my code", "find the bug"]
-                    })
+                    }, current_time)
                     self.fired_vscode_session = True
 
             # --- Clipboard/Error Detection ---
@@ -1036,18 +1163,17 @@ class FeedManager:
                     # --- 3. Clipboard Watcher ---
                     if clip_content != self.last_clipboard:
                         low_clip = clip_content.lower()
-                        if any(x in low_clip for x in ["traceback", "at line", "file \"", "→"]):
+                        if is_error_context and any(x in low_clip for x in ["traceback", "at line", "file \"", "→"]):
                             log.info("Error detected in clipboard.")
-                            if self.callback:
-                                self.callback("proactive_message", {
-                                    "message": "looks like you copied an error. want me to fix it?",
-                                    "suggestions": ["debug this", "explain this error"]
-                                })
+                            self._emit_nudge("proactive_message", {
+                                "message": "looks like you copied an error. want me to fix it?",
+                                "suggestions": ["debug this", "explain this error"]
+                            }, current_time)
                         self.last_clipboard = clip_content
 
                     # --- 2. Error Repetition Detection ---
                     low_clip = clip_content.lower()
-                    if any(kw in low_clip for kw in error_keywords):
+                    if is_error_context and any(kw in low_clip for kw in error_keywords):
                         # Avoid duplicate entries in history for the same copy
                         if not self.error_history or self.error_history[-1][1] != clip_content:
                             self.error_history.append((current_time, clip_content))
@@ -1066,13 +1192,12 @@ class FeedManager:
                             
                             if matches >= 1: # At least one similar error in last 3 mins
                                 log.warning("Repeating error detected via clipboard.")
-                                if self.callback:
-                                    self.callback("proactive_message", {
-                                        "message": "same error twice. want me to debug it?",
-                                        "suggestions": ["debug this", "search for fix"]
-                                    })
-                                # Update cooldown outside the callback guard so the
-                                # timer advances even when no callback is registered.
+                                self._emit_nudge("proactive_message", {
+                                    "message": "same error twice. want me to debug it?",
+                                    "suggestions": ["debug this", "search for fix"]
+                                }, current_time)
+                                # Update cooldown regardless of suppression, so the
+                                # timer advances even when the nudge got queued.
                                 self.last_error_fire_time = current_time
                                 self.error_history = [] # Clear after firing
             except Exception as e:

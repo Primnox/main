@@ -37,3 +37,30 @@ export async function postJson<T = any>(path: string, body?: unknown, timeoutMs 
     return null;
   }
 }
+
+/** PUT JSON — same shape as postJson, for editing an existing resource. */
+export async function putJson<T = any>(path: string, body?: unknown, timeoutMs = 20000): Promise<T | null> {
+  try {
+    const res = await fetch(apiUrl(path), {
+      method: 'PUT',
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    return text ? (JSON.parse(text) as T) : ({} as T);
+  } catch {
+    return null;
+  }
+}
+
+/** DELETE. Returns true on success, false on any failure. */
+export async function deleteJson(path: string, timeoutMs = 20000): Promise<boolean> {
+  try {
+    const res = await fetch(apiUrl(path), { method: 'DELETE', signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Product — Primnox</title>
+  <meta name="description" content="Six features that make Primnox a personal OS: AI with personality, unified calendar/tasks/notes, knowledge graph, encrypted backups, Smart Paste, and local privacy scrubbing." />
+  <link rel="canonical" href="https://primnox.github.io/product/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Product — Primnox" />
+  <meta property="og:description" content="Six features that make Primnox a personal OS, plus the roadmap." />
+  <meta property="og:url" content="https://primnox.github.io/product/" />
+  <meta name="theme-color" content="#070707" />
+
+  <script>
+    (function () {
+      var d = document.documentElement;
+      d.classList.add('js-ready');
+      // Apply the stored theme before first paint, or every visit flashes the
+      // default palette before switching.
+      try {
+        var t = localStorage.getItem('primnox-theme');
+        if (t && t !== 'dark' && /^[a-z]+$/.test(t)) d.setAttribute('data-theme', t);
+      } catch (e) { /* private mode */ }
+      // Debug overrides. ?intro replays the intro on every load and forces the
+      // motion path; ?motion=on|off forces it either way. Must run pre-paint so
+      // the CSS escape hatch is in place before the first frame.
+      var q = location.search;
+      var replayIntro = /[?&]intro(=|&|$)/.test(q);
+      if (replayIntro || /[?&]motion=on(&|$)/.test(q)) d.classList.add('force-motion');
+      try {
+        var home = location.pathname === '/' || location.pathname === '/index.html';
+        var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches &&
+                      !d.classList.contains('force-motion');
+        if (home && !reduced &&
+            (replayIntro || sessionStorage.getItem('primnox:intro-seen') !== '1')) {
+          d.classList.add('intro-pending');
+        }
+      } catch (e) { /* storage blocked: skip the intro rather than trap content */ }
+    })();
+  </script>
+
+  <link rel="preload" href="/assets/fonts/syne-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/assets/fonts/dmsans-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/assets/css/tokens.css" />
+  <link rel="stylesheet" href="/assets/css/base.css" />
+  <link rel="stylesheet" href="/assets/css/motion.css" />
+  <link rel="stylesheet" href="/assets/css/pages.css" />
+
+  <script src="/assets/js/vendor/gsap.min.js" defer></script>
+  <script type="module" src="/assets/js/boot.js"></script>
+  <link rel="modulepreload" href="/assets/js/core.js" />
+  <link rel="modulepreload" href="/assets/js/router.js" />
+  <link rel="modulepreload" href="/assets/js/curtain.js" />
+</head>
+<body data-page="product">
+<a class="skip-link" href="#app">Skip to content</a>
+
+<!-- shell:start -->
+<div id="fx" aria-hidden="true"><div class="blob-layer"></div></div>
+
+<svg class="goo-defs" aria-hidden="true" focusable="false">
+  <filter id="goo" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="b" />
+    <feColorMatrix in="b" type="matrix"
+      values="1 0 0 0 0
+              0 1 0 0 0
+              0 0 1 0 0
+              0 0 0 20 -9" />
+  </filter>
+</svg>
+
+<div id="curtain" aria-hidden="true">
+  <div class="curtain-panels">
+    <div class="curtain-panel"></div><div class="curtain-panel"></div>
+    <div class="curtain-panel"></div><div class="curtain-panel"></div>
+    <div class="curtain-panel"></div>
+  </div>
+  <div class="curtain-label"><div class="curtain-word">Primnox</div></div>
+  <div class="curtain-wait">Loading</div>
+</div>
+
+<div id="intro" aria-hidden="true">
+  <canvas id="introCanvas" class="intro-canvas"></canvas>
+  <div class="intro-sub">Your personal OS</div>
+</div>
+
+<div class="cursor" id="cursor"></div>
+
+<nav id="nav">
+  <a href="/" class="nav-logo"><span class="logo-dot"></span>Primnox</a>
+  <ul class="nav-links">
+    <li><a href="/product/" aria-current="page">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed</a></li>
+  </ul>
+  <a href="/download/" class="nav-dl">↓ Beta</a>
+  <span class="theme-wrap">
+    <button class="theme-tg" id="themeTg" aria-label="Cycle colour theme" title="Cycle theme (T)"></button>
+    <span class="theme-name" id="themeName" aria-hidden="true">Dark</span>
+  </span>
+  <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navDrawer" aria-label="Open menu">
+    <span></span><span></span>
+  </button>
+</nav>
+<div class="nav-drawer" id="navDrawer" inert>
+  <ul>
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed Phrase</a></li>
+    <li><a href="https://github.com/Primnox/public" target="_blank" rel="noopener external">GitHub</a></li>
+  </ul>
+</div>
+
+<!-- shell:end -->
+
+<main id="app">
+
+  <header class="page-head">
+    <span class="page-eyebrow">01 / Product</span>
+    <h1 class="page-h1">Six Things<br>It <i>Actually</i> Does.</h1>
+    <p class="page-lede">Primnox is one application, not a suite. Everything below shares the same data model, the same command bar, and the same memory.</p>
+  </header>
+
+  <section class="sec">
+    <div class="feat-row ri">
+      <div class="feat-n">01</div>
+      <div class="feat-body">
+        <div class="feat-title">AI with Personality</div>
+        <div class="feat-desc">Not a yes-bot. Primnox pushes back when it matters, roasts you when you're being dramatic, and helps you build a life rather than tick boxes. It remembers quietly — no "I've saved that to memory" theatre — and it will never guilt you about an unfinished task.</div>
+      </div>
+      <div class="feat-arr" aria-hidden="true">↗</div>
+    </div>
+
+    <div class="feat-row ri d1">
+      <div class="feat-n">02</div>
+      <div class="feat-body">
+        <div class="feat-title">Unified Personal OS</div>
+        <div class="feat-desc">Calendar, tasks, notes and AI share one underlying object. A task <em>is</em> a calendar block. A note <em>is</em> an event. Schedule in natural language from anywhere, and press Ctrl+K to command all of it from a single palette.</div>
+      </div>
+      <div class="feat-arr" aria-hidden="true">↗</div>
+    </div>
+
+    <div class="feat-row ri d2">
+      <div class="feat-n">03</div>
+      <div class="feat-body">
+        <div class="feat-title">Knowledge Graph</div>
+        <div class="feat-desc">Primnox maps the people, topics and ideas you mention, automatically. Nodes size by connectedness, colour by type, and highlight their neighbours on hover. Everything you've told it stays searchable; nothing gets lost in a chat scrollback.</div>
+      </div>
+      <div class="feat-arr" aria-hidden="true">↗</div>
+    </div>
+
+    <div class="feat-row ri d3">
+      <div class="feat-n">04</div>
+      <div class="feat-body">
+        <div class="feat-title">BIP-39 Encrypted Backups</div>
+        <div class="feat-desc">Your seed phrase, your data. Back up to S3, B2, R2, Google Drive, Dropbox or your own box, auto-syncing every 24 hours. The encryption key derives from a phrase only you hold, so we cannot decrypt your backup even if we wanted to.</div>
+      </div>
+      <div class="feat-arr" aria-hidden="true">↗</div>
+    </div>
+
+    <div class="feat-row ri d4">
+      <div class="feat-n">05</div>
+      <div class="feat-body">
+        <div class="feat-title">Smart Paste</div>
+        <div class="feat-desc">Copy anything, get AI-enhanced context on a global shortcut. Rewrite an email, fix a stack trace, translate, summarise. It appears when called and stays out of the way otherwise.</div>
+      </div>
+      <div class="feat-arr" aria-hidden="true">↗</div>
+    </div>
+
+    <div class="feat-row ri d5">
+      <div class="feat-n">06</div>
+      <div class="feat-body">
+        <div class="feat-title">
+          Local Privacy Scrubbing
+          <span class="feat-live">Live · v0.1.1</span>
+        </div>
+        <div class="feat-desc">Privacy Mirror swaps names, emails, passwords and keys for placeholders before your context reaches a cloud AI, then reverses the substitution in the reply so you still read real names. Deterministic regex rules backstop the model. It only engages for cloud calls — local models get the raw text. <a href="/privacy/" style="color:var(--accent)">How it works →</a></div>
+      </div>
+      <div class="feat-arr" aria-hidden="true">↗</div>
+    </div>
+  </section>
+
+  <section class="sec" id="personality">
+    <div class="sec-head">
+      <div class="sec-n ri">02 /</div>
+      <h2 class="sec-t ri d1">How It<br><i>Talks.</i></h2>
+    </div>
+    <div class="show-stage ri">
+      <div class="fx-anchor">
+        <div class="fx-fallback">
+          <div class="fx-fallback-word">Primnox</div>
+          <div class="fx-fallback-sub">Ready</div>
+        </div>
+      </div>
+      <div class="show-state">
+        <span class="show-state-dot" aria-hidden="true"></span>
+        <span id="showState">Idle</span>
+      </div>
+    </div>
+    <div class="show-grid">
+      <div class="show-l ri">
+        <p class="show-intro">Six real scenarios. The interesting ones are the last two — an AI that agrees with everything is not a friend, it's a mirror.</p>
+        <div class="dp-list">
+          <button class="dp-btn" data-action="chat:schedule" data-blob="grow">Help me plan today</button>
+          <button class="dp-btn" data-action="chat:privacy" data-blob="grow">Wait, can you see my data?</button>
+          <button class="dp-btn" data-action="chat:social" data-blob="grow">Any ideas for this weekend?</button>
+          <button class="dp-btn" data-action="chat:memory" data-blob="grow">Recall something I said weeks ago</button>
+          <button class="dp-btn" data-action="chat:rude" data-blob="grow">Be rude to it</button>
+          <button class="dp-btn" data-action="chat:pushback" data-blob="grow">Tell it something reckless</button>
+          <button class="dp-reset" id="dpReset" data-action="chat:reset">↺ Reset conversation</button>
+        </div>
+      </div>
+      <div class="show-r ri d1">
+        <div class="convo" id="convo"></div>
+        <div class="cv-typing" id="cvTyping">
+          <div class="cv-who ai">Primnox</div>
+          <div class="td-row"><span class="td"></span><span class="td"></span><span class="td"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="roadmap">
+    <div class="sec-head">
+      <div class="sec-n ri">03 /</div>
+      <h2 class="sec-t ri d1">What's<br><i>Next.</i></h2>
+    </div>
+    <div class="road">
+      <div class="road-item ri">
+        <div class="road-when">Shipped</div>
+        <div>
+          <div class="road-t">Calendar, Tasks and Notes</div>
+          <div class="road-s">Week, Day, Month and Agenda views. Notion-style notes with workspaces and sub-pages. Reminders persist across restarts.</div>
+        </div>
+        <span class="road-badge done">Done</span>
+      </div>
+      <div class="road-item ri d1">
+        <div class="road-when">Shipped</div>
+        <div>
+          <div class="road-t">Ctrl+K command palette</div>
+          <div class="road-s">One shortcut to reach every action, view and note in the app.</div>
+        </div>
+        <span class="road-badge done">Done</span>
+      </div>
+      <div class="road-item ri d2">
+        <div class="road-when">Shipped</div>
+        <div>
+          <div class="road-t">Knowledge graph UI</div>
+          <div class="road-s">Degree-based node sizing, type colouring, neighbour highlighting, search-to-zoom.</div>
+        </div>
+        <span class="road-badge done">Done</span>
+      </div>
+      <div class="road-item ri d3">
+        <div class="road-when">v1.2 · now</div>
+        <div>
+          <div class="road-t">Windows beta hardening</div>
+          <div class="road-s">Installer, crash reporting off by default, and the long tail of first-run papercuts.</div>
+        </div>
+        <span class="road-badge now">In progress</span>
+      </div>
+      <div class="road-item ri d4">
+        <div class="road-when">v0.1.1 · shipped</div>
+        <div>
+          <div class="road-t">Privacy Mirror — local scrubbing</div>
+          <div class="road-s">The on-device PII model plus deterministic regex backstops, with placeholder substitution reversed on the way back. The feature the whole product is arranged around, and it is live.</div>
+        </div>
+        <span class="road-badge done">Done</span>
+      </div>
+      <div class="road-item ri d5">
+        <div class="road-when">Next</div>
+        <div>
+          <div class="road-t">macOS and Linux builds</div>
+          <div class="road-s">Tauri already targets them; the work is packaging, signing and platform-specific shortcuts.</div>
+        </div>
+        <span class="road-badge next">Planned</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <h2 class="cta-t ri">Try The<br><i>Beta.</i></h2>
+    <p class="cta-s ri d1">Windows build is live now. Free, open-core, and honest about what isn't finished yet.</p>
+    <div class="cta-btns ri d2">
+      <a href="/download/" class="btn-solid">Download ↗</a>
+      <a href="/privacy/" class="btn-outline">Read the thesis <span>→</span></a>
+    </div>
+  </section>
+
+</main>
+
+<!-- shell:start -->
+<footer>
+  <a href="/" class="f-logo"><span class="logo-dot"></span>Primnox</a>
+  <ul class="f-links">
+    <li><a href="/product/">Product</a></li>
+    <li><a href="/privacy/">Privacy</a></li>
+    <li><a href="/download/">Download</a></li>
+    <li><a href="/seed/">Seed Phrase</a></li>
+    <li><a href="https://github.com/Primnox/public" target="_blank" rel="noopener external">GitHub</a></li>
+  </ul>
+  <span class="f-copy">© 2026 Primnox</span>
+</footer>
+<div id="a11y-live" role="status" aria-live="polite" class="sr-only"></div>
+<!-- shell:end -->
+</body>
+</html>

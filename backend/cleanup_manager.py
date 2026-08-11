@@ -157,6 +157,20 @@ def mark_stale_memories_pass(memory_days: int) -> int:
         return 0
 
 
+def render_memory_mirror_pass() -> int:
+    """Regenerate the Markdown memory mirror. Returns topic files written.
+
+    Runs after mark_stale_memories_pass so the mirror never shows a memory
+    the rest of the app already treats as stale.
+    """
+    try:
+        from memory_mirror import render_memory_mirror
+        return render_memory_mirror()
+    except Exception as e:
+        log.warning(f"Memory mirror render failed: {e}")
+        return 0
+
+
 def run_cleanup() -> dict:
     """Run all cleanup tasks. Returns summary dict."""
     settings = load_settings()
@@ -168,10 +182,12 @@ def run_cleanup() -> dict:
     # Compress old memories into weekly digests — no auto-deletion, user manages manually
     memories_compressed = compress_memories_pass()
     memories_marked_stale = mark_stale_memories_pass(memory_days)
+    memory_mirror_topics = render_memory_mirror_pass()
 
     results = {
         "memories_compressed": memories_compressed,
         "memories_marked_stale": memories_marked_stale,
+        "memory_mirror_topics": memory_mirror_topics,
         "meetings_deleted":    cleanup_meetings(meeting_days),
         "tts_deleted":         cleanup_tts(max_age_hours=1),
         "uploads_deleted":     cleanup_uploads(max_age_hours=24),

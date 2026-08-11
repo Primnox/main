@@ -86,6 +86,12 @@ keyboard
 pyautogui
 duckduckgo-search
 rapidfuzz
+pyyaml                            # SKILL.md frontmatter parsing (adapted_skill.py)
+markitdown                        # how the official pptx/xlsx skills read existing files
+
+# ————— WEB REACH (fetch_webpage / fetch_youtube_transcript / fetch_rss_feed) —
+youtube-transcript-api
+feedparser
 
 # ————— BACKUP ────────────────────────────────────────────────────────────────
 mnemonic                          # BIP-39 wordlist + checksum utilities

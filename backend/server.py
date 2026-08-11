@@ -141,6 +141,13 @@ def _sanitize_settings(settings: dict) -> dict:
     for key in _MASKED_KEYS:
         if safe.get(key):
             safe[key] = "sk-****"
+    # Custom-provider API keys are per-profile, not a fixed top-level key —
+    # mask each one individually the same way.
+    if safe.get("custom_providers"):
+        safe["custom_providers"] = [
+            {**p, "api_key": "sk-****"} if p.get("api_key") else dict(p)
+            for p in safe["custom_providers"]
+        ]
     # Never send the backup wordlist (2048 strings) over the wire
     safe.pop("backup_wordlist", None)
     return safe
@@ -411,10 +418,8 @@ async def health():
 async def get_status():
     """Rich status report: all subsystem states, DB sizes, model, feed state."""
     import datetime
-    from memory import list_memories
     from notes_manager import get_notes
     from reminder_manager import list_reminders
-    from skills.skill_router import list_skills
     from settings_manager import get_appdata_dir
 
     appdata = get_appdata_dir()
@@ -433,34 +438,25 @@ async def get_status():
         if recent:
             last_backup_name = recent[0].name
 
-    # Feed activity
-    feed_len = len(core.feed.history)
     active_window = core.feed.active_window_title or "Unknown"
 
     # Counts
-    try: mem_count = len(list_memories())
-    except Exception: mem_count = 0
     try: notes_count = len(get_notes())
     except Exception: notes_count = 0
     try: reminders_count = len(list_reminders())
     except Exception: reminders_count = 0
-    try: skills_count = len(list_skills())
-    except Exception: skills_count = 0
 
     return {
         "status": "ok",
         "version": APP_VERSION,
         "timestamp": datetime.datetime.now().isoformat(),
         "active_window": active_window,
-        "feed_events": feed_len,
         "mic_muted": core.mic_muted,
         "incognito": core.incognito,
         "active_model": core.settings.get("active_model", "Groq_Llama_3"),
         "has_api_key": bool(core.settings.get("groq_api_key") or core.settings.get("openai_api_key") or core.settings.get("anthropic_api_key")),
-        "memories_count": mem_count,
         "notes_count": notes_count,
         "reminders_count": reminders_count,
-        "skills_count": skills_count,
         "db_sizes_kb": db_sizes,
         "last_backup": last_backup_name,
         "pii_model_status": _get_pii_model_status(),
@@ -470,13 +466,10 @@ async def get_status():
 async def get_dashboard():
     import datetime
     from notes_manager import get_notes
-    from memory import list_memories
     from reminder_manager import list_reminders
-    from skills.skill_router import list_skills
 
-    # Feed data — ambient + window events
+    # Feed data — window events
     history = list(core.feed.history[-25:])
-    ambient_events = [h for h in core.feed.history if "Ambient:" in h]
 
     # Current focus
     active_window = core.feed.active_window_title or "Unknown"
@@ -516,10 +509,6 @@ async def get_dashboard():
         notes_count = len(get_notes())
     except Exception:
         notes_count = 0
-    try:
-        memories_count = len(list_memories())
-    except Exception:
-        memories_count = 0
 
     # Pending reminders
     try:
@@ -545,12 +534,6 @@ async def get_dashboard():
                 }
     except Exception:
         pass
-
-    # Registered skills count
-    try:
-        skills_count = len(list_skills())
-    except Exception:
-        skills_count = 0
 
     # Flag whether the primary AI key is configured (don't expose the key itself)
     has_api_key = bool(core.settings.get("groq_api_key") or
@@ -609,15 +592,12 @@ async def get_dashboard():
         "active_window": active_window,
         "active_process": active_process,
         "feed_history": history,
-        "ambient_count": len(ambient_events),
         "meetings": meetings,
         "notes_count": notes_count,
-        "memories_count": memories_count,
         "has_api_key": has_api_key,
         "reminders_count": reminders_count,
         "reminders": reminders,
         "last_backup": last_backup,
-        "skills_count": skills_count,
         "user_name": user_name,
         "today_events": today_events,
         "pii_model_status": _get_pii_model_status(),
@@ -877,7 +857,7 @@ async def smart_paste(request: Request):
     cloud+scrub path via think() only if no local model answered (Ollama not
     running, or the small model isn't pulled and nothing else is either).
     """
-    from brain import think, think_local
+    from brain import think, think_local, resolve_think_text
     from system_prompts import SMART_PASTE_PROMPT
     body = await request.json()
     content = body.get("content", "")
@@ -885,7 +865,7 @@ async def smart_paste(request: Request):
         return {"transformed": content}
     try:
         from screen_reader import read_screen
-        uia = read_screen()
+        uia = await asyncio.to_thread(read_screen)
         target_app = uia.get("window_title", "") if isinstance(uia, dict) else ""
     except Exception:
         target_app = ""
@@ -893,8 +873,8 @@ async def smart_paste(request: Request):
     log = get_logger("smart_paste")
 
     try:
-        local_text = think_local(
-            prompt, system_override=SMART_PASTE_PROMPT,
+        local_text = await asyncio.to_thread(
+            think_local, prompt, system_override=SMART_PASTE_PROMPT,
             model=_SMART_PASTE_LOCAL_MODEL, timeout=15,
         )
         if local_text and local_text.strip():
@@ -903,9 +883,8 @@ async def smart_paste(request: Request):
         log.debug(f"smart_paste local route failed, falling back to cloud: {e}")
 
     try:
-        response = think(prompt, system_override=SMART_PASTE_PROMPT)
-        text = response.get("choices", [{}])[0].get("message", {}).get("content", content)
-        return {"transformed": text.strip() or content}
+        response = await asyncio.to_thread(think, prompt, system_override=SMART_PASTE_PROMPT)
+        return {"transformed": resolve_think_text(response, content)}
     except Exception as e:
         log.error(f"smart_paste failed: {e}")
         return {"transformed": content}
@@ -1072,12 +1051,14 @@ async def backup_disable():
 async def backup_store_wordlist(body: dict):
     """
     Store the custom Primnox wordlist (fetched from seed.primnox.com during onboarding).
-    Expects: {"wordlist": ["word1", "word2", ...]}  — exactly 2048 words.
+    Expects: {"wordlist": ["word1", "word2", ...]}  — exactly 2048 unique words.
     """
+    from backup_manager import _wordlist_shape_error
     from settings_manager import load_settings, save_settings
-    wordlist = body.get("wordlist", [])
-    if len(wordlist) != 2048:
-        raise HTTPException(400, f"Wordlist must have 2048 words, got {len(wordlist)}")
+    wordlist = [str(w).strip().lower() for w in body.get("wordlist", [])]
+    shape_error = _wordlist_shape_error(wordlist)
+    if shape_error:
+        raise HTTPException(400, shape_error)
     s = load_settings()
     s["backup_wordlist"] = wordlist
     save_settings(s)
@@ -1099,8 +1080,9 @@ async def backup_generate_mnemonic():
 
     s = load_settings()
     wordlist: list[str] = s.get("backup_wordlist", [])
+    from backup_manager import _wordlist_shape_error
 
-    if len(wordlist) != 2048:
+    if _wordlist_shape_error(wordlist):
         # Try to fetch and cache from remote sources
         fetched: list[str] = []
         urls = [
@@ -1113,15 +1095,18 @@ async def backup_generate_mnemonic():
                 async with httpx.AsyncClient(follow_redirects=True) as client:
                     r = await client.get(url, timeout=8)
                 if r.status_code == 200:
-                    words = [w.strip() for w in r.text.splitlines()
+                    words = [w.strip().lower() for w in r.text.splitlines()
                              if w.strip() and not w.startswith("#")]
-                    if len(words) >= 2048:
-                        fetched = words[:2048]
+                    # Require exactly 2048 (not "at least") — silently
+                    # truncating a longer/malformed response could accept a
+                    # subset with duplicates or drop legitimate entries.
+                    if len(words) == 2048 and not _wordlist_shape_error(words):
+                        fetched = words
                         break
             except Exception:
                 continue
 
-        if len(fetched) == 2048:
+        if fetched:
             wordlist = fetched
             s["backup_wordlist"] = wordlist
             save_settings(s)
@@ -1221,6 +1206,23 @@ async def get_graph():
             pass
         kw |= keywords((r["text"] or "")[:400])
         item_kw[str(n_id)] = kw
+
+    # ── Explicit [[wiki-link]] references between notes ──────────────────────
+    # Computed before the fuzzy keyword-overlap pass below so a real,
+    # user-authored reference wins add_link()'s pair-level dedup instead of
+    # silently losing to (and being indistinguishable from) a same-pair
+    # "related" edge the keyword heuristic happens to also produce.
+    note_ids = {r["id"] for r in note_rows}
+    try:
+        from notes_manager import get_db as _notes_get_db
+        _conn = _notes_get_db()
+        _rows = _conn.execute("SELECT source_id, target_id FROM note_links").fetchall()
+        _conn.close()
+        for _row in _rows:
+            if _row["source_id"] in note_ids and _row["target_id"] in note_ids:
+                add_link(_row["source_id"], _row["target_id"], "reference")
+    except Exception as _e:
+        log.warning(f"graph: note_links fetch failed: {_e}")
 
     # ── Memory nodes + keyword extraction ────────────────────────────────────
     for m in mem_rows:
@@ -1427,6 +1429,73 @@ async def generate_batch_notes(
     broadcast("note_added", {})
     return {"success": True}
 
+@app.post("/api/notes/generate")
+async def generate_note_from_prompt(request: Request):
+    """AI note builder — turns a short instruction ("meeting notes for
+    tomorrow's product sync") into a full structured note, the way Notion
+    AI's "ask AI to write" does. generate-batch above is the file-upload
+    sibling of this; this one needs nothing but a prompt.
+
+    When note_id is given, this edits that note in place instead of
+    creating a new one — "add a section on budget" gets the existing
+    content as context and asks for the full updated body back, the same
+    way Notion AI edits the page you're already looking at rather than only
+    ever starting a fresh one."""
+    from brain import think
+    from notes_manager import add_note, update_note, get_note_by_id, parse_note_json_response
+    body = await request.json()
+    prompt = (body.get("prompt") or "").strip()
+    project = body.get("project") or "General"
+    note_id = body.get("note_id")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    existing = get_note_by_id(note_id) if note_id else None
+    if note_id and not existing:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    if existing:
+        system_instruction = (
+            'You are an AI Note Editor. The user has an existing note open and wants you to '
+            'change it — add to it, rewrite part of it, shorten it, etc. Apply their instruction '
+            'and return the FULL UPDATED note (not just the new part), preserving everything they '
+            "didn't ask you to change. "
+            'Respond ONLY with raw valid JSON in this exact format: '
+            '{"title": "The note\'s title (usually unchanged)", "body": "The full updated markdown note content..."}. '
+            'Do NOT include markdown code blocks around the JSON.'
+        )
+        context = (
+            f"{system_instruction}\n\nExisting note title: {existing['title']}\n\n"
+            f"Existing note content:\n{existing['text']}"
+        )
+    else:
+        system_instruction = (
+            'You are an AI Note Generator. Given a short instruction, write a complete, '
+            'well-structured note (use markdown headings, bullet points, etc. where helpful). '
+            'Respond ONLY with raw valid JSON in this exact format: '
+            '{"title": "A short title for the note", "body": "The full markdown note content..."}. '
+            'Do NOT include markdown code blocks around the JSON.'
+        )
+        context = system_instruction
+
+    res = think(prompt, context=context)
+    content_str = res.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+    try:
+        parsed = parse_note_json_response(content_str)
+    except ValueError as e:
+        log.error(f"Failed to parse AI-generated note JSON: {e}")
+        raise HTTPException(status_code=502, detail="AI did not return a usable note — try rephrasing your prompt.")
+
+    if existing:
+        update_note(note_id, parsed["title"] or existing["title"], parsed["body"],
+                     project=existing["project"], parent_id=existing["parent_id"])
+        note = {"id": note_id, "title": parsed["title"] or existing["title"], "text": parsed["body"], "project": existing["project"]}
+    else:
+        note = add_note(parsed["body"], title=parsed["title"], project=project)
+
+    broadcast("note_added", {})
+    return note
+
 @app.post("/api/generate")
 async def post_generate(request: Request):
     try:
@@ -1518,6 +1587,21 @@ async def delete_memory(key: str):
     from memory import delete_memory
     delete_memory(key)
     return {"success": True}
+
+
+@app.post("/api/permission_response")
+async def permission_response(request: Request):
+    """Answers a pending `permission_request` broadcast (see
+    permission_manager.py) — the LLM-tool-calling thread is blocked inside
+    `request_permission()` waiting on this. Body: {token, allow}."""
+    from permission_manager import resolve_permission
+    body = await request.json()
+    token = body.get("token", "")
+    allow = bool(body.get("allow", False))
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+    resolved = resolve_permission(token, allow)
+    return {"success": resolved}
 
 
 @app.get("/api/vault/status")
@@ -1891,6 +1975,131 @@ async def get_settings():
     from settings_manager import load_settings
     return _sanitize_settings(load_settings())
 
+
+@app.post("/api/custom_provider/models")
+async def list_custom_provider_models(request: Request):
+    """Query a custom endpoint's /v1/models so the Settings UI can offer a
+    dropdown instead of asking the user to type the exact model id. Takes the
+    in-progress form values directly (not settings.json) so this works before
+    the user hits Synchronize. If editing an already-saved profile, the
+    Settings UI can echo back the masked "sk-****" placeholder instead of
+    retyping the key — pass profile_id and we'll use the real stored key."""
+    from brain import fetch_custom_provider_models
+    from settings_manager import load_settings
+    body = await request.json()
+    api_key = body.get("api_key") or ""
+    if api_key in ("", "sk-****") and body.get("profile_id"):
+        settings = load_settings()
+        for profile in settings.get("custom_providers", []):
+            if profile.get("id") == body["profile_id"]:
+                api_key = profile.get("api_key", "")
+                break
+    return await asyncio.to_thread(
+        fetch_custom_provider_models,
+        body.get("base_url") or "",
+        body.get("api_type") or "openai",
+        api_key,
+    )
+
+
+@app.post("/api/provider_models")
+async def list_provider_models(request: Request):
+    """Model-list detection for the 4 built-in providers (Groq/OpenAI/
+    Anthropic/Gemini) backing the Settings model picker — always returns a
+    usable list (live detection or a curated fallback), never an empty one."""
+    from brain import fetch_provider_models
+    body = await request.json()
+    provider = body.get("provider") or ""
+    if provider not in ("groq", "openai", "anthropic", "gemini"):
+        raise HTTPException(status_code=400, detail="provider must be one of groq, openai, anthropic, gemini")
+    capability = body.get("capability") or "chat"
+    return await asyncio.to_thread(fetch_provider_models, provider, body.get("api_key") or "", capability)
+
+
+@app.get("/api/custom_providers")
+async def list_custom_providers():
+    """Saved custom-endpoint profiles, masked the same way GET /settings is."""
+    from settings_manager import load_settings
+    return [
+        {**p, "api_key": "sk-****"} if p.get("api_key") else dict(p)
+        for p in load_settings().get("custom_providers", [])
+    ]
+
+
+@app.post("/api/custom_providers")
+async def create_custom_provider(request: Request):
+    """Save a new named custom endpoint profile."""
+    from settings_manager import load_settings, save_settings
+    import uuid
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    settings = load_settings()
+    profile = {
+        "id": uuid.uuid4().hex[:8],
+        "name": name,
+        "api_type": body.get("api_type") or "openai",
+        "base_url": (body.get("base_url") or "").strip().rstrip("/"),
+        "api_key": body.get("api_key") or "",
+        "model": body.get("model") or "",
+    }
+    settings["custom_providers"] = settings.get("custom_providers", []) + [profile]
+    save_settings(settings)
+    core.settings = load_settings()
+    broadcast("settings_updated", _sanitize_settings(core.settings))
+    return {**profile, "api_key": "sk-****" if profile["api_key"] else ""}
+
+
+@app.put("/api/custom_providers/{provider_id}")
+async def update_custom_provider(provider_id: str, request: Request):
+    """Edit a saved custom endpoint profile."""
+    from settings_manager import load_settings, save_settings
+    body = await request.json()
+    settings = load_settings()
+    providers = settings.get("custom_providers", [])
+    idx = next((i for i, p in enumerate(providers) if p.get("id") == provider_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail="Custom provider not found")
+    existing = providers[idx]
+    incoming_key = body.get("api_key", existing.get("api_key", ""))
+    if incoming_key == "sk-****":
+        incoming_key = existing.get("api_key", "")
+    updated = {
+        "id": provider_id,
+        "name": (body.get("name") or existing.get("name", "")).strip(),
+        "api_type": body.get("api_type", existing.get("api_type", "openai")),
+        "base_url": (body.get("base_url", existing.get("base_url", "")) or "").strip().rstrip("/"),
+        "api_key": incoming_key,
+        "model": body.get("model", existing.get("model", "")),
+    }
+    providers[idx] = updated
+    settings["custom_providers"] = providers
+    save_settings(settings)
+    core.settings = load_settings()
+    broadcast("settings_updated", _sanitize_settings(core.settings))
+    return {**updated, "api_key": "sk-****" if updated["api_key"] else ""}
+
+
+@app.delete("/api/custom_providers/{provider_id}")
+async def delete_custom_provider(provider_id: str):
+    """Remove a saved custom endpoint profile and its mirrored keyring entry."""
+    from settings_manager import load_settings, save_settings, delete_custom_provider_key
+    settings = load_settings()
+    providers = settings.get("custom_providers", [])
+    remaining = [p for p in providers if p.get("id") != provider_id]
+    if len(remaining) == len(providers):
+        raise HTTPException(status_code=404, detail="Custom provider not found")
+    settings["custom_providers"] = remaining
+    if settings.get("active_custom_provider_id") == provider_id:
+        settings["active_custom_provider_id"] = ""
+    save_settings(settings)
+    delete_custom_provider_key(provider_id)
+    core.settings = load_settings()
+    broadcast("settings_updated", _sanitize_settings(core.settings))
+    return {"deleted": provider_id}
+
+
 @app.post("/generate")
 async def post_generate(request: Request):
     from brain import think
@@ -1920,7 +2129,21 @@ async def post_settings(request: Request):
     for key in _MASKED_KEYS:
         if merged.get(key) == "sk-****":
             merged[key] = old_settings.get(key, "")
-            
+
+    # Same treatment per custom-provider profile, matched by id — a profile
+    # the frontend echoes back with the "sk-****" placeholder keeps whatever
+    # real key was already stored for that id, rather than overwriting it
+    # with the literal placeholder string.
+    if "custom_providers" in body:
+        old_by_id = {p.get("id"): p for p in old_settings.get("custom_providers", [])}
+        unmasked = []
+        for profile in merged.get("custom_providers", []):
+            profile = dict(profile)
+            if profile.get("api_key") == "sk-****":
+                profile["api_key"] = old_by_id.get(profile.get("id"), {}).get("api_key", "")
+            unmasked.append(profile)
+        merged["custom_providers"] = unmasked
+
     save_settings(merged)
     
     # Reload settings in core
@@ -1945,28 +2168,6 @@ async def post_settings(request: Request):
             log.warning(f"Could not start PII model loading: {e}")
 
     broadcast("settings_updated", _sanitize_settings(core.settings))
-    return {"success": True}
-
-@app.get("/voices")
-async def get_voices():
-    from voice_id import get_profiles
-    return get_profiles()
-
-@app.post("/voices/enroll")
-async def enroll_voice(request: Request):
-    from voice_id import enroll_speaker
-    body = await request.json()
-    wav_path = body.get("wav_path")
-    name = body.get("name")
-    if not wav_path or not name:
-        raise HTTPException(status_code=400, detail="wav_path and name required")
-    enroll_speaker(wav_path, name)
-    return {"success": True}
-
-@app.delete("/voices/{name}")
-async def delete_voice(name: str):
-    from voice_id import delete_profile
-    delete_profile(name)
     return {"success": True}
 
 @app.post("/clipboard/clear")
@@ -1997,6 +2198,10 @@ async def startup_event():
     # Start auto-cleanup scheduler (runs once at startup + every 24h)
     from cleanup_manager import start_cleanup_scheduler
     await asyncio.to_thread(start_cleanup_scheduler)
+    # Once-a-day brief (calendar + tasks + recent memory) — checks hourly,
+    # generates once per calendar day, not a continuous background loop.
+    from daily_digest import start_daily_digest_scheduler
+    start_daily_digest_scheduler(broadcast_callback=broadcast)
     # If Privacy Shield is already enabled (persisted from a prior session), kick off
     # PII model loading now — otherwise redact_text() silently stays on the regex
     # fallback until the user toggles the setting off/on. start_model_loading() spawns
@@ -2379,7 +2584,7 @@ async def create_memory_api(request: Request):
     category = body.get("category", "personal")
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
-    ok = add_memory(text, category=category)
+    ok = add_memory(text, category=category, provenance="explicit")
     return {"success": ok, "duplicate": not ok}
 
 
@@ -2389,6 +2594,45 @@ async def delete_memory_api(key: str):
     from memory import delete_memory
     delete_memory(key)
     return {"status": "ok"}
+
+
+@app.get("/api/memory/mirror")
+async def get_memory_mirror():
+    """Summary of the Markdown memory mirror (Documents/Primnox/Memory) —
+    one entry per topic file, so 'what does Primnox know about me' is
+    answerable in-app instead of only by opening the folder."""
+    from memory_mirror import MEMORY_DIR, render_memory_mirror
+    render_memory_mirror()  # make sure it reflects the current DB before listing
+    topics = []
+    if MEMORY_DIR.exists():
+        for f in sorted(MEMORY_DIR.glob("*.md")):
+            try:
+                lines = f.read_text(encoding="utf-8").splitlines()
+                title = lines[0].lstrip("#").strip() if lines else f.stem
+                entry_count = sum(1 for l in lines if l.startswith("- "))
+                topics.append({"slug": f.stem, "title": title, "entry_count": entry_count})
+            except Exception:
+                continue
+    return {"topics": topics, "path": str(MEMORY_DIR)}
+
+
+@app.post("/api/memory/open-folder")
+async def open_memory_folder():
+    """Open the Markdown memory mirror folder in the OS file explorer."""
+    import subprocess
+    from memory_mirror import MEMORY_DIR, render_memory_mirror
+    if not MEMORY_DIR.exists() or not any(MEMORY_DIR.glob("*.md")):
+        render_memory_mirror()  # first open shouldn't land on an empty folder
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(MEMORY_DIR))
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(MEMORY_DIR)])
+        else:
+            subprocess.run(["xdg-open", str(MEMORY_DIR)])
+        return {"success": True, "path": str(MEMORY_DIR)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not open folder: {e}")
 
 
 # ── Notes search ───────────────────────────────────────────────────────────────
@@ -2402,6 +2646,21 @@ async def search_notes_api(q: str = "", limit: int = 20):
         return {"notes": notes, "query": q}
     results = search_notes(q.strip(), limit=limit)
     return {"notes": results, "query": q}
+
+
+@app.get("/api/notes/search-titles")
+async def search_note_titles_api(q: str = "", limit: int = 10):
+    """Title-only lookup backing the editor's [[ ]] wiki-link autocomplete —
+    cheap enough to call on every keystroke, unlike the full FTS search."""
+    from notes_manager import search_note_titles
+    return {"notes": search_note_titles(q, limit=limit)}
+
+
+@app.get("/api/notes/{note_id}/links")
+async def get_note_links_api(note_id: int):
+    """Outbound [[wiki-links]] and inbound backlinks for a single note."""
+    from notes_manager import get_note_links, get_backlinks
+    return {"links": get_note_links(note_id), "backlinks": get_backlinks(note_id)}
 
 
 # ── Research / web search ──────────────────────────────────────────────────────

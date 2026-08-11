@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Database, CheckCircle, Search, Trash2, Tag, Clock, Plus } from 'lucide-react';
+import { Database, CheckCircle, Search, Trash2, Tag, Clock, Plus, FolderOpen } from 'lucide-react';
 import { API_BASE } from '../../config';
 
 const API_BASE_URL = `${API_BASE}`;
@@ -30,6 +30,29 @@ export const DataVaultPage = ({
   const [newMemCat, setNewMemCat] = useState<'work' | 'personal' | 'project' | 'session'>('personal');
   const [addingMem, setAddingMem] = useState(false);
   const [addResult, setAddResult] = useState<'saved' | 'duplicate' | null>(null);
+  // Markdown memory mirror (Documents/Primnox/Memory) — lets "what does
+  // Primnox know about me" be answered without leaving the app, plus a way
+  // to open the actual editable files.
+  const [mirrorTopics, setMirrorTopics] = useState<{ slug: string; title: string; entry_count: number }[]>([]);
+  const [openingFolder, setOpeningFolder] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/memory/mirror`)
+      .then(r => r.json())
+      .then(data => setMirrorTopics(data?.topics ?? []))
+      .catch(() => setMirrorTopics([]));
+  }, [memory.length]);
+
+  const handleOpenMemoryFolder = useCallback(async () => {
+    setOpeningFolder(true);
+    try {
+      await fetch(`${API_BASE_URL}/api/memory/open-folder`, { method: 'POST' });
+    } catch {
+      // ignore — nothing useful to show if the OS call fails
+    } finally {
+      setOpeningFolder(false);
+    }
+  }, []);
 
   const handleSearch = useCallback(async (q: string) => {
     setQuery(q);
@@ -105,6 +128,17 @@ export const DataVaultPage = ({
           </div>
           <span className="font-mono text-[10px] text-on-surface/55">{memory.length} nodes</span>
           <button
+            onClick={handleOpenMemoryFolder}
+            disabled={openingFolder}
+            className="flex items-center gap-2 px-4 py-2 bg-on-surface/5 hover:bg-on-surface/10 border border-on-surface/10 rounded-lg text-on-surface/60 hover:text-on-surface transition-colors disabled:opacity-40"
+            title="Open the editable Markdown copy of what Primnox remembers"
+          >
+            <FolderOpen size={13} />
+            <span className="font-mono text-[9px] uppercase tracking-widest font-bold">
+              {openingFolder ? 'Opening…' : 'Open Folder'}
+            </span>
+          </button>
+          <button
             onClick={() => setShowAddForm(f => !f)}
             className="flex items-center gap-2 px-4 py-2 bg-on-surface/5 hover:bg-on-surface/10 border border-on-surface/10 rounded-lg text-on-surface/60 hover:text-on-surface transition-colors"
             title="Manually inject a memory"
@@ -134,6 +168,19 @@ export const DataVaultPage = ({
           <p className="mt-2 font-mono text-[10px] text-on-surface/55">
             {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for &ldquo;{query}&rdquo;
           </p>
+        )}
+        {mirrorTopics.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {mirrorTopics.map(t => (
+              <span
+                key={t.slug}
+                className="px-2.5 py-1 rounded-full border border-on-surface/10 bg-on-surface/[0.03] font-mono text-[9px] text-on-surface/55 uppercase tracking-wider"
+                title={`${t.entry_count} ${t.entry_count === 1 ? 'entry' : 'entries'} in ${t.title}`}
+              >
+                {t.title} · {t.entry_count}
+              </span>
+            ))}
+          </div>
         )}
       </div>
 

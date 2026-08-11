@@ -67,6 +67,26 @@ def derive_key(mnemonic: str) -> bytes:
     )
 
 
+def _wordlist_shape_error(wordlist: list[str]) -> Optional[str]:
+    """Structural checks a wordlist must pass before it's safe to use for
+    either generation or validation — shared by both so a malformed list
+    (e.g. from a flaky/tampered fetch) can never get one function to accept
+    it while the other rejects it. Without this, generate_mnemonic() could
+    happily produce a phrase from a list with duplicate entries, only for
+    validate_mnemonic() to immediately reject that exact phrase — silently
+    locking the user out of a key they just generated."""
+    if len(wordlist) != 2048:
+        return "Wordlist must contain exactly 2048 words"
+    seen = set()
+    for w in wordlist:
+        if not w or w != w.strip() or " " in w:
+            return f"Wordlist contains a blank or malformed entry: {w!r}"
+        if w in seen:
+            return f"Wordlist has duplicate entry: '{w}'"
+        seen.add(w)
+    return None
+
+
 def validate_mnemonic(mnemonic: str, wordlist: list[str]) -> tuple[bool, str]:
     """
     BIP-39-style checksum validation against a 2048-word custom wordlist.
@@ -76,8 +96,9 @@ def validate_mnemonic(mnemonic: str, wordlist: list[str]) -> tuple[bool, str]:
     if len(words) != 12:
         return False, f"Expected 12 words, got {len(words)}"
 
-    if len(wordlist) != 2048:
-        return False, "Wordlist must contain exactly 2048 words"
+    shape_error = _wordlist_shape_error(wordlist)
+    if shape_error:
+        return False, shape_error
 
     unknown = [w for w in words if w not in wordlist]
     if unknown:
@@ -85,11 +106,7 @@ def validate_mnemonic(mnemonic: str, wordlist: list[str]) -> tuple[bool, str]:
 
     try:
         # BIP-39: 12 words × 11 bits = 132 bits = 128-bit entropy + 4-bit checksum
-        word_to_idx = {}
-        for i, w in enumerate(wordlist):
-            if w in word_to_idx:
-                return False, f"Wordlist has duplicate entry: '{w}'"
-            word_to_idx[w] = i
+        word_to_idx = {w: i for i, w in enumerate(wordlist)}
         indices = [word_to_idx[w] for w in words]
         bits = "".join(f"{i:011b}" for i in indices)
         entropy_bits = bits[:128]
@@ -112,8 +129,9 @@ def generate_mnemonic(wordlist: list[str]) -> str:
     Generate a cryptographically secure 12-word mnemonic from a 2048-word list.
     Follows BIP-39: 128 random bits + 4-bit SHA256 checksum = 12 × 11-bit indices.
     """
-    if len(wordlist) != 2048:
-        raise ValueError("Wordlist must contain exactly 2048 words")
+    shape_error = _wordlist_shape_error(wordlist)
+    if shape_error:
+        raise ValueError(shape_error)
 
     entropy = secrets.token_bytes(16)                       # 128 bits
     digest = hashlib.sha256(entropy).digest()
