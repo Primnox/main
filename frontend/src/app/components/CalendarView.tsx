@@ -923,7 +923,13 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
   const [showAddTask,    setShowAddTask]    = useState(false);
   const [newTaskTitle,   setNewTaskTitle]   = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
-  const [newTaskPriority,setNewTaskPriority]= useState('medium');
+  // Backend priority vocabulary is 'low' | 'normal' | 'urgent' (see
+  // notes_manager.add_task's default, tools.py's add_task enum, and the
+  // urgent-highlighting checks in SummaryViews.tsx). This used to default to
+  // 'medium' and offer 'low'/'medium'/'high' below — neither value the rest
+  // of the app ever checks for, so a task created here as "high priority"
+  // would silently never be flagged urgent anywhere else in the UI.
+  const [newTaskPriority,setNewTaskPriority]= useState('normal');
   const [addingTask,     setAddingTask]     = useState(false);
 
   useEffect(() => {
@@ -1217,7 +1223,7 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
                   className="w-full bg-transparent text-[10px] text-on-surface/50 outline-none"
                 />
                 <div className="flex gap-1">
-                  {['low','medium','high'].map(p => (
+                  {['low','normal','urgent'].map(p => (
                     <button key={p} onClick={() => setNewTaskPriority(p)}
                       className={`px-2 py-0.5 text-[9px] font-mono uppercase rounded transition-colors ${
                         newTaskPriority === p ? 'bg-success/20 text-success' : 'text-on-surface/55 hover:text-on-surface/60'

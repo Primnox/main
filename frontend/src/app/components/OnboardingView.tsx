@@ -426,21 +426,49 @@ const Step2Privacy = ({ next, updateSettings, settings }: any) => {
   );
 };
 
-const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
-  const [key, setKey] = useState('');
-  const [status, setStatus] = useState<'idle'|'testing'|'success'|'error'>('idle');
+/** Cloud provider metadata for Step3 — mirrors Step2Privacy's cloudModels
+ *  list (line ~179) so whichever active_model the user ends up with here
+ *  stays a value that list recognizes. */
+const CLOUD_PROVIDERS = [
+  { slug: 'groq', label: 'Groq', settingsKey: 'groq_api_key', activeModel: 'Groq_Llama_3', placeholder: 'gsk_...', signupHost: 'console.groq.com', note: 'Free tier available' },
+  { slug: 'openai', label: 'OpenAI', settingsKey: 'openai_api_key', activeModel: 'OpenAI_GPT_4o', placeholder: 'sk-...', signupHost: 'platform.openai.com', note: '' },
+  { slug: 'anthropic', label: 'Anthropic', settingsKey: 'anthropic_api_key', activeModel: 'Anthropic_Claude_3', placeholder: 'sk-ant-...', signupHost: 'console.anthropic.com', note: '' },
+  { slug: 'gemini', label: 'Gemini', settingsKey: 'gemini_api_key', activeModel: 'Gemini_Flash', placeholder: 'AIza...', signupHost: 'aistudio.google.com', note: '' },
+] as const;
+
+export const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
   const isLocalMode = settings?.active_model === 'Ollama_Local' || settings?.active_model === 'LlamaCpp_Local' || settings?.active_model === 'Custom';
   const localModelName = settings?.active_model === 'LlamaCpp_Local' ? 'llama.cpp' : settings?.active_model === 'Custom' ? 'your custom endpoint' : 'Ollama';
+
+  const defaultProvider = CLOUD_PROVIDERS.find(p => p.activeModel === settings?.active_model) || CLOUD_PROVIDERS[0];
+  const [providerSlug, setProviderSlug] = useState<string>(defaultProvider.slug);
+  const provider = CLOUD_PROVIDERS.find(p => p.slug === providerSlug)!;
+  const [key, setKey] = useState('');
+  const [status, setStatus] = useState<'idle'|'testing'|'success'|'error'>('idle');
+
+  const switchProvider = (slug: string) => {
+    setProviderSlug(slug);
+    setKey('');
+    setStatus('idle');
+  };
 
   const testKey = async () => {
     setStatus('testing');
     try {
-      const resp = await fetch('https://api.groq.com/openai/v1/models', {
-        headers: { 'Authorization': `Bearer ${key}` }
+      // Routed through the backend (not the provider's API directly) so
+      // this works uniformly for all four — Anthropic/Gemini both restrict
+      // or complicate direct browser-origin calls in ways Groq happens not
+      // to, and the backend already owns key validation for Settings via
+      // this same endpoint (server.py's /api/provider_models).
+      const resp = await fetch(`${API_BASE}/api/provider_models`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: provider.slug, api_key: key }),
       });
-      if (resp.ok) {
+      const data = await resp.json();
+      if (resp.ok && data?.source === 'live') {
         setStatus('success');
-        await updateSettings({ ...settings, groq_api_key: key });
+        await updateSettings({ ...settings, [provider.settingsKey]: key, active_model: provider.activeModel });
         setTimeout(next, 1000);
       } else {
         setStatus('error');
@@ -460,13 +488,30 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
           </p>
         ) : (
           <p className="text-on-surface/50 text-sm">
-            Add a Groq API key to get started. Free at <span className="text-primary">console.groq.com</span>. You can add OpenAI / Anthropic keys in Settings later.
+            Pick a provider and add its API key to get started. You can add more, or switch, in Settings later.
           </p>
         )}
       </div>
+      {!isLocalMode && (
+        <div className="flex gap-2">
+          {CLOUD_PROVIDERS.map(p => (
+            <button
+              key={p.slug}
+              onClick={() => switchProvider(p.slug)}
+              className={`flex-1 py-2 text-[11px] uppercase tracking-wider font-bold rounded border transition-all ${providerSlug === p.slug ? 'bg-primary/20 border-primary text-on-surface' : 'bg-transparent border-on-surface/10 text-on-surface/50 hover:bg-on-surface/5'}`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="p-6 rounded-xl border border-on-surface/10 bg-on-surface/5 flex flex-col gap-4">
         <label className="text-xs font-mono text-on-surface/70 uppercase tracking-wider">
-          Groq API Key {isLocalMode && <span className="text-on-surface/55">(optional — for transcription only)</span>}
+          {isLocalMode ? 'Groq' : provider.label} API Key {isLocalMode ? <span className="text-on-surface/55">(optional — for transcription only)</span> : (
+            <span className="text-on-surface/55 normal-case tracking-normal">
+              — {provider.note ? `${provider.note}, ` : ''}get one at <span className="text-primary">{provider.signupHost}</span>
+            </span>
+          )}
         </label>
         <div className="flex gap-2">
           <input
@@ -475,7 +520,7 @@ const Step3AIProvider = ({ next, updateSettings, settings }: any) => {
             onChange={e => setKey(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && key) testKey(); }}
             className="flex-1 bg-surface/50 border border-on-surface/10 rounded px-4 py-2 text-sm focus:border-primary/50 outline-none"
-            placeholder="gsk_..."
+            placeholder={isLocalMode ? 'gsk_...' : provider.placeholder}
           />
           <button onClick={testKey} disabled={!key || status === 'testing'} className="px-6 bg-primary text-surface text-sm font-bold rounded hover:bg-on-surface disabled:opacity-50 min-w-[120px] transition-all duration-300 ease-out active:scale-95">
             {status === 'testing' ? <Loader2 size={16} className="animate-spin mx-auto" /> : status === 'success' ? '✓ Connected' : 'Test Key'}

@@ -190,6 +190,30 @@ class TestCorrectLastInferredMemory:
         assert db.correct_last_inferred_memory() is None
 
 
+class TestDeleteMemory:
+    """delete_memory() backs the "forget X" voice command. It used to only
+    match WHERE key = ? OR text = ? — both exact — so a lowercased,
+    trigger-stripped phrase like "wifi password" never equaled the original
+    mixed-case, full-sentence memory text, and "forget" silently deleted
+    nothing."""
+
+    def test_forget_matches_case_insensitively_by_substring(self, db):
+        db.add_memory("The WiFi Password Is Hunter2", category="personal")
+        db.delete_memory("wifi password")
+        assert db.list_memories() == []
+
+    def test_delete_by_exact_key_still_works(self, db):
+        db.add_memory("some fact", category="work")
+        [mem] = db.list_memories()
+        db.delete_memory(mem["key"])
+        assert db.list_memories() == []
+
+    def test_no_match_leaves_memories_untouched(self, db):
+        db.add_memory("keep me around", category="work")
+        db.delete_memory("totally unrelated phrase")
+        assert len(db.list_memories()) == 1
+
+
 class TestConnectionReuse:
     """get_db() used to open+close a brand-new sqlite3 connection (re-running
     PRAGMA journal_mode=WAL) on every single call — real, measured overhead

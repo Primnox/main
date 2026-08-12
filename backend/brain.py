@@ -733,10 +733,10 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                 return res
             except requests.exceptions.Timeout:
                 log.error("Ollama timed out — model may be loading. Try again shortly.")
-                return {"choices": [{"message": {"content": "ollama timed out — the model might still be loading. try again in a few seconds."}}]}
+                return {"error": "Ollama timeout", "choices": [{"message": {"content": "ollama timed out — the model might still be loading. try again in a few seconds."}}]}
             except requests.exceptions.ConnectionError:
                 log.error("Ollama not reachable — is it running? (ollama serve)")
-                return {"choices": [{"message": {"content": "ollama isn't running bro. start it with `ollama serve`."}}]}
+                return {"error": "Ollama unreachable", "choices": [{"message": {"content": "ollama isn't running bro. start it with `ollama serve`."}}]}
 
         elif active_model == "LlamaCpp_Local":
             llamacpp_url = _safe_local_url(settings.get("llamacpp_base_url", "http://localhost:8080"), 8080)
@@ -760,10 +760,10 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                 return res
             except requests.exceptions.Timeout:
                 log.error("llama.cpp timed out — model may still be loading.")
-                return {"choices": [{"message": {"content": "llama.cpp timed out — the model might still be loading. try again in a few seconds."}}]}
+                return {"error": "llama.cpp timeout", "choices": [{"message": {"content": "llama.cpp timed out — the model might still be loading. try again in a few seconds."}}]}
             except requests.exceptions.ConnectionError:
                 log.error("llama.cpp not reachable — is the server running?")
-                return {"choices": [{"message": {"content": "llama.cpp server isn't running. start it with `./llama-server -m your_model.gguf`"}}]}
+                return {"error": "llama.cpp unreachable", "choices": [{"message": {"content": "llama.cpp server isn't running. start it with `./llama-server -m your_model.gguf`"}}]}
 
         elif active_model == "Custom":
             profile = get_active_custom_provider(settings)
@@ -773,7 +773,7 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
             api_key = profile.get("api_key", "") if profile else ""
             if not custom_url:
                 log.error("Custom provider has no base URL set!")
-                return {"choices": [{"message": {"content": "no custom endpoint selected. add or pick one in Settings."}}]}
+                return {"error": "Custom provider not configured", "choices": [{"message": {"content": "no custom endpoint selected. add or pick one in Settings."}}]}
             log.info(f"Routing think() → Custom {custom_api_type} ({custom_model} @ {custom_url})")
             try:
                 if custom_api_type == "anthropic":
@@ -814,10 +814,10 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                     return resp.json()
             except requests.exceptions.Timeout:
                 log.error("Custom provider timed out.")
-                return {"choices": [{"message": {"content": "custom provider timed out."}}]}
+                return {"error": "Custom provider timeout", "choices": [{"message": {"content": "custom provider timed out."}}]}
             except requests.exceptions.ConnectionError:
                 log.error("Custom provider not reachable.")
-                return {"choices": [{"message": {"content": f"couldn't reach the custom provider at {custom_url}."}}]}
+                return {"error": "Custom provider unreachable", "choices": [{"message": {"content": f"couldn't reach the custom provider at {custom_url}."}}]}
 
         elif active_model == "Gemini_Flash":
             api_key = get_api_key("gemini")

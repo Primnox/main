@@ -6,8 +6,12 @@ run_python, web_search, save_note, etc. were unreachable regardless of
 settings. Anthropic-shaped providers (native + Custom-anthropic) are
 deliberately NOT covered here — they use a different wire format entirely,
 see test_brain_anthropic_tool_calling.py."""
+import json
+
 import brain
 import settings_manager
+
+_PRIVACY = "[[PRIVACY]]"
 
 
 class _FakeResp:
@@ -18,6 +22,30 @@ class _FakeResp:
 
     def json(self):
         return {"choices": [{"message": {"content": self._content, "tool_calls": None}}]}
+
+
+def _reply_text(tokens) -> str:
+    """Joined reply with the ``[[PRIVACY]]{...}`` sentinel removed.
+
+    On a cloud route think_stream() emits that one-shot sentinel carrying the
+    scrub mapping (brain.py:1023); core.py intercepts it and never shows it
+    to the user. Whether it appears at all depends on the PII model finding
+    something in the payload — which includes the system prompt, so an
+    unrelated prompt edit can start or stop triggering it. Asserting on the
+    raw join made these tests fail for reasons having nothing to do with
+    tool calling.
+    """
+    text = "".join(tokens)
+    if text.startswith(_PRIVACY):
+        # raw_decode, not a brace scan — the payload nests objects inside
+        # "mapping", so the first `}` is not the end of the sentinel.
+        rest = text[len(_PRIVACY):]
+        try:
+            _, end = json.JSONDecoder().raw_decode(rest)
+            text = rest[end:]
+        except ValueError:
+            text = rest
+    return text.strip()
 
 
 class TestGeminiToolCalling:
@@ -34,7 +62,7 @@ class TestGeminiToolCalling:
         monkeypatch.setattr(brain.requests, "post", fake_post)
         tokens = list(brain.think_stream("hello"))
 
-        assert "".join(tokens).strip() == "hi from gemini"
+        assert _reply_text(tokens) == "hi from gemini"
         assert "tools" in captured["json"]
         assert "generativelanguage.googleapis.com" in captured["url"]
 
@@ -54,7 +82,7 @@ class TestOllamaToolCalling:
         monkeypatch.setattr(brain.requests, "post", fake_post)
         tokens = list(brain.think_stream("hello"))
 
-        assert "".join(tokens).strip() == "hi from ollama"
+        assert _reply_text(tokens) == "hi from ollama"
         assert "tools" in captured["json"]
         assert captured["url"] == "http://localhost:11434/v1/chat/completions"
 
@@ -73,7 +101,7 @@ class TestLlamaCppToolCalling:
         monkeypatch.setattr(brain.requests, "post", fake_post)
         tokens = list(brain.think_stream("hello"))
 
-        assert "".join(tokens).strip() == "hi from llamacpp"
+        assert _reply_text(tokens) == "hi from llamacpp"
         assert "tools" in captured["json"]
         assert captured["url"] == "http://localhost:8080/v1/chat/completions"
 
