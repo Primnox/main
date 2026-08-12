@@ -19,7 +19,7 @@ import { Eye, EyeOff, Check } from 'lucide-react';
 export const Section = ({ index, title, children }: {
   index: string; title: string; children: ReactNode;
 }) => (
-  <section className="mb-14">
+  <section className="mb-10 rounded-panel border border-on-surface/10 bg-surface-container-low/70 px-5 py-5 shadow-panel sm:px-6">
     <div className="grid grid-cols-[38px_1fr] items-baseline pb-4 border-b border-on-surface/10">
       <span className="px-eyebrow">{index}</span>
       <h3 className="px-display px-display-sm text-on-surface">{title}</h3>
@@ -35,8 +35,8 @@ export const Section = ({ index, title, children }: {
 export const Row = ({ label, hint, children, stack = false }: {
   label: string; hint?: string; children?: ReactNode; stack?: boolean;
 }) => (
-  <div className={`py-5 border-b border-on-surface/10 last:border-b-0 transition-colors hover:bg-[var(--hover)] ${
-    stack ? '' : 'grid grid-cols-[1fr_auto] gap-8 items-center'
+  <div className={`py-5 border-b border-on-surface/10 last:border-b-0 px-interactive hover:bg-on-surface/[0.025] ${
+    stack ? '' : 'grid grid-cols-[minmax(0,1fr)_auto] gap-6 items-center'
   }`}>
     <div className={stack ? 'mb-3' : 'min-w-0'}>
       <div className="px-label !text-on-surface !tracking-[0.14em]">{label}</div>
@@ -58,7 +58,7 @@ export const Toggle = ({ checked, onChange, label }: {
     aria-checked={checked}
     aria-label={label}
     onClick={() => onChange(!checked)}
-    className={`relative w-[46px] h-[26px] rounded-full transition-colors duration-300 shrink-0 border ${
+    className={`px-interactive relative w-[46px] h-[26px] rounded-full shrink-0 border cursor-pointer focus-visible:shadow-focus ${
       checked ? 'bg-on-surface border-on-surface' : 'bg-transparent border-on-surface/25 hover:border-on-surface/45'
     }`}
   >
@@ -206,7 +206,7 @@ export const Button = ({ children, onClick, variant = 'ghost', disabled, title }
   children: ReactNode; onClick?: () => void;
   variant?: 'solid' | 'ghost' | 'danger'; disabled?: boolean; title?: string;
 }) => {
-  const base = 'transition-all disabled:opacity-35 disabled:pointer-events-none active:scale-[0.98]';
+  const base = 'px-interactive cursor-pointer disabled:opacity-35 disabled:pointer-events-none';
   const cls =
     variant === 'solid' ? `px-btn ${base}`
     : variant === 'danger'
@@ -230,7 +230,7 @@ export const Choice = ({ selected, onClick, icon, title, hint }: {
     type="button"
     onClick={onClick}
     aria-pressed={selected}
-    className={`text-left p-4 border transition-all relative ${
+    className={`px-interactive text-left p-4 rounded-control border relative cursor-pointer ${
       selected
         ? 'border-[var(--p-line-2)] bg-[var(--p-fill)]'
         : 'border-on-surface/10 hover:border-on-surface/25 hover:bg-[var(--hover)]'

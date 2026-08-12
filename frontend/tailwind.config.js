@@ -67,6 +67,19 @@ export default {
         mono: 'var(--font-mono)',
         display: 'var(--font-display)',
       },
+      borderRadius: {
+        panel: 'var(--radius-panel)',
+        control: 'var(--radius-control)',
+        pill: '999px',
+      },
+      boxShadow: {
+        panel: 'var(--shadow-panel)',
+        'panel-hover': 'var(--shadow-panel-hover)',
+        focus: 'var(--shadow-focus)',
+      },
+      transitionTimingFunction: {
+        'out-expo': 'cubic-bezier(0.16, 1, 0.3, 1)',
+      },
     },
   },
   plugins: [],

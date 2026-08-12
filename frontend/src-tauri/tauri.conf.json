@@ -17,9 +17,10 @@
         "width": 1200,
         "height": 800,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
         "shadow": false,
         "visible": true,
+        "center": true,
         "skipTaskbar": false,
         "dragDropEnabled": false
       },

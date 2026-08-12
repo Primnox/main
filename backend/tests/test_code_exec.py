@@ -20,6 +20,22 @@ import sandbox_account
 
 
 @pytest.fixture(autouse=True)
+def _default_to_windows_backend(monkeypatch):
+    """_run() now picks a backend via _active_backend(), which asks
+    appcontainer_sandbox.appcontainer_configured() — genuinely True on this
+    dev machine, since the AppContainer backend is actually provisioned
+    here (unlike the WSL2 backend this project tried and discarded, which
+    never got that far). Without this, every orchestration test below
+    would silently route through the REAL AppContainer backend instead of
+    the mocked _create_sandboxed_process they're written to exercise —
+    confirmed live: one test failed outright this way, and several others
+    almost certainly executed real sandboxed processes instead of hitting
+    their mocks. Individual AppContainer-dispatch tests override this
+    explicitly."""
+    monkeypatch.setattr(code_exec, "_active_backend", lambda: "windows")
+
+
+@pytest.fixture(autouse=True)
 def _reset_permission_state():
     with permission_manager._lock:
         permission_manager._pending.clear()

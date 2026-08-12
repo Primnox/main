@@ -163,6 +163,23 @@ def _shared_handlers() -> list[logging.Handler]:
         fh.setFormatter(JsonFormatter())
         fh.setLevel(logging.DEBUG)
 
+        # Windows' console defaults to a legacy codepage (cp1252 etc.), not
+        # UTF-8. A log line containing ANY character outside that codepage —
+        # confirmed live: pptxgenjs's own "✓ file created" stdout, echoed
+        # back into a skill's follow-up prompt and logged via
+        # log.info(f"Thinking about: {prompt[:50]}...") — raises
+        # UnicodeEncodeError inside StreamHandler.emit(). Python's logging
+        # module normally swallows handler exceptions via handleError(), but
+        # handleError's OWN fallback print to the same broken stream fails
+        # the identical way and is NOT caught, so the error propagates all
+        # the way up and gets reported as the calling skill's own failure —
+        # a full sandboxed pptxgenjs run completing successfully, only to be
+        # reported as a Primnox failure because of a log line. reconfigure()
+        # makes the stream replace unencodable characters instead of raising.
+        try:
+            sys.stderr.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass  # not a reconfigurable stream (e.g. redirected/frozen build) — best effort
         ch = logging.StreamHandler()
         ch.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S"))
         ch.setLevel(logging.INFO)
