@@ -7,6 +7,7 @@ import {
 } from '../hooks/useProviderModels';
 import { Select } from './settings/primitives';
 import { StructuredBlock } from './StructuredBlock';
+import { SkillActivity } from './SkillActivity';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // Prism "light" build: only the languages we register below are bundled,
@@ -769,6 +770,7 @@ export const ChatExpandedSidebar = ({
                               <p className="text-[10px] font-mono text-primary/60 uppercase tracking-widest mb-1 select-none">Primnox</p>
                             )}
                             {msg.privacyScrub && <PrivacyMirrorBlock data={msg.privacyScrub} />}
+                            {!!msg.activity?.length && <SkillActivity phases={msg.activity} />}
                             {msg.isTyping && !msg.text ? (
                               <TypingDots />
                             ) : (

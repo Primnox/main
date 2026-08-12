@@ -203,8 +203,15 @@ class AdaptedClaudeSkill(BaseSkill):
         step_limit_reached = True
         artifacts: list[str] = []
 
+        ctx.emit("skill_phase", skill=self.name, phase=f"loaded the {self.name} skill",
+                 status="done", total=_MAX_STEPS)
+        ctx.emit("skill_phase", skill=self.name, phase="working out what to do",
+                 status="running", total=_MAX_STEPS)
+
         resp = think(prompt)
         if "error" in resp:
+            ctx.emit("skill_phase", skill=self.name, phase="working out what to do",
+                     status="failed", detail=str(resp["error"])[:120], total=_MAX_STEPS)
             return SkillResult(success=False, error=f"brain failed: {resp['error']}")
         content = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
 
@@ -215,10 +222,24 @@ class AdaptedClaudeSkill(BaseSkill):
                 break
 
             language, code = block
+            # The model's own narration above the block is already written
+            # in plain language — better than any label derived from the
+            # code, and free.
+            phase = self._phase_label(content, language)
+            ctx.emit("skill_phase", skill=self.name, phase=phase, status="running",
+                     command=_display_command(language, code),
+                     step=step + 1, total=_MAX_STEPS)
+
             exec_result = self._execute_block(language, code, ctx, workspace_id)
-            for name in exec_result.get("files_created", []):
-                if name not in artifacts:
-                    artifacts.append(name)
+            created = [n for n in exec_result.get("files_created", []) if n not in artifacts]
+            artifacts.extend(created)
+
+            ctx.emit(
+                "skill_phase", skill=self.name, phase=phase,
+                status="done" if exec_result.get("success") else "failed",
+                detail=_result_detail(exec_result, created),
+                step=step + 1, total=_MAX_STEPS,
+            )
 
             follow_up = self._build_followup_prompt(exec_result, steps_left=_MAX_STEPS - step - 1)
             resp = think(follow_up)
@@ -229,7 +250,39 @@ class AdaptedClaudeSkill(BaseSkill):
         extras = {"workspace_id": workspace_id, "files_created": artifacts}
         if step_limit_reached:
             extras["step_limit_reached"] = True
-        return SkillResult(success=True, output_text=content, extras=extras)
+
+        # extras["files_created"] only carries the bare filename the sandboxed
+        # code reported — callers that want to actually open/attach the
+        # result (e.g. the chat UI's download link) need a real filesystem
+        # path, same as pdf_skill.py's output_path. Resolve the most recently
+        # created artifact against this workspace's host-side directory.
+        output_path = None
+        if artifacts:
+            import code_exec
+            output_path = str(code_exec.workspace_path(workspace_id) / artifacts[-1])
+
+        return SkillResult(success=True, output_text=content, output_path=output_path, extras=extras)
+
+    @staticmethod
+    def _phase_label(content: str, language: str) -> str:
+        """A human-readable label for the step about to run.
+
+        Uses the model's own narration above the code block — it already
+        explains the step in plain language ("now I'll build the slide
+        master"), which is exactly what the activity panel wants and beats
+        anything inferable from the code itself. Falls back to the language
+        when the model emitted a bare block with no lead-in.
+        """
+        prose = _CODE_BLOCK_RE.split(content)[0] if content else ""
+        for line in prose.splitlines():
+            line = line.strip().lstrip("#*-• ").strip()
+            # Skip markdown headings-turned-empty and stray punctuation.
+            if len(line) < 4:
+                continue
+            sentence = re.split(r"(?<=[.!?])\s", line)[0].strip().rstrip(":.")
+            if sentence:
+                return sentence[:80]
+        return f"running {language}"
 
     def _workspace_id(self, ctx: SkillContext) -> str:
         """One reused directory per (chat session, skill). Scoped to the skill
@@ -348,19 +401,23 @@ class AdaptedClaudeSkill(BaseSkill):
                           "something discussed earlier):\n" + "\n".join(lines))
 
         parts.append(f"\n\nUSER REQUEST: {ctx.user_message or ''}")
-        parts.append(self._execution_contract(staged))
+        parts.append(self._execution_contract(staged, self.name))
         return "".join(parts)
 
     @staticmethod
-    def _execution_contract(staged: bool) -> str:
+    def _execution_contract(staged: bool, skill_name: str = "") -> str:
         """The runtime half of the prompt.
 
         Built from probed capabilities rather than written as a fixed list,
         because a skill body confidently instructs the model to use tools
-        that may not work here — the official pptx skill is largely about
-        pptxgenjs, which this sandbox can't run. Stating what's actually
-        available up front is what stops the model discovering it halfway
-        through generating a document.
+        that may or may not work here — the official pptx skill is largely
+        about pptxgenjs, which needs Node. Stating what's actually available
+        up front is what stops the model discovering it halfway through
+        generating a document.
+
+        Document skills also get a quality section. Without it the model
+        optimizes for "the file opens" and ships library defaults, which is
+        exactly what reads as templated — the complaint that prompted this.
         """
         import runtime_capabilities
 
@@ -396,6 +453,24 @@ class AdaptedClaudeSkill(BaseSkill):
             f"\nAvailable Python libraries: {', '.join(available)}.\n" if available else ""
         )
 
+        quality = ""
+        if skill_name.strip().lower() in _CLAUDE_SKILL_EXTENSIONS:
+            quality = (
+                "\nOUTPUT QUALITY — a person is going to open this file and look at it. "
+                "'It opens without erroring' is the floor, not the goal.\n"
+                "- Library defaults ARE the templated look: default font, default "
+                "black-on-white, default bullet spacing, default title slide. Decide "
+                "these yourself instead of accepting them.\n"
+                "- Commit to one palette (background, text, one accent) and one type "
+                "hierarchy (clearly different size/weight for title vs heading vs body), "
+                "then apply both consistently across every page or slide.\n"
+                "- Give the content real structure: a title that states something, "
+                "sections that group related material, and whitespace doing the "
+                "separating. Don't reformat the user's request into a wall of bullets.\n"
+                "- Let the subject set the tone — a pitch deck, a lab report and a "
+                "birthday invite should not come out looking identical.\n"
+            )
+
         return (
             "\n\n---\nHOW TO ACT ON THIS\n\n"
             "You are working in a sandboxed directory that PERSISTS between your "
@@ -405,7 +480,7 @@ class AdaptedClaudeSkill(BaseSkill):
             "- Generated documents must be written into that working directory "
             "(use relative paths, never an absolute one).\n"
             "- No network access. Anything not preinstalled is unavailable.\n"
-            f"{available_line}{constraint}"
+            f"{available_line}{constraint}{quality}"
             "\nTo run something, emit exactly ONE fenced code block per reply, tagged "
             "with its language, and nothing else after it:\n"
             + "".join(languages) +
@@ -457,20 +532,62 @@ class AdaptedClaudeSkill(BaseSkill):
         return None
 
 
+def _display_command(language: str, code: str) -> str:
+    """A one-line, secret-free rendering of what's about to run.
+
+    Redaction happens HERE rather than in the frontend so a credential
+    never crosses the websocket at all — see redaction.py. The sandbox
+    still executes the original `code` untouched.
+    """
+    from redaction import redact_command
+
+    first = next((ln.strip() for ln in code.splitlines() if ln.strip()), "")
+    shown = first if len(first) <= 120 else first[:117] + "…"
+    prefix = {"python": "python", "node": "node", "javascript": "node"}.get(language, language)
+    return redact_command(f"{prefix} · {shown}")
+
+
+def _result_detail(exec_result: dict, created: list) -> str:
+    """Short outcome line for a finished step — what changed, not how."""
+    if not exec_result.get("success"):
+        from redaction import redact_text
+        err = (exec_result.get("stderr") or exec_result.get("error") or "failed").strip()
+        return redact_text(err.splitlines()[-1] if err else "failed")[:120]
+    if created:
+        return f"wrote {', '.join(created[:3])}" + ("…" if len(created) > 3 else "")
+    return "ok"
+
+
+# File types each document skill owns, taken from its own SKILL.md
+# description. Only these four claim extensions — the rest (skill-creator,
+# webapp-testing, …) are capability skills with no file type to attach.
+_CLAUDE_SKILL_EXTENSIONS = {
+    "pdf": ("pdf",),
+    "pptx": ("pptx", "potx"),
+    "docx": ("docx", "dotx"),
+    "xlsx": ("xlsx", "xlsm", "xltx", "csv", "tsv"),
+}
+
+
 def make_adapted_skill_class(folder: Path, parsed: ParsedSkill) -> type:
     """One dynamically-created BaseSkill subclass per discovered SKILL.md
     folder. Class-level attributes carry everything execute() needs, since
     route_skill() instantiates via skill_cls() with no constructor args.
-    Empty trigger_words/supported_extensions is deliberate — these register
-    for list_skills()/use_skill() discovery only (how real Claude Skills are
-    actually invoked), not Primnox's word/extension routing."""
+
+    trigger_words stays empty on purpose: these are routed by
+    semantic_router.classify() against `description` (Anthropic writes those
+    descriptions explicitly for model-based triggering), not by Primnox's
+    substring matching. supported_extensions is populated for the document
+    skills so an attached .pdf/.docx/.xlsx/.pptx still routes here — that
+    lookup is exact, not guesswork, so it needs no model call.
+    """
     return type(
         f"ClaudeSkill_{_safe_ident(parsed.name)}",
         (AdaptedClaudeSkill,),
         {
             "name": parsed.name,
             "description": parsed.description,
-            "supported_extensions": (),
+            "supported_extensions": _CLAUDE_SKILL_EXTENSIONS.get(parsed.name.strip().lower(), ()),
             "trigger_words": (),
             "REQUIRES_PIP": (),
             "_parsed": parsed,

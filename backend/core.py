@@ -343,8 +343,8 @@ class PrimnoxCore:
         # ── Skill intercept (before LLM) ─────────────────────────────────
         # Only match triggers against the original user message, NOT file contents
         try:
-            from skills.skill_router import get_skill_for_trigger
-            skill_cls = get_skill_for_trigger(trigger_text)
+            from skills.skill_router import resolve_skill_for_message
+            skill_cls = resolve_skill_for_message(trigger_text)
             if skill_cls:
                 log.info(f"Skill trigger matched: {skill_cls.name}")
                 # Broadcast skill_started so the frontend task pill appears
@@ -370,6 +370,13 @@ class PrimnoxCore:
                     log.warning(f"Could not load chat history for skill context: {e}")
                 skill_result = route_skill(
                     user_message=raw_text,
+                    # Named explicitly because the skill is already resolved
+                    # above — without this, route_skill re-resolves from the
+                    # message and pays for a second classification call.
+                    skill_name=skill_cls.name,
+                    # Live activity events for the chat panel — without this
+                    # a multi-step skill is a spinner for 30s+.
+                    progress=self.broadcast_callback,
                     session_id=session_id,
                     chat_history=recent_history,
                     metadata={
@@ -746,7 +753,7 @@ class PrimnoxCore:
         elif route == "MEETING":
             response = "on it. summarizing the last call."
         elif route == "SCREENSHOT":
-            res = route_skill(user_message="take ss")
+            res = route_skill(user_message="take ss", skill_name="Screenshot")
             response = res.get("output_text", "ss failed")
         elif route == "SEARCH":
             search_query = text.lower().replace("search", "").replace("google", "").strip()

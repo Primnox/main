@@ -89,11 +89,12 @@ class TestExistingDiscoveryUnaffected:
     def test_existing_skills_still_present_after_claude_skills_discovery_runs(self):
         # discover_skills() (the *_skill.py pass) already ran once at module
         # import time. Running _discover_claude_skills() again on top of that
-        # must not disturb existing skills' registration — it only ever
-        # touches CLAUDE_SKILLS_REGISTRY.
+        # must not disturb existing skills' registration — it only adds to
+        # CLAUDE_SKILLS_REGISTRY, plus the document extensions those skills
+        # claim (none of which a surviving *_skill.py also claims).
         skill_router._discover_claude_skills()
         names = [s["name"] for s in list_skills()]
-        assert "pdf_specialist" in names
+        assert "code_analyst" in names
 
 
 class TestUseSkillIntegration:

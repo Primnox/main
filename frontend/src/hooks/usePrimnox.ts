@@ -368,6 +368,25 @@ export function usePrimnox() {
             return prev.filter((_, i) => i !== targetIdx);
           });
         }
+        else if (type === 'skill_phase') {
+          // Live step-by-step activity for a running skill, appended to the
+          // in-flight Primnox message. A phase is emitted twice — once as
+          // "running", once resolved — so match the existing entry and
+          // replace it in place rather than stacking duplicates.
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            let i = newMsgs.length - 1;
+            while (i >= 0 && newMsgs[i].sender?.toUpperCase() !== 'PRIMNOX') i--;
+            if (i < 0) return prev;
+            const activity = [...(newMsgs[i].activity || [])];
+            const key = (p: any) => (p.step != null ? `s${p.step}` : `p${p.phase}`);
+            const at = activity.findIndex(p => key(p) === key(payload));
+            if (at >= 0) activity[at] = { ...activity[at], ...payload };
+            else activity.push(payload);
+            newMsgs[i] = { ...newMsgs[i], activity };
+            return newMsgs;
+          });
+        }
         else if (type === 'tool_executing') {
           // LLM is calling a tool — show briefly in the island status area
           if (payload?.tool) addToast('info', `using: ${payload.tool.replace('_', ' ')}`);

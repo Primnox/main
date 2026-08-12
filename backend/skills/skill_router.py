@@ -215,6 +215,11 @@ def _discover_claude_skills():
 
         skill_cls = make_adapted_skill_class(folder, parsed)
         CLAUDE_SKILLS_REGISTRY[parsed.name.lower().replace(" ", "_")] = skill_cls
+        # Document skills also claim their file types, so an attached
+        # .pdf/.docx/.xlsx/.pptx routes here by exact extension lookup
+        # without needing the semantic router (or a model call) at all.
+        for ext in skill_cls.supported_extensions:
+            SKILL_REGISTRY[ext.lower()] = skill_cls
         log.info(f"Registered Claude Skill: {parsed.name} ({folder})")
 
 
@@ -309,6 +314,33 @@ def get_skill_for_trigger(text: str):
     return None
 
 
+def resolve_skill_for_message(text: str):
+    """Pick the skill for a plain chat message — the entry point core.py uses.
+
+    Asks semantic_router.classify() first (understands intent, and is the
+    only way the SKILL.md packages are reachable at all, since they carry no
+    trigger words). Falls back to the legacy substring/creation-verb match
+    when the model is unreachable or returns nothing usable — offline and
+    provider-down sessions keep whatever routing they had before, rather
+    than losing skills entirely.
+    """
+    if not text:
+        return None
+
+    from skills.semantic_router import classify
+    name = classify(text)
+    if name:
+        entry = get_skill_by_name(name)
+        if entry:
+            return entry
+        # classify() validates against the catalog, so this means the
+        # catalog and the registries disagree — worth surfacing rather than
+        # silently pretending nothing matched.
+        log.warning(f"Semantic router returned unresolvable skill '{name}'; using trigger words.")
+
+    return get_skill_for_trigger(text)
+
+
 def get_skill_by_name(name: str):
     """Resolve a skill class by its describe()-style name (lowercase,
     underscored) — used for explicit invocation (e.g. the LLM's `use_skill`
@@ -357,7 +389,8 @@ def route_skill(
     session_id: str | None = None,
     chat_history: list | None = None,
     metadata: dict | None = None,
-    skill_name: str | None = None
+    skill_name: str | None = None,
+    progress=None,
 ) -> dict:
     """
     Route to the right skill, build a SkillContext, call skill.run(), and
@@ -385,7 +418,7 @@ def route_skill(
             log.warning(f"No skill registered for extension '.{ext}'.")
             return {"success": False, "error": f"No skill available for .{ext} files."}
     else:
-        skill_entry = get_skill_for_trigger(user_message)
+        skill_entry = resolve_skill_for_message(user_message)
 
     if not skill_entry:
         log.warning("No matching skill found.")
@@ -403,7 +436,8 @@ def route_skill(
         user_message=user_message,
         session_id=session_id,
         chat_history=chat_history or [],
-        metadata=metadata or {}
+        metadata=metadata or {},
+        progress=progress,
     )
 
     result: SkillResult = skill.run(ctx)

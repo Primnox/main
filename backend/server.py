@@ -637,6 +637,9 @@ async def post_daily_brief(background_tasks: BackgroundTasks):
             pass
         result = route_skill(
             user_message="daily brief",
+            # This endpoint always means this one skill — naming it skips
+            # semantic routing (and its model call) for a fixed invocation.
+            skill_name="Daily Brief",
             metadata={
                 "notes_count": notes_count,
                 "feed_history": list(core.feed.history[-100:]),
