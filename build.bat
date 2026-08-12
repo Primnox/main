@@ -50,17 +50,17 @@ if errorlevel 1 (
 echo     [OK] Frontend built → frontend\dist\
 cd ..
 
-:: ── Step 3: Electron — Package installer ─────────
+:: ── Step 3: Tauri — Package installer ─────────
 echo.
-echo [3/3] Packaging Electron installer (NSIS)...
+echo [3/3] Packaging Tauri installer (NSIS)...
 cd frontend
-call npm run electron:build
+call npm run tauri:build
 if errorlevel 1 (
-    echo [!] Electron packaging FAILED.
+    echo [!] Tauri packaging FAILED.
     cd ..
     exit /b 1
 )
-echo     [OK] Installer built → frontend\dist-electron\
+echo     [OK] Installer built → frontend\src-tauri	argeteleaseundle\
 cd ..
 
 :: ── Done ─────────────────────────────────────────
@@ -71,7 +71,7 @@ echo ================================================
 echo.
 
 :: Find and display the installer path
-for /f "delims=" %%f in ('dir /b /s "frontend\dist-electron\Primnox-Setup-*.exe" 2^>nul') do (
+for /f "delims=" %%f in ('dir /b /s "frontend\src-tauri\target\release\bundle\nsis\*.exe" 2^>nul') do (
     echo   Installer: %%f
 )
 echo.

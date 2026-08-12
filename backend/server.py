@@ -104,7 +104,6 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "app://.",
         "tauri://localhost",
         "http://tauri.localhost",
         "https://tauri.localhost",
@@ -203,12 +202,19 @@ async def websocket_endpoint(ws: WebSocket):
     # does NOT run for websocket connections, so any website could otherwise
     # open ws://127.0.0.1:4009/ws and receive core.settings (incl. API keys)
     # plus a live feed of mic/screen/chat events. Reject any connection whose
-    # Origin header isn't one of our own frontends (or absent, e.g. Electron).
+    # Origin header isn't one of our own frontends (or absent — some webviews
+    # omit it for same-origin upgrades).
+    #
+    # The packaged Tauri origins have to be here, not just in the HTTP CORS
+    # list above: WebView2 sends `http://tauri.localhost` as Origin on the
+    # websocket upgrade, so without them a packaged build connects, gets
+    # rejected 1008, and the whole live feed silently dies while HTTP keeps
+    # working.
     origin = ws.headers.get("origin")
     allowed_origins = {
         "http://localhost:3000", "http://127.0.0.1:3000",
         "http://localhost:5173", "http://127.0.0.1:5173",
-        "app://.",
+        "tauri://localhost", "http://tauri.localhost", "https://tauri.localhost",
     }
     if origin is not None and origin not in allowed_origins:
         log.critical(f"SECURITY: Rejected cross-origin WebSocket from origin '{origin}'")

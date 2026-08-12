@@ -45,9 +45,6 @@ class TestDevOrigins:
 
 
 class TestPackagedShellOrigins:
-    def test_electron_origin_is_allowed(self, origins):
-        assert "app://." in origins, "packaged Electron build would be blocked"
-
     def test_tauri_unix_origin_is_allowed(self, origins):
         # Linux (WebKitGTK) and macOS (WKWebView) both serve from this scheme.
         assert "tauri://localhost" in origins, (
@@ -80,3 +77,44 @@ class TestAllowlistHygiene:
         for origin in origins:
             host = origin.split("://", 1)[1].split("/")[0].rsplit(":", 1)[0]
             assert host in allowed_hosts, f"unexpected host in CORS allowlist: {origin}"
+
+
+def websocket_origins() -> set:
+    """Extract the `allowed_origins = {...}` literal guarding the /ws upgrade."""
+    source = SERVER_PY.read_text(encoding="utf-8")
+    match = re.search(r"allowed_origins\s*=\s*(\{.*?\})", source, re.DOTALL)
+    assert match, "websocket allowed_origins set not found in server.py"
+    return ast.literal_eval(match.group(1))
+
+
+class TestWebSocketOrigins:
+    """The /ws guard has its own separate allowlist, and it drifted.
+
+    It carried Electron's `app://.` and none of Tauri's origins, so a
+    packaged Tauri build would open the socket, get closed with 1008, and
+    lose the entire live feed (mic, screen, chat events) while ordinary HTTP
+    calls kept working — the worst kind of failure to diagnose, because the
+    app looks alive.
+    """
+
+    @pytest.fixture
+    def ws_origins(self):
+        return websocket_origins()
+
+    @pytest.mark.parametrize(
+        "origin",
+        ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"],
+    )
+    def test_packaged_tauri_origins_can_open_the_websocket(self, ws_origins, origin):
+        assert origin in ws_origins, f"packaged Tauri build's live feed would be rejected ({origin})"
+
+    def test_dev_server_can_open_the_websocket(self, ws_origins):
+        assert "http://localhost:5173" in ws_origins
+
+    def test_websocket_and_cors_agree_on_packaged_origins(self, ws_origins, origins):
+        # Two lists that must not drift apart again: anything allowed to make
+        # an HTTP call should be allowed to open the socket.
+        packaged = {o for o in origins if "tauri" in o}
+        assert packaged <= ws_origins, (
+            f"origins allowed for HTTP but not websocket: {packaged - ws_origins}"
+        )
