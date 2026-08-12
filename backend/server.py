@@ -415,6 +415,49 @@ async def auto_assign_chat(session_id: str):
     return {"status": "failed", "reason": "model returned invalid folder id", "raw": raw}
 
 
+def _can_reach_a_model(settings: dict) -> bool:
+    """Can Primnox actually reach a model right now?
+
+    Surfaced to the UI as `has_api_key`, which drives the "Primnox can't
+    think" banner. It used to test a fixed OR of the Groq/OpenAI/Anthropic
+    keys, which was wrong in three ways that all produce a scary banner on
+    a perfectly working install: Gemini wasn't counted, a Custom endpoint
+    (whose credentials live in its own profile, and which may legitimately
+    need no key) wasn't counted, and Ollama/llama.cpp need no key at all.
+
+    So the question is answered against whichever provider is ACTIVE,
+    rather than against a list that has to be kept in sync by hand.
+    """
+    model = (settings.get("active_model") or "").strip()
+
+    # Local runtimes talk to a server on localhost — nothing to authenticate.
+    if model in ("Ollama_Local", "LlamaCpp_Local") or model.endswith("_Local"):
+        return True
+
+    if model == "Custom":
+        active_id = settings.get("active_custom_provider_id")
+        profiles = settings.get("custom_providers") or []
+        profile = next((p for p in profiles if p.get("id") == active_id), None)
+        # Fall back to the first saved profile — the id can go stale if a
+        # profile was removed, and a usable endpoint still means we can think.
+        profile = profile or (profiles[0] if profiles else None)
+        return bool(profile and profile.get("base_url"))
+
+    _KEY_FOR_MODEL = {
+        "Groq_Llama_3": "groq_api_key",
+        "OpenAI_GPT_4o": "openai_api_key",
+        "Anthropic_Claude_3": "anthropic_api_key",
+        "Gemini_Flash": "gemini_api_key",
+    }
+    key_name = _KEY_FOR_MODEL.get(model)
+    if key_name:
+        return bool(settings.get(key_name))
+
+    # Unknown/unset active_model: any configured cloud key means the user
+    # has *something* usable, so don't cry wolf.
+    return any(bool(settings.get(k)) for k in _KEY_FOR_MODEL.values())
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": APP_VERSION}
@@ -460,7 +503,7 @@ async def get_status():
         "mic_muted": core.mic_muted,
         "incognito": core.incognito,
         "active_model": core.settings.get("active_model", "Groq_Llama_3"),
-        "has_api_key": bool(core.settings.get("groq_api_key") or core.settings.get("openai_api_key") or core.settings.get("anthropic_api_key")),
+        "has_api_key": _can_reach_a_model(core.settings),
         "notes_count": notes_count,
         "reminders_count": reminders_count,
         "db_sizes_kb": db_sizes,
@@ -541,12 +584,8 @@ async def get_dashboard():
     except Exception:
         pass
 
-    # Flag whether the primary AI key is configured (don't expose the key itself)
-    has_api_key = bool(core.settings.get("groq_api_key") or
-                       core.settings.get("openai_api_key") or
-                       core.settings.get("anthropic_api_key") or
-                       core.settings.get("gemini_api_key") or
-                       core.settings.get("active_model", "").endswith("_Local"))
+    # Flag whether Primnox can actually reach a model (don't expose the key itself)
+    has_api_key = _can_reach_a_model(core.settings)
 
     user_name = core.settings.get("operator_alias") or core.settings.get("nickname") or ""
 
