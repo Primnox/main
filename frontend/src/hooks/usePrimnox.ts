@@ -78,6 +78,57 @@ export function usePrimnox() {
   const connectRef = useRef<(() => void) | null>(null);
   const tokenBufferRef = useRef<string>("");
   const animationFrameIdRef = useRef<number | null>(null);
+  // Which message the current reply is streaming into. Streaming used to find
+  // its target by scanning BACKWARDS for the last message from Primnox, which
+  // is only correct while nothing else appends one mid-turn. A permission
+  // card, a daily brief or a proactive nudge all do — and the scan would then
+  // land on that instead, overwriting it and leaving the real reply stranded
+  // half-written. An explicit id can't be aimed at the wrong message.
+  const streamTargetRef = useRef<number | null>(null);
+  const streamSeqRef = useRef(0);
+
+  /** Writes whatever tokens have accumulated into the bubble being streamed. */
+  const flushTokens = useCallback(() => {
+    const flushed = tokenBufferRef.current;
+    tokenBufferRef.current = "";
+    if (!flushed) return;
+    const sid = streamTargetRef.current;
+    setMessages(prev => {
+      const idx = sid == null ? -1 : prev.findIndex(m => m._sid === sid);
+      if (idx === -1) return prev;
+      const msg = { ...prev[idx] };
+      if (msg.isTyping) {
+        msg.isTyping = false;
+        msg.text = flushed;
+      } else {
+        msg.text = (msg.text || '') + flushed;
+      }
+      const next = [...prev];
+      next[idx] = msg;
+      return next;
+    });
+  }, []);
+
+  const cancelPendingFlush = useCallback(() => {
+    if (animationFrameIdRef.current !== null) {
+      clearTimeout(animationFrameIdRef.current);
+      animationFrameIdRef.current = null;
+    }
+  }, []);
+
+  // Batched on a timer, NOT requestAnimationFrame. rAF is frozen entirely
+  // while the window is minimised, occluded or on another virtual desktop —
+  // and sending a message then tabbing away while Primnox thinks is the
+  // normal way to use it. Tokens would pile up in the buffer, unflushed, and
+  // the reply appeared blank or half-written until something else forced a
+  // render. A timer is throttled in the background but still fires.
+  const scheduleFlush = useCallback(() => {
+    if (animationFrameIdRef.current !== null) return;
+    animationFrameIdRef.current = setTimeout(() => {
+      animationFrameIdRef.current = null;
+      flushTokens();
+    }, 33) as unknown as number;
+  }, [flushTokens]);
   const parallelTaskTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const proactiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -202,61 +253,39 @@ export function usePrimnox() {
         const payload = data.data;
 
         if (type === 'message') {
-          if (animationFrameIdRef.current) {
-            cancelAnimationFrame(animationFrameIdRef.current);
-            animationFrameIdRef.current = null;
-          }
-          tokenBufferRef.current = "";
+          const isPrimnox = payload.sender?.toUpperCase() === 'PRIMNOX';
 
-          setMessages(prev => {
-            if (payload.sender?.toUpperCase() === 'PRIMNOX' && !payload.isTyping) {
-              const newMsgs = [...prev];
-              let lastMsgIdx = newMsgs.length - 1;
-              while (lastMsgIdx >= 0 && newMsgs[lastMsgIdx].sender?.toUpperCase() !== 'PRIMNOX') {
-                lastMsgIdx--;
-              }
-              const lastMsg = lastMsgIdx >= 0 ? newMsgs[lastMsgIdx] : null;
-              if (lastMsg) {
-                newMsgs[lastMsgIdx] = payload;
-                return newMsgs;
-              }
-              return [...newMsgs, payload];
-            } else {
-              return [...prev, payload];
-            }
-          });
+          if (isPrimnox && payload.isTyping) {
+            // Start of a reply. Claim an id now so tokens and the final
+            // message both know exactly which bubble they belong to.
+            const sid = ++streamSeqRef.current;
+            streamTargetRef.current = sid;
+            flushTokens();
+            setMessages(prev => [...prev, { ...payload, _sid: sid }]);
+          } else if (isPrimnox) {
+            // Final reply. Any buffered tokens are superseded by the full
+            // text in this payload, so drop them rather than appending twice.
+            cancelPendingFlush();
+            tokenBufferRef.current = "";
+            const sid = streamTargetRef.current;
+            streamTargetRef.current = null;
+            setMessages(prev => {
+              const idx = sid == null ? -1 : prev.findIndex(m => m._sid === sid);
+              // No bubble to land in (a reply with no preceding typing event —
+              // a reminder firing, a tool result) is appended, never merged
+              // into whatever happened to be last.
+              if (idx === -1) return [...prev, payload];
+              const next = [...prev];
+              next[idx] = { ...payload, _sid: sid };
+              return next;
+            });
+          } else {
+            setMessages(prev => [...prev, payload]);
+          }
         }
         else if (type === 'token') {
           tokenBufferRef.current += payload.text;
-          
-          if (!animationFrameIdRef.current) {
-            animationFrameIdRef.current = requestAnimationFrame(() => {
-              const flushedText = tokenBufferRef.current;
-              tokenBufferRef.current = "";
-              animationFrameIdRef.current = null;
-              
-              setMessages(prev => {
-                const newMsgs = [...prev];
-                let lastMsgIdx = newMsgs.length - 1;
-                while (lastMsgIdx >= 0 && newMsgs[lastMsgIdx].sender?.toUpperCase() !== 'PRIMNOX') {
-                  lastMsgIdx--;
-                }
-                const lastMsg = lastMsgIdx >= 0 ? newMsgs[lastMsgIdx] : null;
-                
-                if (lastMsg) {
-                  const updatedMsg = { ...lastMsg };
-                  if (updatedMsg.isTyping) {
-                    updatedMsg.isTyping = false;
-                    updatedMsg.text = flushedText;
-                  } else {
-                    updatedMsg.text += flushedText;
-                  }
-                  newMsgs[lastMsgIdx] = updatedMsg;
-                }
-                return newMsgs;
-              });
-            });
-          }
+          scheduleFlush();
         }
         else if (type === 'privacy_scrub') {
           if (payload?.mapping?.length) setPrivacyScrub(payload);
@@ -509,6 +538,24 @@ export function usePrimnox() {
       };
       
       socket.onclose = () => {
+        // A reply in flight when the socket drops will never get its closing
+        // `message` event, so the bubble would sit on the typing animation
+        // forever. Land whatever arrived and say plainly that it was cut off —
+        // an unfinished answer the user can see beats one that pretends to
+        // still be coming.
+        cancelPendingFlush();
+        flushTokens();
+        const sid = streamTargetRef.current;
+        streamTargetRef.current = null;
+        // A non-null sid IS the "never finalised" signal — the final message
+        // clears it. Don't also test isTyping: that flips to false on the
+        // first flushed token, long before the reply is complete.
+        if (sid != null) {
+          setMessages(prev => prev.map(m => m._sid === sid
+            ? { ...m, isTyping: false, text: (m.text || '') + '\n\n_(disconnected before Primnox finished replying)_' }
+            : m));
+        }
+
         if (reconnectAttempts.current >= maxAttempts) {
           setConnectionLost(true);
           // Auto-recover after 30 s so a restarted backend is picked up
@@ -535,9 +582,7 @@ export function usePrimnox() {
       // Cancel all pending pill expiry timers so they don't setState after unmount
       parallelTaskTimers.current.forEach(t => clearTimeout(t));
       parallelTaskTimers.current.clear();
-      if (animationFrameIdRef.current) {
-        cancelAnimationFrame(animationFrameIdRef.current);
-      }
+      cancelPendingFlush();
       if (wsRef.current) {
         wsRef.current.onclose = null; // Prevent reconnect loop in StrictMode
         wsRef.current.close();
