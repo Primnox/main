@@ -117,6 +117,45 @@ def _rejects_tools(response_text: str) -> bool:
     return any(marker in lowered for marker in _TOOLS_UNSUPPORTED_MARKERS)
 
 
+_CONTEXT_OVERFLOW_MARKERS = (
+    "context_length_exceeded",
+    "reduce the length of the messages",
+    "maximum context length",
+    "too many tokens",
+    "prompt is too long",
+    "input length and `max_tokens` exceed",
+)
+
+
+def _context_too_long(response_text: str) -> bool:
+    lowered = (response_text or "").lower()
+    return any(marker in lowered for marker in _CONTEXT_OVERFLOW_MARKERS)
+
+
+def _drop_oldest_turn(messages: list) -> bool:
+    """Sheds the oldest history so an over-long conversation can be retried.
+
+    Keeps the system prompt (index 0) and the user's CURRENT message (last),
+    since dropping either changes what was asked rather than how much history
+    came with it. Returns False when only those two remain — at that point the
+    prompt itself doesn't fit and trimming can't help.
+
+    Drops a QUARTER of the trimmable history per call, not one message. The
+    retry budget is small, and a 60-turn chat shortened one message at a time
+    would exhaust it while still overflowing — the user would see a failure
+    that one more round of trimming would have fixed.
+    """
+    if len(messages) <= 2:
+        return False
+    # Skip index 0 when it's the system prompt; never touch the final message.
+    start = 1 if messages and messages[0].get("role") == "system" else 0
+    trimmable = len(messages) - 1 - start
+    if trimmable <= 0:
+        return False
+    del messages[start:start + max(1, trimmable // 4)]
+    return True
+
+
 def _tools_known_unsupported(url: str, model_name: str) -> bool:
     with _no_tool_support_lock:
         return (url, model_name) in _no_tool_support
@@ -1384,6 +1423,24 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
                             f"{model_name} rejected tool calling — continuing without tools "
                             f"for this provider ({resp.text[:120]})")
                         continue
+
+                    # Too much conversation for this model's window. Drop the
+                    # oldest turn and try again rather than losing the message
+                    # — a long chat should degrade to less history, not to
+                    # "Sorry, something went wrong."
+                    if resp.status_code == 400 and _context_too_long(resp.text):
+                        if _drop_oldest_turn(messages):
+                            log.warning(
+                                f"{model_name} context exceeded — retrying with "
+                                f"{len(messages)} messages")
+                            continue
+                        # Nothing left to trim: the system prompt plus this one
+                        # message already overflows, so this model can never
+                        # answer. Say which model, and that it's a settings
+                        # problem — "try again" would be false advice.
+                        log.error(f"{model_name} cannot fit Primnox's prompt even with no history")
+                        yield ("[MODEL TOO SMALL] " + model_name)
+                        return
 
                     if resp.status_code == 429:
                         if "groq.com" in url and (model_name in GROQ_FALLBACK_CHAIN or model_name == pinned_groq_model):
