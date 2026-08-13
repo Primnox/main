@@ -7,9 +7,30 @@
 ---
 
 **Project:** Primnox
-**Generated:** 2026-08-12 11:44:11
-**Category:** Biohacking / Longevity App
-**Design Dials:** Variance 6/10 (Balanced / Modern) | Motion 5/10 (Standard) | Density 6/10 (Standard)
+**Generated:** 2026-08-13 15:40:25
+**Category:** AI/Chatbot Platform
+
+---
+
+## ⚠️ Project Overrides — these beat the generated rules below
+
+The generated sections are a starting point, not the shipped system. Where
+they disagree with the list here, **this list wins** — each item below is a
+deliberate decision with a reason, and the previous version of this file
+(generated as "Biohacking / Longevity App") is why the distinction is worth
+writing down.
+
+| Topic | Generated says | Primnox actually does | Why |
+|-------|----------------|------------------------|-----|
+| Typeface | Inter, via `@import` from fonts.googleapis.com | **Syne** (display) + **DM Sans** (body) + **JetBrains Mono** (labels), self-hosted in `public/fonts` | The remote `@import` contacted Google on every launch — IP, User-Agent, timing — from an app whose entire premise is that nothing leaves the machine. It also fell back to system fonts offline. Regenerate with `node scripts/vendor-fonts.mjs`. |
+| Colour tokens | Hex values in this file | `src/styles/themes.css`, generated from the live website palettes | The app and the marketing site must render the same themes. Never hardcode a hex in a component — use the `--color-*` tokens Tailwind consumes. |
+| Layout | Cards, shadows, grids | Hairline rules and negative space (`.px-row`, `.px-rule`) | Editorial/brutalist language ported from primnox.github.io so the app reads as the same product as the site. |
+| Touch targets | 44×44 minimum | Not enforced | That rule is scoped to touch UI. Primnox is a mouse-and-keyboard desktop app, and forcing 44px would wreck the dense technical layout that is the point of the design. Revisit if a touch/mobile surface ships. |
+| Label type size | Body ≥ 16px | 10px mono, uppercase, wide tracking (`.px-label`) | Deliberate terminal aesthetic. These are *labels*, not body copy — body text stays at normal size. |
+
+**Keyboard focus** is global, in `src/styles/tailwind.css` under `@layer base`
+— every interactive element gets a `:focus-visible` ring from the theme's
+`--primary`. Do not add `outline-none` without providing a replacement.
 
 ---
 
@@ -19,18 +40,18 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#1E3A5F` | `--color-primary` |
+| Primary | `#1E293B` | `--color-primary` |
 | On Primary | `#FFFFFF` | `--color-on-primary` |
 | Secondary | `#334155` | `--color-secondary` |
 | Accent/CTA | `#22C55E` | `--color-accent` |
 | Background | `#0F172A` | `--color-background` |
-| Foreground | `#FFFFFF` | `--color-foreground` |
-| Muted | `#10192E` | `--color-muted` |
-| Border | `rgba(255,255,255,0.08)` | `--color-border` |
-| Destructive | `#DC2626` | `--color-destructive` |
-| Ring | `#1E3A5F` | `--color-ring` |
+| Foreground | `#F8FAFC` | `--color-foreground` |
+| Muted | `#272F42` | `--color-muted` |
+| Border | `#475569` | `--color-border` |
+| Destructive | `#EF4444` | `--color-destructive` |
+| Ring | `#1E293B` | `--color-ring` |
 
-**Color Notes:** Shield dark + connected green
+**Color Notes:** Code dark + run green
 
 ### Typography
 
@@ -45,8 +66,6 @@
 ```
 
 ### Spacing Variables
-
-*Density: 6/10 — Standard*
 
 | Token | Value | Usage |
 |-------|-------|-------|
@@ -93,8 +112,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #1E3A5F;
-  border: 2px solid #1E3A5F;
+  color: #1E293B;
+  border: 2px solid #1E293B;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -133,9 +152,9 @@
 }
 
 .input:focus {
-  border-color: #1E3A5F;
+  border-color: #1E293B;
   outline: none;
-  box-shadow: 0 0 0 3px #1E3A5F20;
+  box-shadow: 0 0 0 3px #1E293B20;
 }
 ```
 
@@ -161,44 +180,28 @@
 
 ## Style Guidelines
 
-**Style:** Modern Dark (Cinema Mobile)
+**Style:** AI-Native UI
 
-**Keywords:** dark mode, cinematic, ambient light, glassmorphism, deep black, indigo, glow, blur, atmospheric, reanimated, haptic, premium, layered, frosted glass, linear gradient
+**Keywords:** Chatbot, conversational, voice, assistant, agentic, ambient, minimal chrome, streaming text, AI interactions
 
-**Best For:** Developer tools, pro productivity apps, fintech/trading dashboards, media/streaming platforms, AI tool interfaces, high-end gaming companion apps
+**Best For:** AI products, chatbots, voice assistants, copilots, AI-powered tools, conversational interfaces
 
-**Key Effects:** Expo.out Bezier(0.16,1,0.3,1) easing; spring modals (damping:20 stiffness:90); haptic-linked press (Impact Light/Medium); animated ambient light blobs (Reanimated translateX/Y slow oscillation); BlurView glassmorphism headers/nav (intensity 20); scale press 0.97 → 1.0; avoid pure #000000 (OLED smear)
+**Key Effects:** Typing indicators (3-dot pulse), streaming text animations, pulse animations, context cards, smooth reveals
 
 ### Page Pattern
 
-**Pattern Name:** Product Review/Ratings Focused
+**Pattern Name:** AI Personalization Landing
 
-- **Conversion Strategy:** User-generated content builds trust. Show verified purchases. Filter by rating. Respond to negative reviews.
-- **CTA Placement:** After reviews summary + Buy button alongside reviews
-- **Section Order:** 1. Hero (product + aggregate rating), 2. Rating breakdown, 3. Individual reviews, 4. Buy/CTA
-
----
-
-## Motion
-
-**Stagger List** (Standard) — Trigger: load or scroll | Duration: 300-450ms | Easing: `back.out(1.4)`
-
-```js
-gsap.from('.grid-item', { opacity: 0, scale: 0.92, y: 16, duration: 0.4, stagger: { each: 0.06, from: 'start', grid: 'auto' }, ease: 'back.out(1.4)' });
-```
-
-**Framework notes:** grid: 'auto' lets GSAP infer rows/columns from a CSS grid layout for a natural wave stagger
-
-- ✅ Combine with from: 'center' for a bento-grid layout to draw the eye inward first
-- ❌ Don't use back.out on dense data tables; the overshoot reads as sloppy on informational UI
-- ⚡ Group DOM writes; avoid interleaving layout reads (getBoundingClientRect) between staggered tweens
+- **Conversion Strategy:** 20%+ conversion with personalization. Requires analytics integration. Fallback for new users.
+- **CTA Placement:** Context-aware placement based on user segment
+- **Section Order:** 1. Dynamic hero (personalized), 2. Relevant features, 3. Tailored testimonials, 4. Smart CTA
 
 ---
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ Generic health app
-- ❌ No privacy
+- ❌ Heavy chrome
+- ❌ Slow response feedback
 
 ### Additional Forbidden Patterns
 

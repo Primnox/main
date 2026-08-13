@@ -138,13 +138,13 @@ function MiniMonth({
   return (
     <div className="select-none">
       <div className="flex items-center justify-between mb-3">
-        <button onClick={onPrev} className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
+        <button onClick={onPrev} aria-label="Previous month" className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
           <ChevronLeft size={12} />
         </button>
         <span className="font-mono text-[10px] font-bold text-on-surface/50 uppercase tracking-widest">
           {MONTH_NAMES[month].slice(0, 3)} {year}
         </span>
-        <button onClick={onNext} className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
+        <button onClick={onNext} aria-label="Next month" className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
           <ChevronRight size={12} />
         </button>
       </div>
@@ -1098,11 +1098,11 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div className="shrink-0 flex items-center justify-between px-6 pt-5 pb-3 border-b border-on-surface/[0.05]">
         <div className="flex items-center gap-2">
-          <button onClick={navPrev} className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
+          <button onClick={navPrev} aria-label="Previous period" className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
             <ChevronLeft size={14} />
           </button>
           <span className="font-mono text-sm font-bold text-on-surface/70 min-w-[220px] select-none">{viewLabel}</span>
-          <button onClick={navNext} className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
+          <button onClick={navNext} aria-label="Next period" className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
             <ChevronRight size={14} />
           </button>
           <button

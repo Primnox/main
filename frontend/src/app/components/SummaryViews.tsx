@@ -451,6 +451,7 @@ export const SummariesExpanded = memo(({
                   <option value="urgent">!</option>
                 </select>
                 <button onClick={submitTask} disabled={!newTaskText.trim() || addingTask}
+                  aria-label="Add task"
                   className={`p-1.5 border rounded-lg disabled:opacity-25 transition-all active:scale-95 ${
                     taskFeedback === 'ok'  ? 'bg-success/15 border-success/25 text-success' :
                     taskFeedback === 'err' ? 'bg-error/15 border-error/25 text-error' :
@@ -505,6 +506,7 @@ export const SummariesExpanded = memo(({
                 <input type="number" value={reminderMins} onChange={e => setReminderMins(e.target.value)} min="1"
                   className="w-12 bg-surface/40 border border-on-surface/[0.05] rounded-lg px-2 py-1.5 text-xs text-on-surface/50 outline-none font-mono text-center" />
                 <button onClick={submitReminder} disabled={!reminderMsg.trim() || addingReminder}
+                  aria-label="Add reminder"
                   className={`p-1.5 border rounded-lg disabled:opacity-25 transition-all active:scale-95 ${
                     reminderFeedback === 'ok'  ? 'bg-success/15 border-success/25 text-success' :
                     reminderFeedback === 'err' ? 'bg-error/15 border-error/25 text-error' :

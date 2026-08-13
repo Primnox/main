@@ -51,6 +51,56 @@
   ::-webkit-scrollbar { width: 3px; height: 3px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--scroll); }
+
+  /* ─── Keyboard focus, by default ────────────────────────────────────────
+     A focus style already existed as `.px-interactive:focus-visible`, but it
+     had to be opted into per element — and 203 of the app's 206 interactive
+     elements never did. Measured, not assumed: focusing a real button in the
+     running app changed nothing at all (outline-style: none, no shadow,
+     computed styles identical before and after), so a keyboard user had no
+     way to tell where they were. Tailwind's preflight is what removes the
+     browser's native ring, so the replacement belongs at the same global
+     level rather than sprinkled across ~200 call sites.
+
+     :focus-visible, not :focus — the browser decides, so clicking a button
+     with the mouse stays clean while Tab shows the ring. The token is
+     theme-aware, so this follows the active palette instead of hardcoding.
+
+     Deliberately NOT wrapped in :where(). The app carries 59 bare
+     `outline-none` utilities, which sit in Tailwind's utilities layer and
+     would win on source order against a zero-specificity selector. Those
+     were added to suppress the browser's *default* outline, not to defeat
+     keyboard navigation, so the replacement ring outranks them. */
+  a[href]:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible,
+  [tabindex]:not([tabindex="-1"]):focus-visible,
+  [role="button"]:focus-visible,
+  [role="tab"]:focus-visible,
+  [role="menuitem"]:focus-visible,
+  [role="option"]:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: inherit;
+  }
+
+  /* Windows High Contrast / forced-colors mode paints its own system focus
+     ring; ours would override it with a colour the mode has deliberately
+     replaced. */
+  @media (forced-colors: active) {
+    a[href]:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    [tabindex]:not([tabindex="-1"]):focus-visible,
+    [role="button"]:focus-visible {
+      outline: 2px solid CanvasText;
+    }
+  }
 }
 
 .dot-matrix {

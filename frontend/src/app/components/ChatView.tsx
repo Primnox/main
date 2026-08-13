@@ -673,6 +673,7 @@ export const ChatExpandedSidebar = ({
                       <span className="text-[10px] text-on-surface/52 shrink-0">{f.count}</span>
                     </button>
                     <button onClick={() => deleteFolder(f.id)}
+                      aria-label={`Delete folder ${f.title}`}
                       className="pr-2.5 opacity-0 group-hover:opacity-100 text-on-surface/48 hover:text-error/80 transition-all">
                       <Trash2 size={11} />
                     </button>
@@ -891,6 +892,7 @@ export const ChatExpandedSidebar = ({
 
               <button onClick={handleSend}
                 disabled={!inputValue.trim() && attachedFiles.length === 0}
+                aria-label="Send message"
                 className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 self-end
                   disabled:bg-on-surface/5 disabled:text-on-surface/42 disabled:cursor-not-allowed
                   enabled:bg-primary enabled:text-surface enabled:hover:bg-on-surface enabled:active:scale-90">
