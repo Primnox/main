@@ -41,6 +41,21 @@ elif PLATFORM == 'darwin':
 last_frame_hash = None
 last_description = "no changes detected"
 
+
+def _groq_vision_model() -> str:
+    """Groq's vision model, or "" when Groq has none reachable.
+
+    Single source of truth is brain.GROQ_VISION_MODEL, which carries the
+    probe results and the reasoning. Duplicating the model id here is what
+    left this module calling a decommissioned endpoint long after brain.py
+    had stopped.
+    """
+    try:
+        from brain import GROQ_VISION_MODEL
+        return GROQ_VISION_MODEL
+    except Exception:
+        return ""
+
 def get_api_key(provider):
     try:
         from settings_manager import load_settings
@@ -342,11 +357,26 @@ def describe_screen(force=False, crop_active=True, uia_context=None):
             description = result.get("content", [{}])[0].get("text", "")
 
         else: # Groq_Llama_3
+            if not _groq_vision_model():
+                # Say so plainly. This is the honest answer for a Groq-only
+                # setup, and it's what lets the caller tell the user "I can't
+                # see the screen on this provider" instead of showing them a
+                # blank description.
+                log.warning("Groq has no reachable vision model — screen reading unavailable.")
+                return {"error": "this provider can't read the screen — switch to OpenAI, "
+                                 "Anthropic or Gemini in Settings for screenshot understanding."}
             resp = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
-                    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                    # brain.py already established there is no reachable Groq
+                    # vision model on this account (llama-3.2-*-vision is
+                    # decommissioned, llama-4-scout/maverick 404) — see
+                    # GROQ_VISION_MODEL there. This module kept the hardcoded
+                    # llama-4-scout that fix removed, so every screenshot
+                    # request 404'd. Read the same setting rather than keeping
+                    # a second, silently-wrong copy of the answer.
+                    "model": _groq_vision_model(),
                     "messages": [
                         {"role": "system", "content": VISION_PROMPT},
                         {
@@ -361,10 +391,27 @@ def describe_screen(force=False, crop_active=True, uia_context=None):
                 timeout=30
             )
             result = resp.json()
+            if resp.status_code != 200:
+                # A non-200 body has no `choices`, so the .get() chain below
+                # quietly produced "" — which was then cached and returned as
+                # if it were a real description. Downstream that rendered as
+                # "i see: " followed by nothing, on every subsequent request,
+                # because the debounce cache kept handing the empty string
+                # back. Fail loudly instead.
+                err = (result.get("error") or {}).get("message") or resp.text[:200]
+                log.error(f"Vision request failed ({resp.status_code}): {err}")
+                return {"error": f"vision unavailable: {err}"}
             description = result.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-        description = description or ""
-        log.info(f"Vision result: {description[:100]}...")
+        description = (description or "").strip()
+        if not description:
+            # Never cache an empty description. Doing so poisoned every later
+            # call: the frame hash matches, the cache hits, and the same blank
+            # answer comes back forever.
+            log.warning("Vision returned an empty description — not caching it.")
+            return {"error": "vision returned nothing"}
+
+        log.info(f"Vision result: {description[:100]}")
         last_frame_hash = current_hash
         last_description = description
         return {"status": "updated", "description": description}
