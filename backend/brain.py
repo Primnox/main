@@ -386,6 +386,21 @@ _LOCAL_UNREACHABLE_UNTIL = 0.0
 _LOCAL_CIRCUIT_COOLDOWN = 30  # seconds
 
 
+def _error_detail(res: dict, status_code: int, provider: str) -> str:
+    """Best-effort human/log-readable error string from a provider error body.
+    Only used to populate the "error" key on a failure path — the value's exact
+    text is never shown to the user (choices[].content carries that), it just
+    has to be truthy and non-blank so callers can branch on it."""
+    err = res.get("error") if isinstance(res, dict) else None
+    if isinstance(err, dict):
+        detail = err.get("message") or err.get("type") or ""
+    elif err:
+        detail = str(err)
+    else:
+        detail = ""
+    return f"{provider} error (HTTP {status_code}): {detail}" if detail else f"{provider} error (HTTP {status_code})"
+
+
 def resolve_think_text(response: dict, fallback: str) -> str:
     """Pull the reply text out of a think()-shaped response, but only if it's
     an actual completion. think() reports a missing-key/provider failure as a
@@ -709,6 +724,17 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                     }
                 }]
             }
+            # An Anthropic error body has no content[].text, so the mapping
+            # above silently produces an empty completion. Propagate the real
+            # error instead — see resolve_think_text()'s docstring for why a
+            # failure MUST be distinguishable by an "error" key rather than by
+            # the caller inspecting choices[].
+            status = getattr(resp, "status_code", 200)
+            if status != 200 or "error" in res:
+                mapped_res["error"] = _error_detail(res, status, "Anthropic")
+                mapped_res["choices"][0]["message"]["content"] = content or (
+                    f"anthropic request failed (HTTP {status})."
+                )
             return mapped_res
 
         elif active_model == "Ollama_Local":
@@ -733,10 +759,12 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                 return res
             except requests.exceptions.Timeout:
                 log.error("Ollama timed out — model may be loading. Try again shortly.")
-                return {"error": "Ollama timeout", "choices": [{"message": {"content": "ollama timed out — the model might still be loading. try again in a few seconds."}}]}
+                return {"error": "ollama timed out",
+                        "choices": [{"message": {"content": "ollama timed out — the model might still be loading. try again in a few seconds."}}]}
             except requests.exceptions.ConnectionError:
                 log.error("Ollama not reachable — is it running? (ollama serve)")
-                return {"error": "Ollama unreachable", "choices": [{"message": {"content": "ollama isn't running bro. start it with `ollama serve`."}}]}
+                return {"error": "ollama unreachable",
+                        "choices": [{"message": {"content": "ollama isn't running bro. start it with `ollama serve`."}}]}
 
         elif active_model == "LlamaCpp_Local":
             llamacpp_url = _safe_local_url(settings.get("llamacpp_base_url", "http://localhost:8080"), 8080)
@@ -760,10 +788,12 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                 return res
             except requests.exceptions.Timeout:
                 log.error("llama.cpp timed out — model may still be loading.")
-                return {"error": "llama.cpp timeout", "choices": [{"message": {"content": "llama.cpp timed out — the model might still be loading. try again in a few seconds."}}]}
+                return {"error": "llama.cpp timed out",
+                        "choices": [{"message": {"content": "llama.cpp timed out — the model might still be loading. try again in a few seconds."}}]}
             except requests.exceptions.ConnectionError:
                 log.error("llama.cpp not reachable — is the server running?")
-                return {"error": "llama.cpp unreachable", "choices": [{"message": {"content": "llama.cpp server isn't running. start it with `./llama-server -m your_model.gguf`"}}]}
+                return {"error": "llama.cpp unreachable",
+                        "choices": [{"message": {"content": "llama.cpp server isn't running. start it with `./llama-server -m your_model.gguf`"}}]}
 
         elif active_model == "Custom":
             profile = get_active_custom_provider(settings)
@@ -773,7 +803,8 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
             api_key = profile.get("api_key", "") if profile else ""
             if not custom_url:
                 log.error("Custom provider has no base URL set!")
-                return {"error": "Custom provider not configured", "choices": [{"message": {"content": "no custom endpoint selected. add or pick one in Settings."}}]}
+                return {"error": "custom provider has no base URL",
+                        "choices": [{"message": {"content": "no custom endpoint selected. add or pick one in Settings."}}]}
             log.info(f"Routing think() → Custom {custom_api_type} ({custom_model} @ {custom_url})")
             try:
                 if custom_api_type == "anthropic":
@@ -793,7 +824,17 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                     )
                     res = resp.json()
                     content = res.get("content", [{}])[0].get("text", "")
-                    return {"choices": [{"message": {"content": content}}]}
+                    mapped = {"choices": [{"message": {"content": content}}]}
+                    # Same mapping blind spot as the native Anthropic branch —
+                    # an error body yields no content[].text, which must not be
+                    # handed back as a successful empty completion.
+                    status = getattr(resp, "status_code", 200)
+                    if status != 200 or "error" in res:
+                        mapped["error"] = _error_detail(res, status, "Custom (anthropic)")
+                        mapped["choices"][0]["message"]["content"] = content or (
+                            f"custom provider request failed (HTTP {status})."
+                        )
+                    return mapped
                 else:
                     headers = {"Content-Type": "application/json"}
                     if api_key:
@@ -814,16 +855,19 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                     return resp.json()
             except requests.exceptions.Timeout:
                 log.error("Custom provider timed out.")
-                return {"error": "Custom provider timeout", "choices": [{"message": {"content": "custom provider timed out."}}]}
+                return {"error": "custom provider timed out",
+                        "choices": [{"message": {"content": "custom provider timed out."}}]}
             except requests.exceptions.ConnectionError:
                 log.error("Custom provider not reachable.")
-                return {"error": "Custom provider unreachable", "choices": [{"message": {"content": f"couldn't reach the custom provider at {custom_url}."}}]}
+                return {"error": f"custom provider unreachable at {custom_url}",
+                        "choices": [{"message": {"content": f"couldn't reach the custom provider at {custom_url}."}}]}
 
         elif active_model == "Gemini_Flash":
             api_key = get_api_key("gemini")
             if not api_key:
                 log.error("Gemini API key missing!")
-                return {"choices": [{"message": {"content": "Gemini API key not set. Add it in Settings or set GEMINI_API_KEY env var."}}]}
+                return {"error": "Gemini API key not set",
+                        "choices": [{"message": {"content": "Gemini API key not set. Add it in Settings or set GEMINI_API_KEY env var."}}]}
             gemini_model = settings.get("gemini_model", "gemini-2.0-flash")
             log.info(f"Routing think() → Gemini ({gemini_model})")
             resp = requests.post(
@@ -841,7 +885,8 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
             try:
                 res = resp.json()
             except Exception:
-                return {"choices": [{"message": {"content": f"Gemini returned non-JSON (HTTP {resp.status_code})"}}]}
+                return {"error": f"Gemini returned non-JSON (HTTP {resp.status_code})",
+                        "choices": [{"message": {"content": f"Gemini returned non-JSON (HTTP {resp.status_code})"}}]}
             if "error" in res:
                 log.warning(f"Gemini error: {res['error']}")
             return res

@@ -274,7 +274,27 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
                     from pypdf import PdfReader
                     reader = PdfReader(io.BytesIO(content))
                     pdf_text = "\n".join(p.extract_text() or "" for p in reader.pages)
-                    extracted_parts.append(f"[File: {filename}]\n{pdf_text[:2500]}")
+                    # Both branches below exist so the model can tell what it
+                    # was actually handed. Forwarding the raw slice hid two
+                    # very different documents behind the same output:
+                    #   - an image-only scan extracts to "", and arrived as a
+                    #     bare "[File: x.pdf]" that reads exactly like a blank
+                    #     page, so the model answered as though it were one;
+                    #   - page 1 of a 220-page contract arrived looking like
+                    #     the whole contract, with nothing marking the cut.
+                    if not pdf_text.strip():
+                        # No PDF OCR path exists (easyocr ships, but only
+                        # spatial_engine.py uses it), so saying so is the fix.
+                        body = (f"(no extractable text — {len(reader.pages)} page(s); this "
+                                "looks like a scanned / image-only PDF. Its contents could "
+                                "not be read, so do not answer as if it were blank.)")
+                    else:
+                        body = pdf_text[:2500]
+                        if len(pdf_text) > 2500:
+                            body += (f"\n...[truncated: the first 2500 of {len(pdf_text)} "
+                                     f"characters across {len(reader.pages)} page(s) — this "
+                                     "is the START of the document, not all of it]")
+                    extracted_parts.append(f"[File: {filename}]\n{body}")
 
                 elif lower.endswith((".pptx", ".ppt")):
                     from pptx import Presentation

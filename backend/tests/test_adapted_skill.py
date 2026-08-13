@@ -331,7 +331,13 @@ class TestAdaptedClaudeSkillExecute:
         skill = _make_skill(tmp_path)
         result = skill.run(SkillContext(user_message="run broken code"))
 
-        assert result.success is True
+        # The model's explanation is kept, and the loop didn't crash — but the
+        # run is reported as a failure, because the only command it ran failed
+        # and nothing was produced. This used to assert success is True; see
+        # test_document_generation_verification.py for why that was the wrong
+        # contract (a confident summary over a file that never existed).
+        assert result.success is False
+        assert "boom" in result.error
         assert "failed" in result.output_text or "sorry" in result.output_text
 
     def test_bash_block_is_dispatched_to_run_shell(self, monkeypatch, tmp_path):
@@ -498,7 +504,13 @@ class TestAdaptedClaudeSkillExecute:
         result = _make_skill(tmp_path).run(SkillContext(user_message="deck"))
 
         assert ran == []  # never reached the sandbox
-        assert result.success is True
+        # The refusal counts as a failed command, and the model then stopped
+        # without actually building anything with python-pptx — so no deck
+        # exists and the run is reported as a failure rather than as success
+        # over a missing file. (Was `success is True`; see
+        # test_document_generation_verification.py.)
+        assert result.success is False
+        assert "python-pptx" in result.output_text
 
     def test_node_blocks_still_run_when_node_is_available(self, monkeypatch, tmp_path):
         # The JS path stays in the codebase — if the sandbox limitation is

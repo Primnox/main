@@ -202,6 +202,8 @@ class AdaptedClaudeSkill(BaseSkill):
         prompt = self._build_prompt(ctx, staged=staged)
         step_limit_reached = True
         artifacts: list[str] = []
+        commands_run = 0
+        last_failure: str | None = None
 
         ctx.emit("skill_phase", skill=self.name, phase=f"loaded the {self.name} skill",
                  status="done", total=_MAX_STEPS)
@@ -233,6 +235,9 @@ class AdaptedClaudeSkill(BaseSkill):
             exec_result = self._execute_block(language, code, ctx, workspace_id)
             created = [n for n in exec_result.get("files_created", []) if n not in artifacts]
             artifacts.extend(created)
+            commands_run += 1
+            last_failure = None if exec_result.get("success") else (
+                exec_result.get("error") or exec_result.get("stderr") or "unknown error")
 
             ctx.emit(
                 "skill_phase", skill=self.name, phase=phase,
@@ -260,6 +265,38 @@ class AdaptedClaudeSkill(BaseSkill):
         if artifacts:
             import code_exec
             output_path = str(code_exec.workspace_path(workspace_id) / artifacts[-1])
+
+        # A run that ended on a failed command having produced nothing did not
+        # do the job — whatever the model's closing message says.
+        #
+        # The model is told the command failed (see _build_followup_prompt) and
+        # may still sign off with "Done! your deck is ready", because that is
+        # what a summarising turn tends to look like. Relaying that verbatim is
+        # the worst outcome the skill can produce: the user is told a file
+        # exists, goes looking, and finds nothing. Primnox knows what the model
+        # doesn't — that no artifact was ever written — so the honest signal
+        # has to come from here rather than from the prompt.
+        #
+        # Deliberately narrow. If ANY file was produced, the run stands: a deck
+        # written in step 3 is still a deck when step 5's optional validation
+        # pass fails. And a run that executed nothing at all is left alone,
+        # because answering a question about PPTX without touching the sandbox
+        # is a perfectly good outcome.
+        if commands_run and last_failure and not artifacts:
+            log.warning(f"{self.name}: run ended on a failed command with no "
+                        f"files produced — reporting failure ({last_failure[:120]})")
+            return SkillResult(
+                success=False,
+                output_text=content,
+                extras=extras,
+                error=(
+                    f"The {self.name} run did not produce a file. The last command "
+                    f"failed ({last_failure.strip()[:300]}) and no files were created, "
+                    "so any claim that the document is ready is wrong — tell the user "
+                    "it failed and why. The skill's own closing summary was: "
+                    f"{(content or '').strip()[:400]}"
+                ),
+            )
 
         return SkillResult(success=True, output_text=content, output_path=output_path, extras=extras)
 

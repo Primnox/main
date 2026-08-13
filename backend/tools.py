@@ -774,7 +774,25 @@ def execute_tool(name: str, arguments: dict, session_id: str = None) -> str:
             res = route_skill(user_message=query, session_id=session_id, skill_name=skill_name_arg)
             if not res.get("success"):
                 return res.get("error", f"Skill '{skill_name_arg}' failed.")
-            return res.get("output_text", f"Skill '{skill_name_arg}' did not return output.")
+            output = res.get("output_text", f"Skill '{skill_name_arg}' did not return output.")
+
+            # Append what was actually written to disk. Document skills end
+            # with a natural-language summary, and a summary is not evidence:
+            # "your deck is saved as ai_overview.pptx" reads identically
+            # whether or not that file exists. The artifact list is the only
+            # thing here that came from the filesystem rather than the model,
+            # so it is what the calling model should be reasoning over.
+            # `files_created` is absent entirely for skills that don't run
+            # code, and those are left untouched.
+            if "files_created" in res:
+                artifacts = res.get("files_created") or []
+                if artifacts:
+                    output += f"\n\n[verified: files created — {', '.join(artifacts)}]"
+                else:
+                    output += ("\n\n[verified: NO files were created by this run. Do not "
+                               "tell the user a document was produced or give them a "
+                               "filename, whatever the summary above says.]")
+            return output
 
         elif name in ("run_python", "run_shell"):
             import code_exec
