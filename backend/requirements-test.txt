@@ -28,3 +28,8 @@ scipy               # meeting_recorder.py resampling when the two tracks differ 
 pypdf               # skills/pdf_skill.py
 reportlab           # skills/pdf_skill.py
 python-pptx         # skills/ppt_skill.py
+
+# Supplies the IANA timezone database that Windows does not ship; without it
+# the outlook_provider timezone tests resolve every zone to UTC. Mirrors the
+# same marked requirement in requirements.txt.
+tzdata; sys_platform == 'win32'

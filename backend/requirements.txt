@@ -56,6 +56,11 @@ scikit-learn
 # ————— CALENDAR SKILL ————————————————————
 icalendar
 recurring-ical-events
+# Windows ships no IANA timezone database, so zoneinfo.ZoneInfo("America/
+# Los_Angeles") raises ZoneInfoNotFoundError there and outlook_provider falls
+# back to UTC — every Outlook event rendered at the wrong hour on the platform
+# Primnox primarily ships to. macOS/Linux read the system copy.
+tzdata; sys_platform == 'win32'
 
 # ————— SKILLS ————————————————————————————
 pypdf
