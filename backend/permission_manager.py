@@ -26,7 +26,15 @@ import uuid
 
 # token -> {"event": threading.Event, "result": bool | None, "session_id": str, "created": float, "timeout": float}
 _pending: dict[str, dict] = {}
+# scope id -> float (time granted). See request_permission's `scope` argument.
+_granted_scopes: dict[str, float] = {}
 _lock = threading.Lock()
+
+# Backstop only. Scopes are meant to be released explicitly by whoever opened
+# them (adapted_skill's finally block); this bounds the damage if a caller
+# crashes hard enough to skip that, so a grant can never outlive the run it
+# was given for by more than a few minutes.
+_SCOPE_TTL_SECONDS = 600
 
 _broadcast_cb = None
 
@@ -50,14 +58,49 @@ def _sweep_expired():
         ]
         for tok in stale:
             _pending.pop(tok, None)
+        for scope in [s for s, granted in _granted_scopes.items()
+                      if now - granted > _SCOPE_TTL_SECONDS]:
+            _granted_scopes.pop(scope, None)
 
 
-def request_permission(action: str, description: str, session_id: str = "", timeout: float = 120) -> bool:
+def open_scope() -> str:
+    """Mints an approval scope id for one multi-step run. Pass it to every
+    request_permission() call belonging to that run, and release_scope() it
+    when the run ends."""
+    return uuid.uuid4().hex[:12]
+
+
+def release_scope(scope: str) -> None:
+    if not scope:
+        return
+    with _lock:
+        _granted_scopes.pop(scope, None)
+
+
+def request_permission(action: str, description: str, session_id: str = "", timeout: float = 120,
+                       scope: str = "") -> bool:
     """Blocks the calling thread until the user answers a permission prompt
     (or `timeout` seconds elapse, which counts as deny). Broadcasts a
     `permission_request` WS event for the frontend to render as an
-    Allow/Deny chat card."""
+    Allow/Deny chat card.
+
+    `scope` makes one Allow cover a whole multi-step run rather than every
+    individual step. A skill building a PDF runs 3-6 sandboxed commands, and
+    prompting for each one produced a dialog per step — including for
+    fragments like a lone import line, which nobody can meaningfully review.
+    That is worse than useless: it trains the user to click Allow without
+    reading, which is precisely the habit the gate exists to prevent. So the
+    FIRST request in a scope prompts for real, and the rest of that run
+    inherits the answer. Only Allow is remembered — a Deny stops the run
+    outright, so there is nothing to inherit. Scopes are minted per run by
+    open_scope() and are never derived from anything a model can influence.
+    """
     _sweep_expired()
+
+    if scope:
+        with _lock:
+            if scope in _granted_scopes:
+                return True
 
     token = uuid.uuid4().hex[:12]
     event = threading.Event()
@@ -77,6 +120,7 @@ def request_permission(action: str, description: str, session_id: str = "", time
                 "action": action,
                 "description": description,
                 "session_id": session_id,
+                "covers_run": bool(scope),
             })
         except Exception:
             pass
@@ -86,7 +130,11 @@ def request_permission(action: str, description: str, session_id: str = "", time
     with _lock:
         entry = _pending.pop(token, None)
 
-    return bool(got_response and entry and entry["result"] is True)
+    allowed = bool(got_response and entry and entry["result"] is True)
+    if allowed and scope:
+        with _lock:
+            _granted_scopes[scope] = time.time()
+    return allowed
 
 
 def resolve_permission(token: str, allow: bool) -> bool:

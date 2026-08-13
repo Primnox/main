@@ -187,6 +187,17 @@ class AdaptedClaudeSkill(BaseSkill):
     _skill_folder: Path = None
 
     def execute(self, ctx: SkillContext) -> SkillResult:
+        # One approval covers the whole run — see permission_manager's `scope`
+        # docstring for why per-step prompting was actively harmful.
+        from permission_manager import open_scope, release_scope
+
+        scope = open_scope()
+        try:
+            return self._execute(ctx, scope)
+        finally:
+            release_scope(scope)
+
+    def _execute(self, ctx: SkillContext, approval_scope: str) -> SkillResult:
         from brain import think
 
         workspace_id = self._workspace_id(ctx)
@@ -232,7 +243,8 @@ class AdaptedClaudeSkill(BaseSkill):
                      command=_display_command(language, code),
                      step=step + 1, total=_MAX_STEPS)
 
-            exec_result = self._execute_block(language, code, ctx, workspace_id)
+            exec_result = self._execute_block(language, code, ctx, workspace_id,
+                                              approval_scope=approval_scope)
             created = [n for n in exec_result.get("files_created", []) if n not in artifacts]
             artifacts.extend(created)
             commands_run += 1
@@ -352,7 +364,8 @@ class AdaptedClaudeSkill(BaseSkill):
         return True
 
     @staticmethod
-    def _execute_block(language: str, code: str, ctx: SkillContext, workspace_id: str) -> dict:
+    def _execute_block(language: str, code: str, ctx: SkillContext, workspace_id: str,
+                       approval_scope: str = "") -> dict:
         import code_exec
         import runtime_capabilities
 
@@ -376,7 +389,8 @@ class AdaptedClaudeSkill(BaseSkill):
             "shell": code_exec.run_shell,
             "node": code_exec.run_node,
         }[language]
-        return runner(code, session_id=ctx.session_id or "", workspace_id=workspace_id)
+        return runner(code, session_id=ctx.session_id or "", workspace_id=workspace_id,
+                      approval_scope=approval_scope)
 
     def _build_prompt(self, ctx: SkillContext, staged: bool = False) -> str:
         # Body first and largest — it's the skill's actual instructions.

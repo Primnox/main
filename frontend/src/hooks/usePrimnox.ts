@@ -303,10 +303,19 @@ export function usePrimnox() {
           // separate confirm-dialog component.
           const token = payload?.token;
           if (token) {
+            const body = payload?.description || 'This action needs your confirmation.';
+            // A scoped request covers every step of one task. Saying so is the
+            // whole point of scoping it — otherwise the user has no way to
+            // know whether Allow means "this line" or "the next five minutes".
+            const scopeNote = payload?.covers_run
+              ? '\n\n_One approval covers every step of this task._'
+              : '';
             setMessages(prev => [...prev, {
               sender: 'Primnox',
-              text: payload?.description || 'This action needs your confirmation.',
+              text: body + scopeNote,
               timestamp: Date.now(),
+              permissionToken: token,
+              permissionState: 'pending',
               blocks: [{
                 type: 'buttons',
                 buttons: [
@@ -561,12 +570,31 @@ export function usePrimnox() {
   }, []);
 
   const respondToPermission = useCallback(async (token: string, allow: boolean) => {
-    await fetch(`${API_BASE_URL}/api/permission_response`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, allow }),
-    });
-  }, []);
+    // Resolve the card optimistically. The buttons previously stayed live and
+    // unchanged after a click, so an answered prompt looked identical to an
+    // unanswered one — the user had no way to tell whether their Allow had
+    // registered, and could answer the same token twice.
+    setMessages(prev => prev.map(m =>
+      m.permissionToken === token && m.permissionState === 'pending'
+        ? { ...m, permissionState: allow ? 'allowed' : 'denied', blocks: null }
+        : m
+    ));
+    try {
+      await fetch(`${API_BASE_URL}/api/permission_response`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, allow }),
+      });
+    } catch (e) {
+      // The backend is blocked waiting on this answer and will time out into
+      // a deny, so say so rather than leaving the card claiming "Allowed".
+      console.error('Permission response failed', e);
+      setMessages(prev => prev.map(m =>
+        m.permissionToken === token ? { ...m, permissionState: 'failed' } : m
+      ));
+      addToast('error', "Couldn't send that answer — Primnox may have stopped.");
+    }
+  }, [addToast]);
 
   const toggleMic = useCallback(async () => {
     try {

@@ -311,7 +311,7 @@ class TestSkillCannotGrantItselfPermission:
     def denied(self, monkeypatch):
         calls = []
 
-        def _deny(action, description, session_id="", timeout=120):
+        def _deny(action, description, session_id="", timeout=120, scope=""):
             calls.append(action)
             return False
 
@@ -424,6 +424,81 @@ class TestSkillCannotGrantItselfPermission:
         result = code_exec.run_python("open('proof.txt', 'w').write('ran')", session_id="s1")
         assert result["success"] is False
         assert "not approved" in result["error"]
+
+
+class TestOneApprovalPerRunNotPerStep:
+    """A skill run executes several commands. Prompting for each one meant a
+    single "make me a PDF" produced a dialog per step — one of them showing
+    nothing but an import line. Approval is now scoped to the run, without
+    loosening what an unapproved run can do."""
+
+    def test_a_three_step_run_asks_the_user_once(self, monkeypatch, tmp_path):
+        asked = []
+        real_request = permission_manager.request_permission
+
+        def _counting_broadcast(event_type, data):
+            asked.append(data)
+            permission_manager.resolve_permission(data["token"], True)
+
+        monkeypatch.setattr(permission_manager, "_pending", {})
+        monkeypatch.setattr(permission_manager, "_granted_scopes", {})
+        permission_manager.set_broadcast_callback(_counting_broadcast)
+        monkeypatch.setattr(code_exec, "_active_backend", lambda: "appcontainer")
+        monkeypatch.setattr(code_exec, "_create_appcontainer_process",
+                            lambda *a, **kw: {"success": True, "stdout": "", "stderr": "",
+                                              "return_code": 0, "duration_ms": 1})
+        _scripted_think(monkeypatch, [
+            _reply("first, set up\n```python\nprint(1)\n```"),
+            _reply("now the body\n```python\nprint(2)\n```"),
+            _reply("one more import\n```python\nfrom reportlab.platypus import Frame\n```"),
+            _reply("all done"),
+        ])
+
+        try:
+            _skill(tmp_path / "multi", "Run several steps.").run(
+                SkillContext(user_message="make me a pdf", session_id="s1"))
+        finally:
+            permission_manager.set_broadcast_callback(None)
+
+        assert len(asked) == 1, f"user was asked {len(asked)} times for one request"
+        assert asked[0]["covers_run"] is True
+        assert real_request is permission_manager.request_permission
+
+    def test_a_denied_run_still_blocks_every_later_step(self, monkeypatch, tmp_path):
+        # The inverse of the above: one Deny must not be forgotten between
+        # steps either. Each subsequent step re-asks and is refused again, so
+        # nothing executes.
+        monkeypatch.setattr(permission_manager, "_granted_scopes", {})
+        monkeypatch.setattr(permission_manager, "request_permission",
+                            lambda *a, **kw: False)
+        monkeypatch.setattr(code_exec, "_active_backend", lambda: "appcontainer")
+
+        def _never(*a, **kw):
+            raise AssertionError("a denied execution still created a process")
+
+        monkeypatch.setattr(code_exec, "_create_appcontainer_process", _never)
+        _scripted_think(monkeypatch, [
+            _reply("```python\nprint(1)\n```"),
+            _reply("```python\nprint(2)\n```"),
+            _reply("giving up"),
+        ])
+
+        result = _skill(tmp_path / "denied_multi", "Run several steps.").run(
+            SkillContext(user_message="make me a pdf", session_id="s1"))
+        assert result.success is False
+
+    def test_scope_is_released_when_a_run_raises(self, monkeypatch, tmp_path):
+        # If the finally block ever stopped releasing, a grant would leak into
+        # the next unrelated run for the rest of the TTL.
+        monkeypatch.setattr(permission_manager, "_granted_scopes", {})
+        skill = _skill(tmp_path / "boom", "Explode.")
+        monkeypatch.setattr(type(skill), "_execute",
+                            lambda self, ctx, scope: (_ for _ in ()).throw(RuntimeError("boom")))
+
+        with pytest.raises(RuntimeError):
+            skill.execute(SkillContext(user_message="go", session_id="s1"))
+
+        assert permission_manager._granted_scopes == {}
 
 
 # ── 12. Prompt injection via a document ───────────────────────────────────────

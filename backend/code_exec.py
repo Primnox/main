@@ -769,6 +769,7 @@ def _run(
     session_id: str = "",
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     workspace_id: str = "",
+    approval_scope: str = "",
     _internal: bool = False,
 ) -> dict:
     """_internal skips the permission prompt and is ONLY for probe code that
@@ -791,6 +792,7 @@ def _run(
             action=f"run_{language}",
             description=f"Run this {language} code?\n\n```{language}\n{code}\n```",
             session_id=session_id,
+            scope=approval_scope,
         )
         if not allowed:
             return {"success": False, "error": "execution cancelled — not approved."}
@@ -862,18 +864,21 @@ def _run(
 
 
 def run_python(code: str, session_id: str = "", timeout: float = DEFAULT_TIMEOUT_SECONDS,
-               workspace_id: str = "") -> dict:
-    return _run("python", code, session_id=session_id, timeout=timeout, workspace_id=workspace_id)
+               workspace_id: str = "", approval_scope: str = "") -> dict:
+    return _run("python", code, session_id=session_id, timeout=timeout,
+                workspace_id=workspace_id, approval_scope=approval_scope)
 
 
 def run_shell(code: str, session_id: str = "", timeout: float = DEFAULT_TIMEOUT_SECONDS,
-              workspace_id: str = "") -> dict:
-    return _run("shell", code, session_id=session_id, timeout=timeout, workspace_id=workspace_id)
+              workspace_id: str = "", approval_scope: str = "") -> dict:
+    return _run("shell", code, session_id=session_id, timeout=timeout,
+                workspace_id=workspace_id, approval_scope=approval_scope)
 
 
 def run_node(code: str, session_id: str = "", timeout: float = DEFAULT_TIMEOUT_SECONDS,
-             workspace_id: str = "") -> dict:
-    return _run("node", code, session_id=session_id, timeout=timeout, workspace_id=workspace_id)
+             workspace_id: str = "", approval_scope: str = "") -> dict:
+    return _run("node", code, session_id=session_id, timeout=timeout,
+                workspace_id=workspace_id, approval_scope=approval_scope)
 
 
 def run_probe(language: str, code: str, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> dict:

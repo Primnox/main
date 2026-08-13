@@ -203,6 +203,23 @@ const PrivacyMirrorBlock = ({ data }: { data: { mapping?: ScrubItem[]; model?: s
 };
 
 // ── Typing dots ───────────────────────────────────────────────────────────────
+/** What an answered Allow/Deny card turns into. The buttons are removed once
+ *  answered, so without this the card would just lose its controls and leave
+ *  no record of what the user actually chose. */
+const PermissionOutcome = ({ state }: { state: 'allowed' | 'denied' | 'failed' }) => {
+  const { Icon, label, tone } = state === 'allowed'
+    ? { Icon: ShieldCheck, label: 'Allowed', tone: 'text-primary' }
+    : state === 'denied'
+      ? { Icon: X, label: 'Denied', tone: 'text-on-surface/50' }
+      : { Icon: X, label: "Couldn't send your answer", tone: 'text-red-400' };
+  return (
+    <div className={`flex items-center gap-1.5 mt-1.5 text-[11px] font-medium ${tone}`}>
+      <Icon size={13} />
+      <span>{label}</span>
+    </div>
+  );
+};
+
 const TypingDots = () => (
   <div className="flex items-center gap-1.5 py-1">
     {[0, 1, 2].map(i => (
@@ -790,6 +807,9 @@ export const ChatExpandedSidebar = ({
                                   }
                                 }}
                               />
+                            )}
+                            {msg.permissionState && msg.permissionState !== 'pending' && (
+                              <PermissionOutcome state={msg.permissionState} />
                             )}
                             {msg.timestamp && (
                               <p className="text-[10px] text-on-surface/42 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
