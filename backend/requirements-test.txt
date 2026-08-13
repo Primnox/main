@@ -1,0 +1,30 @@
+# Dependencies needed to run the backend unit suite.
+#
+# Deliberately NOT requirements.txt: that pulls torch, transformers, easyocr and
+# ultralytics — multi-GB downloads for the PII and vision models that no unit
+# test exercises. Everything here is a small pure-Python or wheel-only package.
+#
+# The rule for adding to this file: a test imports a backend module, and that
+# module imports this package at module level. Hardware-bound libraries
+# (sounddevice/edge_tts/pygame, reached via core.py -> vad_listener/voice) are
+# stubbed in the tests instead — see tests/test_session_lock.py — because a
+# headless runner has no audio device or SDL for them to bind to.
+
+pytest
+
+requests            # brain.py, tools.py
+psutil              # sandbox_manager.py, session/process probes
+cryptography        # local_vault.py (AESGCM)
+pyyaml              # skills/adapted_skill.py (SKILL.md frontmatter)
+python-dotenv       # core.py, settings_manager.py
+pyperclip           # feed_manager.py
+Pillow              # sensor_vision.py
+numpy               # meeting_recorder.py mixing math — genuinely computed, not stubbed
+scipy               # meeting_recorder.py resampling when the two tracks differ in rate
+
+# skill_router skips registering a skill whose pip deps are missing, so without
+# these the PDF/PPT skills never register and their tests find no skill to route
+# to. Wheels only, no ML runtime.
+pypdf               # skills/pdf_skill.py
+reportlab           # skills/pdf_skill.py
+python-pptx         # skills/ppt_skill.py

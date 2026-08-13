@@ -14,7 +14,14 @@ from runtime_capabilities import Capabilities
 
 
 @pytest.fixture(autouse=True)
-def _clear_cache():
+def _clear_cache(monkeypatch):
+    # _probe() short-circuits to "nothing available" unless the sandbox account
+    # is provisioned, which is a Windows-only, machine-specific fact. Pin it to
+    # provisioned so these tests exercise the probe path everywhere — otherwise
+    # they pass only on a configured Windows box, and elsewhere either error out
+    # or, worse, assert the right thing for the wrong reason. The unprovisioned
+    # case has its own test below, which overrides this.
+    monkeypatch.setattr("sandbox_account.sandbox_account_configured", lambda: True)
     runtime_capabilities.invalidate()
     yield
     runtime_capabilities.invalidate()

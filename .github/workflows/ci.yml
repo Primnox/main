@@ -190,9 +190,10 @@ jobs:
       - name: Install test dependencies
         working-directory: backend
         # Deliberately not installing requirements.txt: it pulls torch and
-        # transformers (multi-GB) for the PII model. The unit tests cover pure
+        # transformers (multi-GB) for the PII model. requirements-test.txt is
+        # the light subset the suite actually imports; the unit tests cover pure
         # logic and stub anything that needs those.
-        run: python -m pip install --upgrade pip pytest
+        run: python -m pip install --upgrade pip -r requirements-test.txt
 
       - name: Unit tests
         working-directory: backend

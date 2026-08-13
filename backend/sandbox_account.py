@@ -60,7 +60,15 @@ def _is_elevated() -> bool:
 
 
 def account_exists(username: str = SANDBOX_USERNAME) -> bool:
-    import win32net
+    try:
+        import win32net
+    except ImportError:
+        # Not Windows (or pywin32 missing) — there is no Windows sandbox
+        # account here, and "no" is the honest answer. Raising instead would
+        # break sandbox_account_configured()'s contract of being safe to call
+        # from any platform, taking runtime_capabilities.detect() down with it
+        # rather than letting it report an unprovisioned sandbox.
+        return False
     try:
         win32net.NetUserGetInfo(None, username, 0)
         return True
