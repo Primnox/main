@@ -83,6 +83,50 @@ _groq_lb_state = {
     "current_idx": 0,
 }
 
+# Endpoints (url + model) that have told us they can't do tool calling. Plenty
+# of models behind an OpenAI-compatible proxy — and most self-hosted ones —
+# reject a request carrying `tools` outright with a 400. Primnox attaches tools
+# to every agentic turn, so on such a provider EVERY message failed with a raw
+# API error and the app was unusable end to end. Learned once per endpoint,
+# then that provider is simply used without tools for the rest of the process.
+_no_tool_support: set[tuple[str, str]] = set()
+_no_tool_support_lock = threading.Lock()
+
+_TOOLS_UNSUPPORTED_MARKERS = (
+    "tool calling",
+    "tools is not supported",
+    "tools are not supported",
+    "does not support tools",
+    "tool_choice",
+    "function calling",
+    "unsupported parameter: 'tools'",
+    'unsupported parameter: "tools"',
+)
+
+
+def _rejects_tools(response_text: str) -> bool:
+    """Is this 400 the provider saying "I don't do tool calling"?
+
+    Deliberately matched on the message rather than a status code alone: a
+    400 usually means our payload was wrong, and silently dropping the tools
+    on every 400 would hide real bugs and quietly downgrade a capable model.
+    """
+    lowered = (response_text or "").lower()
+    if "not support" not in lowered and "unsupported" not in lowered and "invalid" not in lowered:
+        return False
+    return any(marker in lowered for marker in _TOOLS_UNSUPPORTED_MARKERS)
+
+
+def _tools_known_unsupported(url: str, model_name: str) -> bool:
+    with _no_tool_support_lock:
+        return (url, model_name) in _no_tool_support
+
+
+def _remember_tools_unsupported(url: str, model_name: str) -> None:
+    with _no_tool_support_lock:
+        _no_tool_support.add((url, model_name))
+
+
 def rotate_groq_model():
     """Advances the global Groq model index to load balance (thread-safe)."""
     with _groq_lb_lock:
@@ -1322,18 +1366,25 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
             for step in range(max_steps):
                 tried_groq = set()
                 recovered_400 = False
-                for _retry in range(len(GROQ_FALLBACK_CHAIN) + 1):
-                    resp = requests.post(
-                        url,
-                        headers=headers,
-                        json={
-                            "model": model_name,
-                            "messages": messages,
-                            "tools": active_tool_definitions,
-                            "tool_choice": "auto"
-                        },
-                        timeout=60
-                    )
+                for _retry in range(len(GROQ_FALLBACK_CHAIN) + 2):
+                    payload = {"model": model_name, "messages": messages}
+                    if not _tools_known_unsupported(url, model_name):
+                        payload["tools"] = active_tool_definitions
+                        payload["tool_choice"] = "auto"
+                    resp = requests.post(url, headers=headers, json=payload, timeout=60)
+
+                    # The provider can't do tool calling. Remember it and send
+                    # the same turn again as a plain completion — the model
+                    # loses its tools but the user gets an answer, which beats
+                    # a raw 400 pasted into the chat.
+                    if (resp.status_code == 400 and "tools" in payload
+                            and _rejects_tools(resp.text)):
+                        _remember_tools_unsupported(url, model_name)
+                        log.warning(
+                            f"{model_name} rejected tool calling — continuing without tools "
+                            f"for this provider ({resp.text[:120]})")
+                        continue
+
                     if resp.status_code == 429:
                         if "groq.com" in url and (model_name in GROQ_FALLBACK_CHAIN or model_name == pinned_groq_model):
                             tried_groq.add(model_name)
