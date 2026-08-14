@@ -35,9 +35,19 @@ const IconButton = ({ icon: Icon, active, onClick, label }: { icon: any, active?
   </button>
 );
 
+// A div with an onClick is invisible to the keyboard: every one of these was
+// unreachable by Tab, so the entire primary navigation was mouse-only. role +
+// tabIndex put them back in the tab order and Enter/Space activate them, which
+// is what a real <button> would have given us for free.
 const SidebarLink = ({ icon: Icon, label, active, onClick }: { icon: any, label: string, active?: boolean, onClick?: () => void }) => (
-  <div 
+  <div
     onClick={onClick}
+    role="button"
+    tabIndex={0}
+    aria-current={active ? 'page' : undefined}
+    onKeyDown={e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); }
+    }}
     className={`flex items-center gap-4 px-6 py-3 font-mono text-[10px] uppercase tracking-widest transition-all duration-300 cursor-pointer group
       ${active 
         ? 'bg-primary/10 text-on-surface border-l-2 border-primary' 

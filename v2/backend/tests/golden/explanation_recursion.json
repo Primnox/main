@@ -1,0 +1,20 @@
+{
+  "event_flow": [
+    "turn.created",
+    "job.started",
+    "turn.status",
+    "token*",
+    "turn.completed",
+    "job.completed"
+  ],
+  "statuses": [
+    "building_context",
+    "thinking",
+    "streaming"
+  ],
+  "final_text": "Recursion is when a function calls itself on a smaller version of the same problem.\n\nEvery recursive function needs a base case \u2014 a version of the problem small enough to answer outright \u2014 otherwise it never stops.\n\nThe classic example is factorial: `n! = n * (n-1)!`, with `0! = 1` as the base case.",
+  "streamed_text": "Recursion is when a function calls itself on a smaller version of the same problem.\n\nEvery recursive function needs a base case \u2014 a version of the problem small enough to answer outright \u2014 otherwise it never stops.\n\nThe classic example is factorial: `n! = n * (n-1)!`, with `0! = 1` as the base case.",
+  "workspaces": 0,
+  "executions": 0,
+  "assets": 0
+}

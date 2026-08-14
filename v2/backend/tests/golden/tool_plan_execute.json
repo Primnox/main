@@ -1,0 +1,37 @@
+{
+  "event_flow": [
+    "turn.created",
+    "job.started",
+    "turn.status",
+    "token*",
+    "plan.proposed",
+    "turn.status",
+    "permission.request",
+    "permission.resolved",
+    "tool.call",
+    "sandbox.created",
+    "sandbox.progress",
+    "sandbox.stdout",
+    "sandbox.snapshot",
+    "sandbox.completed",
+    "sandbox.destroyed",
+    "tool.result",
+    "turn.status",
+    "token*",
+    "turn.completed",
+    "job.completed"
+  ],
+  "statuses": [
+    "building_context",
+    "thinking",
+    "streaming",
+    "tool_running",
+    "thinking",
+    "streaming"
+  ],
+  "final_text": "The sum of 1 through 100 is 5050.",
+  "streamed_text": "The sum of 1 through 100 is 5050.",
+  "workspaces": 0,
+  "executions": 1,
+  "assets": 0
+}

@@ -601,16 +601,22 @@ export function usePrimnox() {
       for (const f of files) {
         formData.append('files', f);
       }
-      await fetch(`${API_BASE_URL}/message`, {
+      const res = await fetch(`${API_BASE_URL}/message`, {
         method: 'POST',
         body: formData,  // no Content-Type header — browser sets boundary automatically
       });
+      // fetch only rejects on a network failure, so a 400/500 used to resolve
+      // exactly like success: the caller's catch never ran, the draft was
+      // already cleared, and no reply ever arrived — the message just vanished
+      // with nothing shown. Throwing lets handleSend restore what was typed.
+      if (!res.ok) throw new Error(`send failed: ${res.status} ${res.statusText}`);
     } else {
-      await fetch(`${API_BASE_URL}/message`, {
+      const res = await fetch(`${API_BASE_URL}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, sessionId })
       });
+      if (!res.ok) throw new Error(`send failed: ${res.status} ${res.statusText}`);
     }
   }, []);
 

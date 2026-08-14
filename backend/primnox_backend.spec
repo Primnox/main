@@ -22,6 +22,26 @@ else:
 datas += collect_data_files('transformers')
 datas += collect_data_files('tokenizers')
 
+# ── Packages that resolve assets at runtime ────────────────────────────────────
+# The module graph pulls in the *code* for these, so a frozen build imports them
+# fine and only fails later, when they go looking for data that never shipped.
+# That is why they survive a launch smoke test and break in the wild instead.
+
+# botocore keeps every AWS service definition as JSON and reads it when a client
+# is constructed, not when it is imported. Without this, backup_providers/s3.py
+# raises DataNotFoundError the first time an S3/B2/R2/Wasabi backup runs.
+datas += collect_data_files('botocore')
+
+# google-api-python-client resolves discovery documents the same way, for
+# backup_providers/gdrive.py and skills/calendar_providers/google_provider.py.
+datas += collect_data_files('googleapiclient')
+
+# ultralytics and easyocr both read packaged YAML/character configs from their
+# own install dir (spatial_engine.py). Model *weights* stay a first-run download
+# by design; these are the config files needed before that download can start.
+datas += collect_data_files('ultralytics')
+datas += collect_data_files('easyocr')
+
 hiddenimports = [
   'uvicorn',
   'uvicorn.logging',
@@ -62,6 +82,13 @@ hiddenimports = [
 # = in-call detection; scipy.signal = the mic+speaker mixdown.
 # scipy.signal powers the mic+speaker mixdown on every platform.
 hiddenimports += ['scipy', 'scipy.signal']
+
+# keyring selects its OS backend through package entry points, which a frozen
+# app cannot enumerate — the import succeeds and then no backend is found, so
+# every secret read returns nothing. Name the backends explicitly. Used by
+# local_vault, settings_manager, sandbox_account, brain, code_exec and
+# backup_manager, i.e. the whole credential path.
+hiddenimports += collect_submodules('keyring.backends')
 
 # Per-platform capture backends — keep them platform-scoped so neither build
 # carries the other's unused PortAudio DLLs, and a mac build doesn't warn about

@@ -380,7 +380,23 @@ export const ChatExpandedSidebar = ({
   }, [renameState]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const end = messagesEndRef.current;
+    if (!end) return;
+    // liveMessages changes on every token flush (~10x/second while streaming),
+    // and this used to scroll unconditionally each time — so scrolling up to
+    // re-read anything mid-reply was impossible, the view snapped back within
+    // 100ms, and the competing smooth-scrolls fought each other. Follow the
+    // stream only while the user is already parked at the bottom; the moment
+    // they read up, leave their scroll position alone.
+    let scroller = end.parentElement;
+    while (scroller && scroller.scrollHeight <= scroller.clientHeight + 1) {
+      scroller = scroller.parentElement;
+    }
+    if (scroller) {
+      const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      if (distanceFromBottom > 120) return;
+    }
+    end.scrollIntoView({ behavior: 'smooth' });
   }, [liveMessages]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -884,7 +900,16 @@ export const ChatExpandedSidebar = ({
               <textarea
                 value={inputValue}
                 onChange={e => { setInputValue(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                // isComposing guards IME input: while composing Japanese, Chinese
+                // or Korean text, Enter confirms the candidate word. Without this
+                // check that Enter also sent the message, so those users could
+                // not finish a word without firing a half-written message.
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
                 rows={1}
                 className="flex-1 bg-transparent border-none focus:ring-0 text-on-surface/90 placeholder-on-surface/20 text-sm resize-none overflow-y-auto leading-6 min-h-[24px] max-h-[160px] py-0 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 placeholder="Message Primnox…"

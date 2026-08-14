@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { MotionConfig } from 'motion/react'
 import App from './app/App.tsx'
 import './styles/tailwind.css'
 import { ErrorBoundary } from './app/components/ErrorBoundary'
@@ -32,8 +33,15 @@ if (new URLSearchParams(window.location.search).get('primnox_island') === '1') {
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    {/* tailwind.css already zeroes CSS animation for prefers-reduced-motion, but
+        Motion animates inline styles from rAF, so that media query never touched
+        the screen transitions, island morphs or toasts — the people who asked for
+        less motion still got all of it. reducedMotion="user" makes Motion honour
+        the same OS setting. */}
+    <MotionConfig reducedMotion="user">
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </MotionConfig>
   </React.StrictMode>,
 )

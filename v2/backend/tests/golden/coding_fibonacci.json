@@ -1,0 +1,26 @@
+{
+  "event_flow": [
+    "turn.created",
+    "job.started",
+    "turn.status",
+    "tool.call",
+    "workspace.created",
+    "tool.result",
+    "turn.status",
+    "token*",
+    "turn.completed",
+    "job.completed"
+  ],
+  "statuses": [
+    "building_context",
+    "thinking",
+    "tool_running",
+    "thinking",
+    "streaming"
+  ],
+  "final_text": "I wrote `fib.py` with an iterative Fibonacci function.",
+  "streamed_text": "I wrote `fib.py` with an iterative Fibonacci function.",
+  "workspaces": 1,
+  "executions": 0,
+  "assets": 0
+}

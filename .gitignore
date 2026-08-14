@@ -71,6 +71,9 @@ bandit_report*.json
 
 .venv/
 backend/.venv/
+# start.bat creates the venv as backend/venv (no dot), so ignore that spelling too.
+venv/
+backend/venv/
 
 # Dropped-in Claude Skill packages (SKILL.md format). Deliberately NOT
 # vendored: Anthropic's docx/pdf/pptx/xlsx skills are source-available but
@@ -78,3 +81,16 @@ backend/.venv/
 # skills here locally; the README stays tracked so the folder is documented.
 backend/skills/claude_skills/*
 !backend/skills/claude_skills/README.md
+
+# V2 local config — contains the API key. Never commit.
+v2/.env
+
+# Graphify's build output: an AST cache keyed by content hash, plus the graph
+# it exports. Regenerated from source on every run and versioned by the
+# extractor's own release (cache/ast/v0.9.42/...), so committing it means a
+# 126MB diff that goes stale the next time graphify updates.
+graphify-out/
+
+# Rendered slide/document artifacts produced while checking output by eye.
+/scratch-decks/
+*.pptx.tmp
