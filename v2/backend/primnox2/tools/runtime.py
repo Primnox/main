@@ -62,7 +62,12 @@ _VARIANTS: list[re.Pattern] | None = None
 _VARIANT_NAMES: list[str] = []
 
 # A model that emits tool blocks forever is a loop, not a conversation.
-MAX_TOOL_STEPS = 8
+def max_tool_steps() -> int:
+    from ..settings import tunables
+    return tunables.get("tools.max_steps")
+
+
+MAX_TOOL_STEPS = 8   # default; the live value comes from max_tool_steps()
 
 
 class StreamFilter:
@@ -180,6 +185,22 @@ def system_prompt(*, incognito: bool = False) -> str:
         "- If you do not need a tool, just answer normally.\n"
         "- You may plan first with a <plan>…</plan> block before a tool call.\n"
         "\n"
+        # Aimed at the specific ways a small model goes wrong here, and kept to
+        # four lines because every one is charged to every turn forever. Each is
+        # a failure that has an observable signature — a fabricated id, a claim
+        # with no tool call behind it — rather than general advice to be careful.
+        "Do not invent:\n"
+        "- Tool names, file names, asset ids, or paths. Use only ones that "
+        "appeared in a result you were given. If you need one and do not have "
+        "it, call a tool to find it.\n"
+        "- Facts about the user. What you know about them is in the context "
+        "above; anything else you must ask or leave out.\n"
+        "- Work you did not do. Only say you ran, saved, read or created "
+        "something if a tool result above shows it. If a tool failed, say so.\n"
+        "- An answer to something ambiguous. Call `ask_user` with the real "
+        "alternatives instead of picking one — a guess you write down is "
+        "indistinguishable from an instruction, and cannot be checked later.\n"
+        "\n"
         "Writing files:\n"
         "- Write to the CURRENT directory with a plain relative filename, e.g. "
         '`open("report.pdf", "wb")`.\n'
@@ -196,6 +217,22 @@ def system_prompt(*, incognito: bool = False) -> str:
     catalogue = skills.index()
     if catalogue:
         prompt += "\n\n" + catalogue
+
+    # Two sentences, charged to every turn, and worth it: without them the
+    # `remember` tool exists and is never called. A model does not volunteer to
+    # write to a store it was not told it owns, and the alternative — a settings
+    # screen the user types into — leaves memory permanently empty because
+    # nobody leaves a conversation to file a fact about themselves.
+    #
+    # Bounded on purpose. "Remember anything interesting" produces a store full
+    # of the task at hand, which is what the conversation is already for.
+    prompt += (
+        "\n\nWhen the user tells you to remember something, or states a lasting "
+        "fact about themselves — a preference, a name, how they work, a project "
+        "they keep returning to — call `remember`. Set asked_by_user when they "
+        "asked outright. Do NOT remember details of the current task; those "
+        "belong to the conversation, not to the user."
+    )
     if incognito:
         # Said once, up front. A model that discovers the limit by calling a
         # tool and reading the refusal tends to apologise for a failure, which
@@ -300,11 +337,49 @@ def _salvage_single_value(body: str, key: str) -> str | None:
     end = tail.rfind('"')
     if end <= 0:
         return None
-    value = tail[:end]
-    for encoded, decoded in (("\\n", "\n"), ("\\t", "\t"), ('\\"', '"'),
-                             ("\\'", "'"), ("\\\\", "\\")):
-        value = value.replace(encoded, decoded)
-    return value.strip() or None
+    return _decode_escapes(tail[:end]).strip() or None
+
+
+_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "'": "'", "\\": "\\"}
+
+
+def _decode_escapes(value: str) -> str:
+    """Decode JSON-style escapes in ONE left-to-right pass.
+
+    Sequential `str.replace` calls cannot do this correctly, because each pass
+    reads the output of the last. The old loop decoded `\\n` first and `\\\\`
+    last, so a Windows path — the single most likely thing to carry backslashes
+    in generated code — came out mangled:
+
+        open("C:\\\\temp\\\\x.txt")
+
+    contains the substring `\\t`, so the tab pass fired inside what was really
+    an escaped backslash followed by a `t`, and the code reached the sandbox
+    with a literal TAB where a path separator belonged. Scanning once and
+    consuming both characters of each escape together makes the order
+    irrelevant, which is the only way this is order-independent.
+
+    An unknown escape is left verbatim rather than dropped: `\\d` in a regex is
+    `\\d`, and silently eating the backslash would turn a working pattern into
+    one that matches the letter d.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(value):
+        ch = value[i]
+        if ch == "\\" and i + 1 < len(value):
+            nxt = value[i + 1]
+            if nxt in _ESCAPES:
+                out.append(_ESCAPES[nxt])
+                i += 2
+                continue
+            out.append(ch)          # unknown escape — keep the backslash
+            out.append(nxt)
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def parse_call(text: str) -> dict | None:
@@ -350,7 +425,23 @@ def execute(name: str, arguments: dict, ctx: ToolContext) -> dict:
     """Validate → ask → run → report. Returns a structured tool_result."""
     spec = get(name)
     if spec is None:
-        return _error(name, "unknown_tool", f"There is no tool called {name!r}.")
+        # Name the real tools, and the nearest miss first.
+        #
+        # "There is no tool called 'search_web'" tells a small model that it was
+        # wrong and nothing about what would be right, so it invents a second
+        # name, and a third — each retry burning a step from `tools.max_steps`
+        # until the turn ends with no work done. A 7B does not reliably hold the
+        # tool list across a long context; restating it at the exact moment it
+        # is needed costs a few tokens and converts a loop into one correction.
+        import difflib
+        real = sorted(tool_names())
+        near = difflib.get_close_matches(name, real, n=3, cutoff=0.6)
+        hint = f" Did you mean {', '.join(repr(n) for n in near)}?" if near else ""
+        return _error(name, "unknown_tool",
+                      f"There is no tool called {name!r}.{hint} "
+                      f"The tools that exist are: {', '.join(real)}. "
+                      f"Use one of these or answer without a tool — do not "
+                      f"invent another name.")
 
     errors = spec.validate(arguments)
     if errors:

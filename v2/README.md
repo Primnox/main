@@ -76,6 +76,7 @@ backend/primnox2/
   context/service.py  context bundles: token budget, ordering, asset references
   assets/service.py   ingest → hash → dedupe → extract → chunk (§2.6)
   workspaces/service.py  immutable versions, carry-forward edits, revert (§2.5)
+  memory/service.py   permanent memory: store, dedupe, search, soft delete
   sandbox/            the Sandbox Manager, below — its own service
   tools/              universal tool protocol, emulation, permission broker
   models/gateway.py   capability layer, providers, the privacy boundary (§13)
@@ -246,7 +247,7 @@ and after a complete incognito turn:
 ## The Verification Layer
 
 ```bash
-cd v2/backend && python -m pytest tests/ -q       # 116 tests, ~10s
+cd v2/backend && python -m pytest tests/ -q       # 513 tests, ~60s
 ```
 
 | Level | What it protects | Tests |
@@ -280,12 +281,98 @@ context_build             0.2ms     250ms budget  (1408x)
 returns a turn_id before any model work starts. If it regresses, the runtime
 has started doing work on the request path again.
 
+## SLDB — the Synthetic Life Database
+
+**Status**: [See SLDB_STATUS.md for current implementation details and API injection testing results.](./SLDB_STATUS.md)
+
+`backend/sdl/` generates a coherent person: twenty-four months of chats, email,
+calendar, documents, notes, tasks, photos and git history, all referencing the
+same cast, and an answer key for every question you can ask about them.
+
+The point is not volume. A pile of fake emails tests that a parser does not
+crash. What this generates is a life that AGREES with itself — a colleague who
+leaves in month 14 and stops appearing in meetings, a project renamed in month
+9 whose old name still resolves, a coffee preference that reverses twice — so
+"which project changed owners after the reorganisation" is a question with one
+correct answer rather than an opinion. `ground_truth.json` carries that answer,
+derived from the generator rather than written by hand, which is what makes a
+different result next release a **regression** instead of a difference of mood.
+
+```bash
+cd v2/backend
+python sdl/generate.py --list
+python sdl/generate.py --pack office-500 --out ./sdl-out    # 0.4s
+python sdl/generate.py --pack sldb-24m   --out ./sdl-out    # 7s, 383k edges
+```
+
+| Pack | Shape | Nodes / edges | Queries |
+|---|---|---|---|
+| `memory-10` | smoke test, runs in a second | 267 / 720 | 60 |
+| `memory-100` | supersession chains | 1.6k / 4.3k | 149 |
+| `office-500` | meetings and documents, little code | 7.2k / 19k | 400 |
+| `developer-1k` | large codebase, heavy commit history | 45k / 99k | 500 |
+| `executive-5k` | meeting-dominated | 15k / 37k | 500 |
+| `enterprise-50k` | heavy on every axis | 59k / 135k | 500 |
+| `sldb-24m` | the full specification | 177k / 383k | 500 |
+
+Every pack is byte-identical run to run. Packs are **not** prefixes of each
+other — volumes feed the month spread and the cast size — so compare a pack
+against itself across two Primnox versions, never one pack against another.
+
+**Six query levels**, kept separate because a single number hides the thing you
+most want to know. A system can be excellent at recall and useless at traversal,
+and an average calls that "fine".
+
+| Level | Asks | Example |
+|---|---|---|
+| L1 | one fact, one source | which laptop is in use now |
+| L2 | one subject, several artifact types | who is this person |
+| L3 | two or more relationships, in order | who reviewed the PR that introduced OAuth |
+| L4 | what was true when, and what changed | which recurring meetings stopped at the reorg |
+| L5 | where work stopped, so it can resume | oldest unresolved TODO in this repo |
+| L6 | find the file among near-misses | latest non-draft, non-duplicate version |
+
+**Scoring** is weighted: answer 40%, evidence 25%, time 15%, graph path 10%,
+speed 10%. Evidence is weighted that heavily on purpose — a system returning
+"Espresso" while citing a document about laptops has guessed, and next month it
+guesses wrong. Answering every question correctly while citing nothing scores
+70.9%, which is *NEEDS WORK*, not *GOOD*. Axes the answer key cannot test are
+declined and their weight redistributed; a query a system simply did not answer
+scores zero, because silence must not be a strategy.
+
+```bash
+python sdl/inject.py  --from ./sdl-out/office-500 --load both --clear
+python sdl/failure.py --from ./sdl-out/office-500     # writes a damaged copy
+python sdl/evolve.py  --from ./sdl-out/office-500 --ticks 6
+```
+
+`inject.py` loads memories with their **own** timestamps — a month-2 memory and
+the month-15 one superseding it have to be fifteen months apart in the store, or
+"what is true now" degenerates into whichever row was inserted last and appears
+to work. The graph lands under scope `sdl:<pack>`, never global, so a synthetic
+corpus can be removed in one statement instead of living permanently mixed into
+real code.
+
+`failure.py` deletes files that were cited, renames folders under the index,
+saves PDFs twice, corrupts OCR with glyph confusions rather than random bytes,
+and truncates an import mid-write. It classifies every affected query as
+`still_answerable` or `degrade_gracefully`, because the question is not whether
+a system survives a missing file — anything survives by returning nothing — but
+whether it says so or answers anyway.
+
+`evolve.py` keeps the life going after generation: each tick is one more month
+of chats, commits and reschedulings, plus a preference that moves. It reports
+which base-pack answers are now **stale**. A system that indexed once will still
+answer those correctly-as-of-generation and be confidently wrong, and that
+failure is invisible against a frozen dataset — which is exactly why it survives
+so long in real ones.
+
 ## Deliberately not built
 
-Memory (V2.2), Voice (V2.3) and Agent Workflows (V2.4) have tables and
-contracts but no implementation, and the Privacy Gateway (V2.1) is a boundary
-with an identity scrub rather than a real one — kept as an identity function so
-nothing claims protection it is not providing.
+Voice (V2.3) and Agent Workflows (V2.4) have tables and contracts but no
+implementation, and the Privacy Gateway (V2.1) is a boundary with an identity
+scrub rather than a real one — kept as an identity function so nothing claims
+protection it is not providing.
 
 Two decisions are still open:
 

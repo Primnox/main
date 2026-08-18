@@ -51,7 +51,12 @@ ENTITY, DECISION, FILE, TOOL, ASSET = "entity", "decision", "file", "tool", "ass
 # A conversation's graph is capped. An unbounded one turns a long chat into a
 # slow memory leak, and the tail of a conversation is where the useful entities
 # are anyway.
-MAX_NODES = 400
+def _max_nodes() -> int:
+    from ..settings import tunables
+    return tunables.get('live.max_nodes')
+
+
+MAX_NODES = 400   # default; the live value comes from _max_nodes()
 
 _lock = threading.RLock()
 _graphs: dict[str, "LiveGraph"] = {}
@@ -96,7 +101,7 @@ class LiveGraph:
             if detail and not node["detail"]:
                 node["detail"] = detail
         else:
-            if len(self.nodes) >= MAX_NODES:
+            if len(self.nodes) >= _max_nodes():
                 self._evict()
             self.nodes[key] = {
                 "key": key, "label": label.strip(), "kind": kind, "detail": detail,
@@ -147,7 +152,30 @@ class LiveGraph:
         # choices nobody made.
         if role in ("user", "assistant"):
             for m in _DECISION.findall(text):
-                self.note(m.strip()[:160], DECISION, turn=turn, detail=role)
+                span = m.strip()
+                key = self.note(span[:160], DECISION, turn=turn, detail=role)
+                if not key:
+                    continue
+                # Link the decision to what it is ABOUT. Without this a decision
+                # is stored with degree zero: "use EventSourcing in
+                # storage/db.py" and the nodes for EventSourcing and
+                # storage/db.py all exist, with nothing joining them, so
+                # "what did we decide about storage/db.py" has no path to walk.
+                #
+                # Subjects are the entities named inside the decision's own
+                # span, not merely somewhere in the same message: a turn can
+                # settle one thing and mention another in passing, and linking
+                # to both makes that question answer with the wrong subject.
+                #
+                # Reusing the keys already harvested above rather than
+                # re-scanning the span keeps `mentions` honest — a second
+                # note() would count every entity inside a decision twice and
+                # distort both eviction order and salience.
+                lowered = span.lower()
+                for k in found:
+                    node = self.nodes.get(k)   # may have been evicted just now
+                    if node and node["label"].lower() in lowered:
+                        self.link(key, k, "concerns")
 
         # Entities named in the same message are related by co-occurrence. Weak
         # by design — it is a working set, not a claim about the world.

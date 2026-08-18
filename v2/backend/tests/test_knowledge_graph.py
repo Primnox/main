@@ -12,6 +12,11 @@ import pathlib
 import pytest
 
 from primnox2.chat import turns
+# Deliberately the consumer's own estimator. These tests assert that a rendered
+# block fits the budget reserved for it, so measuring with anything other than
+# what the context service measures with is measuring the wrong thing — that
+# gap is exactly how the renderer drifted 14% over budget unnoticed.
+from primnox2.context import service as context
 from primnox2.knowledge import graph, importer, live
 from primnox2.storage import db
 
@@ -161,7 +166,7 @@ def test_query_respects_its_token_budget(fresh_db):
     large = graph.query("service", token_budget=4000)
 
     assert len(small) < len(large)
-    assert len(small) <= 100 * graph.CHARS_PER_TOKEN + 40
+    assert context.estimate_tokens(small) <= 115, "the 100-token budget was overrun"
 
 
 @pytest.mark.skipif(not importer.available(), reason="graphify not installed")
@@ -401,8 +406,8 @@ def _corpus_tokens(symbol: str) -> int:
     for p in REPO.rglob("*.py"):
         text = p.read_text(encoding="utf-8", errors="ignore")
         if symbol in text:
-            total += len(text)
-    return total // graph.CHARS_PER_TOKEN
+            total += context.estimate_tokens(text)
+    return total
 
 
 @pytest.mark.skipif(not importer.available(), reason="graphify not installed")
@@ -417,7 +422,7 @@ def test_graph_answer_is_bounded_by_its_budget(fresh_db):
     importer.import_tree(REPO, scope="repo")
     for budget in (200, 400, 1000):
         answer = graph.query("ingest_bytes", token_budget=budget)
-        tokens = len(answer) // graph.CHARS_PER_TOKEN
+        tokens = context.estimate_tokens(answer)
         assert tokens <= budget + 20, f"budget {budget} produced {tokens} tokens"
 
 
@@ -433,7 +438,7 @@ def test_graph_answer_is_cheaper_than_reading_the_corpus(fresh_db):
     """
     importer.import_tree(REPO, scope="repo")
     answer = graph.query("ingest_bytes", token_budget=500)
-    graph_tokens = len(answer) // graph.CHARS_PER_TOKEN
+    graph_tokens = context.estimate_tokens(answer)
     corpus = _corpus_tokens("ingest_bytes")
 
     assert graph_tokens > 0, "the graph answered nothing"
@@ -442,3 +447,93 @@ def test_graph_answer_is_cheaper_than_reading_the_corpus(fresh_db):
         f"graph {graph_tokens} tok vs corpus {corpus} tok - "
         "the retrieval saving the design is premised on did not hold"
     )
+
+
+def _relations(g, kind):
+    """Edges of one relation, as (decision label, subject label) pairs."""
+    return {
+        (g.nodes[e["source"]]["label"], g.nodes[e["target"]]["label"])
+        for e in g.edges
+        if e["relation"] == kind and e["source"] in g.nodes and e["target"] in g.nodes
+    }
+
+
+def test_a_decision_is_linked_to_what_it_is_about(fresh_db):
+    """A decision with degree zero is unreachable knowledge.
+
+    Measured on the real store before this held: every decision node had no
+    edges at all, while the entities named inside them were fully cross-linked
+    to each other. The idea was recorded and the subject was recorded, so
+    "what did we decide about storage/db.py" had every fact it needed and no
+    path between them.
+    """
+    cid = turns.create_conversation("decisions")["id"]
+    g = live.for_conversation(cid)
+    g.observe_message(
+        "Let's use `EventSourcing` and put the counter in storage/db.py",
+        role="assistant", turn=1)
+
+    decisions = g.decisions()
+    assert decisions, "no decision was harvested; the test would pass vacuously"
+
+    subjects = {subject for _, subject in _relations(g, "concerns")}
+    assert "EventSourcing" in subjects, "the decision is not linked to the concept"
+    assert "storage/db.py" in subjects, "the decision is not linked to the file"
+    live.drop_all()
+
+
+def test_a_decision_is_not_linked_to_passing_mentions(fresh_db):
+    """Subjects come from the decision's own span, not the whole message.
+
+    A turn routinely settles one thing and mentions another in passing. Linking
+    to everything in the message would make "what did we decide about X" answer
+    with Y — worse than not answering, because it reads as a real commitment.
+    """
+    cid = turns.create_conversation("passing")["id"]
+    g = live.for_conversation(cid)
+    g.observe_message(
+        "Let's use `EventSourcing` for the audit trail. "
+        "Unrelatedly `PaymentGateway` came up yesterday and needs no change.",
+        role="assistant", turn=1)
+
+    subjects = {subject for _, subject in _relations(g, "concerns")}
+    assert "EventSourcing" in subjects, "the decision lost its actual subject"
+    assert "PaymentGateway" not in subjects, \
+        "a passing mention was recorded as something the decision settled"
+    live.drop_all()
+
+
+def test_linking_a_decision_does_not_inflate_mention_counts(fresh_db):
+    """`mentions` drives eviction order and salience, so it has to stay honest.
+
+    A path is used deliberately: it is caught by exactly one of the three
+    harvest patterns, so the expected count is unambiguous. Re-scanning the
+    decision span for subjects instead of reusing the keys already harvested
+    would double it.
+    """
+    cid = turns.create_conversation("counts")["id"]
+    g = live.for_conversation(cid)
+    g.observe_message("Let's use storage/db.py for this", role="user", turn=1)
+
+    node = g.nodes["file:storage/db.py"]
+    assert node["mentions"] == 1, \
+        f"named once, counted {node['mentions']} times"
+    live.drop_all()
+
+
+def test_decision_links_survive_a_save_and_reload(fresh_db):
+    """The link is only useful if it outlives the process — recall happens on
+    chats the user did not have in the last few minutes."""
+    cid = turns.create_conversation("durable-links")["id"]
+    g = live.for_conversation(cid)
+    g.observe_message("We'll go with `EventSourcing` for the audit trail",
+                      role="assistant", turn=1)
+    assert _relations(g, "concerns"), "nothing to persist; the test is vacuous"
+    assert g.save() is True
+
+    live.drop_all()
+
+    restored = live.for_conversation(cid)
+    subjects = {subject for _, subject in _relations(restored, "concerns")}
+    assert "EventSourcing" in subjects, "the decision link did not survive a reload"
+    live.drop_all()

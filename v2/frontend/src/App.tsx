@@ -1,21 +1,19 @@
-import {
-  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
-} from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import {
-  ArrowUp, Square, Plus, MessageSquare, AlertTriangle, RotateCw,
-  Circle, Check, Loader2, Ban, PanelRight, Cpu, Terminal, ShieldCheck,
-  Paperclip, FileText, Package, Lightbulb, ShieldAlert, X, ChevronRight, Download,
-  EyeOff, Eye, Pin, Folder, FolderPlus, Pencil, Trash2, Archive, MoreHorizontal,
-} from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import {
-  API, CrsSocket, api, emptyState, reduce, turnsFromHistory,
-  TERMINAL, type ConversationState, type CrsEvent, type Execution,
-  type PermissionRequest, type Turn, type ToolCall,
-} from './lib/crs';
+import { AlertTriangle, ArrowUp, Check, ChevronRight, EyeOff, FileText, Folder, FolderPlus, Loader2, PanelLeftOpen, PanelRight, Paperclip, Pencil, Pin, Plus, Search, Share2, Square, Trash2, X } from 'lucide-react';
+import { CrsSocket, TERMINAL, api, emptyState, reduce, turnsFromHistory, type ConversationState, type CrsEvent } from './lib/crs';
+import { ChatsContext, ViewerContext, type ChatActions, type OpenAsset } from './lib/contexts';
+import { groupByDay } from './lib/groupByDay';
+import { AppRail, type Section } from './components/AppRail';
+import { AssetViewer } from './components/AssetViewer';
+import { ChatRow } from './components/ChatRow';
+import { ContextRail } from './components/ContextRail';
+import { ContextSidebar } from './components/ContextSidebar';
+import { Panel } from './components/ui';
+import { GraphPanel } from './components/GraphPanel';
+import { MemoryPanel } from './components/MemoryPanel';
+import { SettingsPanel } from './components/SettingsPanel';
+import { TurnBlock } from './components/TurnBlock';
 
 /* Primnox V2 shell.
  *
@@ -28,226 +26,6 @@ import {
  * Everything the UI shows about a turn comes from that turn's own events. The
  * word "global" appears nowhere near status on purpose. */
 
-const MD: any = {
-  p:  ({ children }: any) => <p className="mb-3 last:mb-0 leading-7 text-on-surface/85">{children}</p>,
-  ul: ({ children }: any) => <ul className="mb-3 space-y-1 pl-5 list-disc text-on-surface/85">{children}</ul>,
-  ol: ({ children }: any) => <ol className="mb-3 space-y-1 pl-5 list-decimal text-on-surface/85">{children}</ol>,
-  code: ({ children, className }: any) =>
-    className ? (
-      <pre className="my-3 p-4 rounded-xl border border-on-surface/10 bg-on-surface/[0.03] overflow-x-auto">
-        <code className="font-mono text-[0.78rem] leading-relaxed">{children}</code>
-      </pre>
-    ) : (
-      <code className="bg-on-surface/10 text-primary/90 px-1.5 py-0.5 rounded-md text-[0.82em] font-mono">{children}</code>
-    ),
-  a: ({ href, children }: any) => <a href={href} className="text-primary underline underline-offset-2">{children}</a>,
-};
-
-// Plain words for each state. "Thinking" and "Writing" are separate on purpose:
-// waiting on a slow provider and receiving a slow reply look identical under a
-// single spinner, and telling them apart is most of what a status is for.
-const STATUS_COPY: Record<string, string> = {
-  queued: 'Queued',
-  building_context: 'Gathering context',
-  thinking: 'Thinking',
-  streaming: 'Writing',
-  tool_running: 'Running a tool',
-  awaiting_input: 'Waiting for you',
-};
-
-/* Opening a file is available wherever a file is mentioned — inside an
-   execution, on a turn, in the rail — and those are three different depths of
-   the tree. A context beats threading a callback through every one of them. */
-type OpenAsset = (asset: { id: string; name: string }) => void;
-const ViewerContext = createContext<OpenAsset>(() => {});
-
-/* ChatRow lives outside App on purpose. A component defined inside another is
-   a NEW component type on every render, so React remounts it — which throws
-   away the focus and caret of the rename field the moment you type. The
-   handlers reach it through a context instead. */
-type ChatActions = {
-  activeId: string | null;
-  folders: any[];
-  editingId: string | null;
-  menuId: string | null;
-  draggingId: string | null;
-  setDragging: (id: string | null) => void;
-  open: (id: string) => void;
-  setMenu: (id: string | null) => void;
-  beginRename: (id: string) => void;
-  commitRename: (id: string, title: string) => void;
-  togglePin: (c: any) => void;
-  move: (id: string, folderId: string | null) => void;
-  archive: (id: string) => void;
-  remove: (c: any) => void;
-};
-const ChatsContext = createContext<ChatActions | null>(null);
-
-/* The row menu is rendered into <body>, not beside the row.
-   The conversation list is `overflow-y-auto`, and an absolutely positioned
-   child of a scroll container is clipped by it: measured on a row near the
-   bottom, the menu overflowed the list by 124px and everything past
-   "Archive" — including "Delete permanently" — was simply cut off. A portal
-   escapes the clip; fixed coordinates keep it against its button. */
-const MENU_WIDTH = 208;
-
-function RowMenu({ anchor, onClose, children }: {
-  anchor: DOMRect; onClose: () => void; children: any;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: anchor.bottom + 4, left: anchor.right - MENU_WIDTH });
-
-  useEffect(() => {
-    // Measured after render rather than guessed: the menu's height changes
-    // with how many folders exist, so a constant would be wrong the moment
-    // someone adds one.
-    const height = ref.current?.offsetHeight ?? 0;
-    const room = window.innerHeight - anchor.bottom - 8;
-    setPos({
-      top: height > room ? Math.max(8, anchor.top - height - 4) : anchor.bottom + 4,
-      left: Math.max(8, Math.min(anchor.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8)),
-    });
-  }, [anchor]);
-
-  useEffect(() => {
-    // Fixed to the viewport, so a scroll would leave it stranded mid-air.
-    const close = () => onClose();
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-    };
-  }, [onClose]);
-
-  return createPortal(
-    <>
-      <div className="fixed inset-0 z-[60]" onClick={onClose} />
-      <div ref={ref} role="menu"
-        style={{ top: pos.top, left: pos.left, width: MENU_WIDTH }}
-        className="fixed z-[61] py-1 rounded-xl border border-on-surface/[0.12] bg-surface shadow-2xl">
-        {children}
-      </div>
-    </>,
-    document.body,
-  );
-}
-
-function ChatRow({ c }: { c: any }) {
-  const a = useContext(ChatsContext)!;
-  const active = c.id === a.activeId;
-  const editing = a.editingId === c.id;
-  const menuBtn = useRef<HTMLButtonElement>(null);
-  const [anchor, setAnchor] = useState<DOMRect | null>(null);
-
-  if (editing) {
-    return (
-      <input autoFocus defaultValue={c.title}
-        aria-label={`Rename ${c.title}`}
-        onKeyDown={e => {
-          if (e.key === 'Enter') a.commitRename(c.id, (e.target as HTMLInputElement).value);
-          if (e.key === 'Escape') a.commitRename(c.id, c.title);
-        }}
-        onBlur={e => a.commitRename(c.id, e.target.value)}
-        className="w-full px-3 py-2 rounded-lg bg-on-surface/[0.07] border border-primary/40 text-[13px] outline-none" />
-    );
-  }
-
-  const openMenuAt = (x: number, y: number) => {
-    // A zero-size rect at the cursor. RowMenu positions against a rect, so the
-    // pointer becomes the anchor and the menu opens where the click happened
-    // rather than beside a button the user never touched.
-    setAnchor(new DOMRect(x, y, 0, 0));
-    a.setMenu(c.id);
-  };
-
-  return (
-    <div
-      className={`relative group/c flex items-center rounded-lg transition-opacity duration-150
-                  ${a.draggingId === c.id ? 'opacity-40' : ''}`}
-      // Incognito conversations are never written to disk, so they have no
-      // folder to be moved into — dragging one would promise a placement that
-      // cannot survive the session.
-      draggable={!c.incognito}
-      onDragStart={e => {
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', c.id);
-        a.setDragging(c.id);
-      }}
-      onDragEnd={() => a.setDragging(null)}
-      onContextMenu={e => { e.preventDefault(); openMenuAt(e.clientX, e.clientY); }}>
-      <button onClick={() => a.open(c.id)}
-        aria-current={active ? 'page' : undefined}
-        className={`flex-1 min-w-0 text-left px-3 py-2.5 rounded-lg flex items-center gap-2.5 transition-all duration-200 text-[13px]
-          ${active ? 'bg-on-surface/[0.07] text-on-surface' : 'text-on-surface/55 hover:text-on-surface/85 hover:bg-on-surface/[0.03]'}`}>
-        {c.incognito
-          ? <EyeOff size={13} className="shrink-0 opacity-60" />
-          : c.pinned_at
-            ? <Pin size={12} className="shrink-0 opacity-60" />
-            : <MessageSquare size={13} className="shrink-0 opacity-60" />}
-        <span className="truncate flex-1">{c.title}</span>
-        {c.turn_count > 0 && (
-          <span className="font-mono text-[9px] text-on-surface/35 tabular-nums">{c.turn_count}</span>
-        )}
-      </button>
-
-      <button ref={menuBtn}
-        onClick={() => {
-          const open = a.menuId === c.id;
-          if (open) { setAnchor(null); a.setMenu(null); return; }
-          const r = menuBtn.current!.getBoundingClientRect();
-          openMenuAt(r.right, r.bottom);
-        }}
-        aria-label={`Actions for ${c.title}`} aria-expanded={a.menuId === c.id}
-        className="absolute right-1 opacity-0 group-hover/c:opacity-60 hover:!opacity-100 focus-visible:opacity-100 p-1 rounded transition-opacity bg-[var(--nav-bg)]">
-        <MoreHorizontal size={13} />
-      </button>
-
-      {a.menuId === c.id && anchor && (
-        <RowMenu anchor={anchor} onClose={() => { setAnchor(null); a.setMenu(null); }}>
-            <MenuItem icon={<Pencil size={12} />} onClick={() => a.beginRename(c.id)}>Rename</MenuItem>
-            {!c.incognito && (
-              <MenuItem icon={<Pin size={12} />} onClick={() => a.togglePin(c)}>
-                {c.pinned_at ? 'Unpin' : 'Pin'}
-              </MenuItem>
-            )}
-            {!c.incognito && a.folders.length > 0 && (
-              <>
-                <p className="px-label px-3 pt-2 pb-1">Move to</p>
-                {a.folders.map(f => (
-                  <MenuItem key={f.id} icon={<Folder size={12} />}
-                    onClick={() => a.move(c.id, c.folder_id === f.id ? null : f.id)}>
-                    {f.name}{c.folder_id === f.id ? ' ·  remove' : ''}
-                  </MenuItem>
-                ))}
-              </>
-            )}
-            <div className="my-1 h-px bg-on-surface/[0.08]" />
-            {!c.incognito && (
-              <MenuItem icon={<Archive size={12} />} onClick={() => a.archive(c.id)}>
-                Archive
-              </MenuItem>
-            )}
-            <MenuItem icon={<Trash2 size={12} />} danger onClick={() => a.remove(c)}>
-              Delete permanently
-            </MenuItem>
-        </RowMenu>
-      )}
-    </div>
-  );
-}
-
-function MenuItem({ icon, children, onClick, danger }: {
-  icon: any; children: any; onClick: () => void; danger?: boolean;
-}) {
-  return (
-    <button role="menuitem" onClick={onClick}
-      className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-[12px] transition-colors duration-150
-        ${danger ? 'text-error hover:bg-error/[0.10]' : 'text-on-surface/75 hover:bg-on-surface/[0.06]'}`}>
-      {icon}{children}
-    </button>
-  );
-}
 
 export default function App() {
   const [state, setState] = useState<ConversationState>(emptyState());
@@ -285,6 +63,25 @@ export default function App() {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<string | null>(null);
+  /* One section, not three booleans. Three independent flags could all be true
+     at once — and did, stacking Settings over Memory over the graph, each with
+     its own close button and no way to tell what was underneath. */
+  const [section, setSection] = useState<Section>('chat');
+  /* Whether the conversation list is showing, at every width — a drawer below
+     `md`, an inline column above it. Remembered like the context panel's own
+     `primnox2.rail`, so a collapsed sidebar stays collapsed across restarts
+     instead of springing back every launch.
+     Defaults to shown: someone who has never touched it should find the list. */
+  const [chatsOpen, setChatsOpen] = useState(() => {
+    try { return localStorage.getItem('primnox2.chats') !== 'hidden'; }
+    catch { return true; }                                    // private mode
+  });
+  const setChats = useCallback((next: boolean) => {
+    setChatsOpen(next);
+    try { localStorage.setItem('primnox2.chats', next ? 'shown' : 'hidden'); }
+    catch { /* private mode */ }
+  }, []);
+  const [chatGraph, setChatGraph] = useState<string | null>(null);
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -448,6 +245,17 @@ export default function App() {
   const unpinned = useMemo(() => conversations.filter(c => !c.pinned_at), [conversations]);
   const loose = useMemo(() => unpinned.filter(c => !c.folder_id), [unpinned]);
 
+  /* Searching the list, client-side. The conversations are already in memory,
+     so this needs no endpoint — and it is not optional at any real size: every
+     row in an untitled list reads "New Chat", and folders plus day groups only
+     help once you already know roughly where a chat is. */
+  const [chatQuery, setChatQuery] = useState('');
+  const matches = useMemo(() => {
+    const q = chatQuery.trim().toLowerCase();
+    if (!q) return null;                       // null = not searching
+    return conversations.filter(c => (c.title ?? '').toLowerCase().includes(q));
+  }, [chatQuery, conversations]);
+
   const toggleFolder = (id: string) => setOpenFolders(s => {
     const next = new Set(s);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -539,35 +347,106 @@ export default function App() {
     <ChatsContext.Provider value={chatActions}>
     {viewing && <AssetViewer key={viewing.id} asset={viewing}
       onClose={() => setViewing(null)} />}
-    <div className="flex h-screen w-full bg-surface text-on-surface font-sans overflow-hidden">
+    {/* Still an overlay, unlike the corpus-wide graph. This one is a transient
+        look at ONE conversation from inside that conversation — leaving the
+        chat to see what the chat established would lose the thing being
+        looked at. */}
+    {chatGraph && <GraphPanel key={chatGraph} initialScope={`conv:${chatGraph}`}
+      title="This conversation" onClose={() => setChatGraph(null)} />}
+    {/* `overflow-clip`, not `overflow-hidden`.
+        `hidden` makes this a scroll container, and focusing anything inside a
+        scroll container makes the browser scroll it into view — but with no
+        scrollbar there is no way back. Measured: tabbing to the theme button at
+        the foot of the rail left the shell at scrollTop 50, shifting the entire
+        app up and hiding the sidebar header, permanently, for the rest of the
+        session. `clip` clips identically without ever becoming scrollable. */}
+    <div className="flex h-screen w-full bg-surface text-on-surface font-sans overflow-clip">
+
+      <AppRail
+        section={section}
+        onSection={s => {
+          // Chats while already in Chats toggles the list. This is the only way
+          // back once it is collapsed, and it works because the rail is pinned
+          // and cannot scroll out of reach — the failure V1 documented.
+          if (s === 'chat' && section === 'chat') setChats(!chatsOpen);
+          else { setSection(s); if (s === 'chat') setChats(true); }
+        }}
+        connected={state.connected} synced={state.synced} />
 
       {/* ── Conversations ─────────────────────────────────────────────── */}
-      <aside className="w-[248px] shrink-0 flex flex-col border-r border-on-surface/[0.07] bg-[var(--nav-bg)]">
-        <div className="h-14 flex items-center gap-2.5 px-5 border-b border-on-surface/[0.07]">
-          <span className="w-[7px] h-[7px] rounded-full bg-on-surface shrink-0" />
-          <span className="font-display font-bold text-[13px] uppercase tracking-[0.18em]">Primnox</span>
-          <span className="px-label ml-auto">v2</span>
+      {section === 'chat' && (
+      <ContextSidebar title="Conversations"
+        open={chatsOpen} onClose={() => setChats(false)}
+        actions={
+        <button onClick={() => setCreatingFolder(true)} title="New folder"
+          aria-label="New folder"
+          className="p-1.5 rounded-lg text-on-surface/40 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition-all duration-200">
+          <FolderPlus size={13} />
+        </button>
+      }>
+        {/* The two things that ADD to this list, at the top of the list they
+            add to. They were in the rail, which is for destinations. */}
+        <div className="sticky top-0 z-10 bg-[var(--nav-bg)] px-3 pt-3 pb-2 space-y-2">
+          <div className="flex items-center gap-2">
+            <button onClick={() => newChat(false)}
+              className="px-interactive group/n flex-1 flex items-center justify-between
+                         rounded-lg border border-on-surface/[0.10] px-3 py-2 text-[13px]
+                         hover:border-on-surface/25 hover:bg-on-surface/[0.03]">
+              New chat
+              <Plus size={14} aria-hidden="true"
+                className="opacity-60 transition-transform duration-200 group-hover/n:rotate-90" />
+            </button>
+            <button onClick={() => newChat(true)}
+              aria-label="New incognito chat"
+              title="Nothing is written to disk. It ends when Primnox closes."
+              className="px-interactive shrink-0 rounded-lg border border-dashed
+                         border-on-surface/[0.16] p-2 text-on-surface/60
+                         hover:border-on-surface/30 hover:text-on-surface">
+              <EyeOff size={14} aria-hidden="true" />
+            </button>
+          </div>
+
+          <label htmlFor="chat-search" className="sr-only">Search chats</label>
+          <div className="flex items-center gap-2 rounded-lg border border-on-surface/[0.10]
+                          px-2.5 py-1.5 focus-within:border-on-surface/30">
+            <Search size={12} className="shrink-0 text-on-surface/40" aria-hidden="true" />
+            <input id="chat-search" type="search" value={chatQuery}
+              onChange={e => setChatQuery(e.target.value)}
+              placeholder="Search chats"
+              className="min-w-0 flex-1 bg-transparent text-[12px] outline-none
+                         placeholder:text-on-surface/30" />
+            {chatQuery && (
+              <button type="button" onClick={() => setChatQuery('')}
+                aria-label="Clear search"
+                className="px-interactive shrink-0 text-on-surface/40 hover:text-on-surface">
+                <X size={12} aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="p-3 space-y-2">
-          <button onClick={() => newChat(false)}
-            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-on-surface/[0.09] hover:border-on-surface/20 hover:bg-on-surface/[0.03] transition-all duration-200 text-sm group">
-            New chat
-            <Plus size={15} className="group-hover:rotate-90 transition-transform duration-200" />
-          </button>
-          <button onClick={() => newChat(true)}
-            title="Nothing is written to disk. It ends when Primnox closes."
-            className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl border border-dashed border-on-surface/[0.14] hover:border-on-surface/25 hover:bg-on-surface/[0.03] transition-all duration-200 text-[13px] text-on-surface/60 hover:text-on-surface/85">
-            Incognito chat
-            <EyeOff size={14} />
-          </button>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto px-2 pb-3">
+        <nav className="px-2 pb-3">
+          {/* While searching, one flat list of hits. Folders and day groups are
+              navigation aids for browsing; during a search they scatter three
+              matches across three headings and hide how many there are. */}
+          {matches !== null ? (
+            <>
+              <p className="px-label mx-3 mb-1.5">
+                {matches.length} {matches.length === 1 ? 'match' : 'matches'}
+              </p>
+              {matches.map(c => <ChatRow key={c.id} c={c} />)}
+              {matches.length === 0 && (
+                <p className="px-3 py-4 text-xs text-on-surface/35">
+                  Nothing matches “{chatQuery.trim()}”.
+                </p>
+              )}
+            </>
+          ) : (
+          <>
           {pinned.length > 0 && (
             <>
-              <p className="px-label px-3 pb-2 flex items-center gap-1.5">
-                <Pin size={9} /> Pinned
+              <p className="px-label mx-3 mb-1.5 flex items-center gap-1.5">
+                <Pin size={9} aria-hidden="true" /> Pinned
               </p>
               {pinned.map(c => <ChatRow key={c.id} c={c} />)}
               <div className="h-3" />
@@ -682,8 +561,12 @@ export default function App() {
 
           {/* Dropping here takes a conversation back out of its folder —
               otherwise a chat could be filed but never unfiled by dragging. */}
+          {/* `justify-between` here was holding a "New folder" button on the
+              right. That button now lives in the sidebar header, so the flex
+              was left distributing a single child across the full width and
+              the label no longer aligned with the rows beneath it. */}
           <div
-            className={`flex items-center justify-between pr-1 rounded-lg transition-colors duration-150
+            className={`rounded-lg transition-colors duration-150
               ${dragOverRecent ? 'bg-primary/[0.12] ring-1 ring-primary/40' : ''}`}
             onDragOver={e => {
               if (!draggingId) return;
@@ -701,15 +584,12 @@ export default function App() {
               setDraggingId(null);
               if (id) chatActions.move(id, null);
             }}>
-            <p className="px-label px-3 pb-2 pt-2">Recent</p>
-            {/* Next to the list it acts on, and above it — at the bottom it sat
-                below every conversation, which on a list of seventy is not
-                somewhere anyone finds it. */}
-            <button onClick={() => setCreatingFolder(true)} title="New folder"
-              aria-label="New folder"
-              className="p-1.5 rounded-lg text-on-surface/40 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition-all duration-200">
-              <FolderPlus size={13} />
-            </button>
+            {/* No "Recent" label. It sat above TODAY and YESTERDAY saying the
+                same thing a third time — three stacked headings for one list.
+                The div stays because it is the drop target that takes a chat
+                back OUT of a folder; only the redundant caption is gone, and
+                the hairline still marks where folders end and chats begin. */}
+            <div className="mx-3 mt-2 mb-1 border-t border-on-surface/[0.07]" />
           </div>
           {/* Grouped by day. Seventy rows of identical-looking titles is a
               wall, not a list — the date is the only thing that distinguishes
@@ -721,18 +601,54 @@ export default function App() {
             </div>
           ))}
           {conversations.length === 0 && <p className="px-3 py-4 text-xs text-on-surface/35">Nothing yet</p>}
+          </>
+          )}
         </nav>
+      </ContextSidebar>
+      )}
 
-        <div className="h-9 shrink-0 flex items-center gap-2 px-5 border-t border-on-surface/[0.07]">
-          <Circle size={6} className={state.connected ? 'text-primary fill-current' : 'text-error fill-current'} />
-          <span className="px-label">{state.connected ? (state.synced ? 'Live' : 'Syncing') : 'Offline'}</span>
-        </div>
-      </aside>
+      {/* ── The section ───────────────────────────────────────────────────
+          Knowledge, Memory and Settings render HERE rather than as
+          `fixed inset-0` overlays. As overlays they blanked the rail that
+          opened them, so the only way out of any of them was a close button —
+          and moving between two of them meant closing one first. */}
+      {section === 'knowledge' && <GraphPanel embedded />}
+      {section === 'memory' && <MemoryPanel embedded />}
+      {section === 'settings' && <SettingsPanel embedded />}
 
       {/* ── Transcript ────────────────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 shrink-0 flex items-center justify-between px-8 border-b border-on-surface/[0.07]">
-          <div className="min-w-0">
+      {section === 'chat' && (
+      <main className="relative flex-1 flex flex-col min-w-0">
+        {/* The ground the glass sits on.
+            These three were defined in tailwind.css and used by nothing, which
+            is why the composer's backdrop-filter had no visible effect: on
+            `signature` the panel is rgba(7,7,7,0.85) over a #070707 body, so
+            blurring it diffused one black into an identical black. Glass only
+            reads as glass when there is something behind it worth seeing
+            through to.
+            Coloured from --primary / --accent / --green, so they follow the
+            palette rather than pinning the app to one accent. */}
+        <div className="orb orb-1" aria-hidden="true" />
+        <div className="orb orb-2" aria-hidden="true" />
+        <div className="orb orb-3" aria-hidden="true" />
+        <header className="relative z-10 h-14 shrink-0 flex items-center justify-between gap-3 px-8 border-b border-on-surface/[0.07]">
+          {/* The way back, where a way back belongs: at the edge the panel
+              retracted into, in the header of the thing that took its space.
+              The rail's Chats button also restores it, but nothing about an
+              icon for the section you are already in says "this reveals the
+              list" — that was reachable, not discoverable, which is not the
+              same thing. Mirrors the context panel's own show-control on the
+              opposite edge, so both sides of the app behave alike. */}
+          {!chatsOpen && (
+            <button onClick={() => setChats(true)}
+              aria-label="Show conversations" aria-expanded={false}
+              title="Show conversations"
+              className="px-interactive -ml-3 shrink-0 p-1.5 rounded-lg text-on-surface/45
+                         hover:text-on-surface hover:bg-on-surface/[0.05]">
+              <PanelLeftOpen size={16} aria-hidden="true" />
+            </button>
+          )}
+          <div className="min-w-0 flex-1">
             <span className="px-eyebrow block">
               {state.incognito ? 'Incognito · nothing written to disk' : 'Conversation'}
             </span>
@@ -753,8 +669,18 @@ export default function App() {
                 End chat
               </button>
             )}
-            {/* The only way to reach files, sandbox status and the stream
-                cursor on a window narrower than 1280px. */}
+            {/* This conversation's OWN graph — what it has established, not
+                what the codebase contains. Lives in the chat header because it
+                is a property of this chat; the sidebar button opens the
+                corpus-wide one. Hidden for incognito, whose graph is memory
+                only and deliberately has nothing to show from disk. */}
+            {state.id && !state.incognito && (
+              <button onClick={() => setChatGraph(state.id)}
+                aria-label="Graph for this conversation" title="What this conversation has established"
+                className="p-1.5 rounded-lg text-on-surface/40 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition-all duration-200">
+                <Share2 size={15} />
+              </button>
+            )}
             <button onClick={() => setNarrowRailOpen(true)} aria-label="Show context panel"
               className="xl:hidden p-1.5 rounded-lg text-on-surface/40 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition-all duration-200">
               <PanelRight size={15} />
@@ -762,8 +688,19 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
-          <div className="mx-auto w-full max-w-[46rem] px-8 py-8">
+        {/* z-10 so the orbs stay behind the reading column. They are positioned
+            with z-index 0, which paints them ABOVE non-positioned siblings —
+            without this the ambient glow washes over the transcript instead of
+            sitting under it. The composer still blurs them: backdrop-filter
+            captures whatever is painted behind, regardless of z-index. */}
+        <div className="relative z-10 flex-1 overflow-y-auto custom-scrollbar
+                        [scroll-padding-bottom:12rem]">
+          {/* pb-48 clears the composer, which now overlays the foot of this
+              scroller rather than sitting below it. Without the padding the
+              last reply would end up permanently hidden behind the input, and
+              the matching scroll-padding keeps a keyboard-focused element from
+              coming to rest under it (WCAG 2.2 Focus Not Obscured). */}
+          <div className="mx-auto w-full max-w-[46rem] px-8 pt-8 pb-48">
             {/* §11.2.3 — the loss is stated. An incognito conversation the
                 runtime has forgotten would otherwise render as one you simply
                 had not spoken in yet, which reads as your words going
@@ -805,10 +742,19 @@ export default function App() {
           </div>
         </div>
 
-        {/* Composer */}
-        <div className="shrink-0 px-8 pb-6 pt-2">
+        {/* Composer.
+            Overlays the foot of the transcript rather than sitting beneath it,
+            so the conversation passes under the glass and the blur has
+            something to diffuse. In normal flow it had only the page behind it,
+            which is a tinted rectangle, not glass. */}
+        <div className="absolute inset-x-0 bottom-0 z-10 px-8 pb-6 pt-2
+                        pointer-events-none [&_*]:pointer-events-auto">
           <div className="mx-auto w-full max-w-[46rem]">
-            <div className="bg-on-surface/[0.035] border border-on-surface/[0.09] rounded-2xl focus-within:border-on-surface/20 transition-colors duration-200">
+            {/* Glass: the composer sits at the foot of the transcript and the
+                conversation scrolls behind it, so diffusing what is behind
+                rather than blanking it keeps the two connected. */}
+            <Panel variant="glass"
+              className="focus-within:border-on-surface/25 px-interactive">
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 px-3.5 pt-3">
                   {attachments.map(a => (
@@ -816,7 +762,7 @@ export default function App() {
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-on-surface/[0.12] text-[11px] text-on-surface/65">
                       <FileText size={11} className="opacity-60" />
                       {a.name}
-                      {a.status === 'ingesting' && <Loader2 size={9} className="animate-spin opacity-60" />}
+                      {a.status === 'ingesting' && <Loader2 size={9} className="px-spin opacity-60" />}
                       {a.status === 'failed' && <AlertTriangle size={9} className="text-error" />}
                       <button onClick={() => setAttachments(list => list.filter(x => x.id !== a.id))}
                         aria-label={`Remove ${a.name}`}
@@ -827,7 +773,12 @@ export default function App() {
                   ))}
                 </div>
               )}
+              {/* The composer names itself only in a placeholder that vanishes
+                  on the first keystroke, so the label carries the name for
+                  everyone who is not reading grey hint text. */}
+              <label htmlFor="composer" className="sr-only">Message Primnox</label>
               <textarea
+                id="composer"
                 value={draft}
                 disabled={state.gone}
                 onChange={e => {
@@ -894,13 +845,14 @@ export default function App() {
                   <ArrowUp size={16} strokeWidth={2.5} />
                 </button>
               </div>
-            </div>
+            </Panel>
             <p className="px-label mt-2.5 text-center normal-case tracking-[0.1em]">
               Enter to send · Shift+Enter for new line
             </p>
           </div>
         </div>
       </main>
+      )}
 
       {/* ── Context rail ──────────────────────────────────────────────────
           Inline above 1280px, an overlay drawer below it. Previously the rail
@@ -909,7 +861,7 @@ export default function App() {
           list, the sandbox status and the stream cursor were simply
           unreachable at the width most people actually run this at. */}
       <AnimatePresence initial={false}>
-        {railOpen && (
+        {railOpen && section === 'chat' && (
           <motion.div key="rail"
             initial={{ width: 0, opacity: 0 }} animate={{ width: 288, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
@@ -918,7 +870,7 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-      {!railOpen && (
+      {!railOpen && section === 'chat' && (
         <button onClick={toggleRail} aria-label="Show context panel"
           className="shrink-0 w-10 border-l border-on-surface/[0.07] bg-[var(--nav-bg)] hidden xl:flex items-start justify-center pt-4 text-on-surface/40 hover:text-on-surface transition-all duration-200">
           <PanelRight size={15} />
@@ -926,7 +878,7 @@ export default function App() {
       )}
 
       <AnimatePresence>
-        {narrowRailOpen && (
+        {narrowRailOpen && section === 'chat' && (
           <motion.div key="rail-overlay" className="xl:hidden fixed inset-0 z-40 flex justify-end"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}>
@@ -947,622 +899,3 @@ export default function App() {
 }
 
 /* The model's plan, shown as reasoning rather than scraped out of prose. */
-function PlanBlock({ plan }: { plan: string }) {
-  return (
-    <div className="mb-3 flex gap-2.5 rounded-xl border border-on-surface/[0.09] bg-on-surface/[0.02] px-3.5 py-3">
-      <Lightbulb size={13} className="shrink-0 mt-0.5 text-on-surface/40" />
-      <div className="min-w-0">
-        <p className="px-label mb-1">Plan</p>
-        <p className="text-[12px] leading-5 text-on-surface/65 whitespace-pre-wrap">{plan}</p>
-      </div>
-    </div>
-  );
-}
-
-/* One sandbox run: what it was allowed to do, what it printed, what it changed. */
-function ExecutionBlock({ execution }: { execution: Execution }) {
-  const [open, setOpen] = useState(false);
-  const openAsset = useContext(ViewerContext);
-  const changed = execution.changes;
-  const changeCount = changed
-    ? changed.created.length + changed.modified.length + changed.deleted.length
-    : 0;
-
-  return (
-    <div className="mb-3 rounded-xl border border-on-surface/[0.09] overflow-hidden">
-      <button onClick={() => setOpen(o => !o)}
-        aria-expanded={open}
-        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors duration-200">
-        <Terminal size={12} className="shrink-0 text-on-surface/45" />
-        <span className="px-label">{execution.runtime}</span>
-        <span className="text-[11px] text-on-surface/45 truncate flex-1">
-          {execution.status === 'running' ? 'running…' : execution.summary}
-        </span>
-        {execution.status === 'running'
-          ? <Loader2 size={11} className="animate-spin text-on-surface/45 shrink-0" />
-          : execution.status === 'failed'
-            ? <AlertTriangle size={11} className="text-error shrink-0" />
-            : <Check size={11} className="text-primary shrink-0" />}
-        <ChevronRight size={12}
-          className={`shrink-0 text-on-surface/35 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
-      </button>
-
-      {/* Outside the collapse on purpose: a generated file the user cannot
-          find is the same as one that was never produced. */}
-      {execution.artifacts.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-3.5 pb-3 pt-0.5">
-          {execution.artifacts.map(a => (
-            <button key={a.asset_id}
-              onClick={() => openAsset({ id: a.asset_id, name: a.name })}
-              aria-label={`Open ${a.name}`}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-primary/30 bg-primary/[0.06] text-[11px] text-on-surface/80 hover:bg-primary/[0.12] transition-colors duration-200">
-              <Eye size={11} className="text-primary/80" />
-              <span className="font-mono">{a.name}</span>
-              <span className="text-on-surface/40">{(a.bytes / 1024).toFixed(1)} KB</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {open && (
-        <div className="border-t border-on-surface/[0.07]">
-          {execution.output.length > 0 && (
-            <pre className="max-h-64 overflow-auto px-3.5 py-3 font-mono text-[11px] leading-relaxed text-on-surface/70 bg-on-surface/[0.02]">
-              {execution.output.join('\n')}
-            </pre>
-          )}
-          {changeCount > 0 && changed && (
-            <div className="px-3.5 py-2.5 border-t border-on-surface/[0.07]">
-              <p className="px-label mb-1.5">Files</p>
-              <ul className="space-y-0.5 font-mono text-[11px]">
-                {changed.created.map(p => <li key={p} className="text-primary/80">+ {p}</li>)}
-                {changed.modified.map(p => <li key={p} className="text-on-surface/60">~ {p}</li>)}
-                {changed.deleted.map(p => <li key={p} className="text-error/80">− {p}</li>)}
-              </ul>
-            </div>
-          )}
-          {execution.output.length === 0 && changeCount === 0 && (
-            <p className="px-3.5 py-3 text-[11px] text-on-surface/35">No output, no file changes.</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ToolRow({ call }: { call: ToolCall }) {
-  return (
-    <div className="mb-2 flex items-center gap-2.5 text-[11px]">
-      {call.status === 'running'
-        ? <Loader2 size={11} className="animate-spin text-on-surface/45 shrink-0" />
-        : call.status === 'error'
-          ? <AlertTriangle size={11} className="text-error shrink-0" />
-          : <Check size={11} className="text-primary shrink-0" />}
-      <span className="font-mono text-on-surface/70">{call.name}</span>
-      {call.summary && <span className="text-on-surface/40 truncate">{call.summary}</span>}
-    </div>
-  );
-}
-
-/* ── Built-in viewers ──────────────────────────────────────────────────────
-   Everything Primnox can produce, readable without leaving the app and
-   without downloading it first.
-
-   Read-only by construction, not by discipline: this renders text nodes and
-   nothing else. There is no input, no contenteditable, and no endpoint behind
-   it that writes — the server's preview layer only reads. PDFs and images go
-   straight to the browser, which already knows them; Word, Excel, PowerPoint
-   and SQLite are parsed server-side by the same libraries that wrote them,
-   which is why this file needs no new dependency to read any of them. */
-function AssetViewer({ asset, onClose }: {
-  asset: { id: string; name: string }; onClose: () => void;
-}) {
-  const [preview, setPreview] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [sheet, setSheet] = useState(0);
-
-  useEffect(() => {
-    let live = true;
-    setPreview(null); setError(null); setSheet(0);
-    api.preview(asset.id)
-      .then(p => { if (live) setPreview(p); })
-      .catch(e => { if (live) setError(String(e)); });
-    return () => { live = false; };
-  }, [asset.id]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  const src = `${API}/assets/${asset.id}/download?inline=1`;
-
-  /* Deliberately not a `motion` element, unlike the rest of this file.
-     Wrapped in AnimatePresence as a custom component, the backdrop mounted
-     with its `initial` styles — opacity 0, translateY(8px) — and no animation
-     ever started, so the viewer was present in the DOM, readable to a script,
-     and completely invisible to a person. A modal that silently fails to
-     appear is a worse defect than a modal without a fade, so the entry
-     animation is plain CSS with nothing to go wrong. */
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--scrim)] p-6"
-      onClick={onClose}>
-      <div
-        role="dialog" aria-modal="true" aria-label={`Preview of ${asset.name}`}
-        onClick={e => e.stopPropagation()}
-        className="w-full max-w-5xl h-[85vh] flex flex-col rounded-2xl border border-on-surface/[0.12] bg-surface overflow-hidden shadow-2xl">
-
-        <header className="h-12 shrink-0 flex items-center gap-3 px-4 border-b border-on-surface/[0.09]">
-          <FileText size={14} className="opacity-60 shrink-0" />
-          <span className="font-mono text-[12px] truncate">{asset.name}</span>
-          <span className="px-label shrink-0 opacity-50">read-only</span>
-          <div className="flex-1" />
-          <a href={`${API}/assets/${asset.id}/download`} download={asset.name}
-            className="px-2.5 py-1 rounded-lg border border-on-surface/[0.12] hover:bg-on-surface/[0.06] transition-colors duration-200 px-label inline-flex items-center gap-1.5">
-            <Download size={11} /> Download
-          </a>
-          <button onClick={onClose} aria-label="Close preview"
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-on-surface/[0.08] transition-colors duration-200">
-            <X size={14} />
-          </button>
-        </header>
-
-        <div className="flex-1 min-h-0 overflow-auto custom-scrollbar bg-on-surface/[0.02]">
-          {error && <p className="p-6 text-sm text-error">Could not load a preview: {error}</p>}
-          {!preview && !error && (
-            <p className="p-6 px-label flex items-center gap-2">
-              <Loader2 size={12} className="animate-spin" /> Reading…
-            </p>
-          )}
-
-          {/* The PDF frame stays white in every theme, and correctly so: a PDF
-              page is paper. Tinting it would misrepresent the document. */}
-          {preview?.kind === 'pdf' && (
-            <iframe src={src} title={asset.name} className="w-full h-full border-0 bg-white" />
-          )}
-
-          {preview?.kind === 'image' && (
-            <div className="h-full flex items-center justify-center p-6">
-              <img src={src} alt={asset.name} className="max-w-full max-h-full object-contain" />
-            </div>
-          )}
-
-          {preview?.kind === 'text' && (
-            <pre className="p-5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-words text-on-surface/80">
-              {preview.text}
-              {preview.truncated && <span className="text-on-surface/40">{'\n\n… truncated'}</span>}
-            </pre>
-          )}
-
-          {preview?.kind === 'sheets' && preview.sheets?.length > 0 && (
-            <div className="h-full flex flex-col">
-              {preview.sheets.length > 1 && (
-                <div className="flex gap-1 px-3 pt-3 shrink-0 flex-wrap">
-                  {preview.sheets.map((s: any, i: number) => (
-                    <button key={s.name + i} onClick={() => setSheet(i)}
-                      className={`px-2.5 py-1 rounded-lg px-label transition-colors duration-200
-                        ${i === sheet ? 'bg-on-surface/[0.10] text-on-surface'
-                                      : 'text-on-surface/50 hover:bg-on-surface/[0.05]'}`}>
-                      {s.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <SheetTable sheet={preview.sheets[Math.min(sheet, preview.sheets.length - 1)]} />
-            </div>
-          )}
-
-          {preview?.kind === 'document' && (
-            <article className="mx-auto max-w-2xl p-8 space-y-3">
-              {preview.blocks.map((b: any, i: number) =>
-                b.type === 'heading'
-                  ? <h2 key={i} className={b.level <= 1 ? 'px-display px-display-sm' : 'text-[15px] font-semibold'}>{b.text}</h2>
-                  : b.type === 'bullet'
-                    ? <p key={i} className="text-sm leading-6 pl-5 relative before:content-['•'] before:absolute before:left-1 before:opacity-40">{b.text}</p>
-                    : b.type === 'table'
-                      ? <SheetTable key={i} sheet={{ name: '', header: b.rows[0] ?? [], rows: b.rows.slice(1), total_rows: b.rows.length - 1, truncated: false }} />
-                      : <p key={i} className="text-sm leading-6 text-on-surface/80">{b.text}</p>)}
-              {preview.blocks.length === 0 && <p className="px-label">This document has no text in it.</p>}
-            </article>
-          )}
-
-          {preview?.kind === 'slides' && (
-            <div className="p-6 space-y-4">
-              {preview.slides.map((s: any) => (
-                <div key={s.index} className="rounded-xl border border-on-surface/[0.10] bg-surface p-5 aspect-[16/9] flex flex-col">
-                  <p className="px-label mb-2">Slide {s.index}</p>
-                  <h3 className="text-[17px] font-semibold mb-3">{s.title || <span className="opacity-40">Untitled</span>}</h3>
-                  <ul className="space-y-1.5 overflow-auto">
-                    {s.lines.map((l: string, i: number) => (
-                      <li key={i} className="text-sm leading-6 text-on-surface/75 pl-4 relative before:content-['–'] before:absolute before:left-0 before:opacity-40">{l}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {(preview?.kind === 'unsupported' || preview?.kind === 'unreadable'
-            || preview?.kind === 'missing') && (
-            <div className="p-8 text-center">
-              <p className="px-body text-sm mb-1">
-                {preview.kind === 'missing' ? 'The stored file is gone.'
-                  : preview.kind === 'unreadable' ? 'This file could not be read.'
-                    : 'No built-in viewer for this format.'}
-              </p>
-              {preview.error && <p className="px-label mb-3">{preview.error}</p>}
-              <p className="px-label">Download it to open it elsewhere.</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* One table, used for spreadsheets, CSVs, database tables and the tables
-   inside a Word document — they are all the same shape once parsed. */
-function SheetTable({ sheet }: { sheet: any }) {
-  return (
-    <div className="flex-1 min-h-0 overflow-auto custom-scrollbar p-3">
-      <table className="w-full text-[12px] border-collapse">
-        {sheet.header?.length > 0 && (
-          <thead className="sticky top-0">
-            <tr>
-              {sheet.header.map((h: string, i: number) => (
-                <th key={i} className="text-left font-semibold px-2.5 py-1.5 bg-surface border-b border-on-surface/[0.14] whitespace-nowrap">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-        )}
-        <tbody>
-          {sheet.rows.map((row: string[], r: number) => (
-            <tr key={r} className="hover:bg-on-surface/[0.03]">
-              {row.map((cell, c) => (
-                <td key={c} className="px-2.5 py-1 border-b border-on-surface/[0.05] text-on-surface/75 whitespace-nowrap">
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {sheet.truncated && (
-        <p className="px-label pt-3">
-          Showing {sheet.rows.length} of {sheet.total_rows} rows.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* What a settled question says afterwards. An approval you gave by hand must
-   not read back as one the machine gave itself — that is the difference
-   between a record and a reassurance. */
-const RESOLUTION_COPY: Record<string, string> = {
-  allow_auto: 'approved automatically',
-  allow_once: 'you allowed this once',
-  allow_turn: 'you allowed this for the turn',
-  deny: 'you declined',
-};
-
-/* A permission question. Auto-approved ones are still shown — the user should
-   be able to see afterwards what ran without having been interrupted. */
-function PermissionBlock({ p }: { p: PermissionRequest }) {
-  if (p.auto || p.resolved) {
-    return (
-      <div className="mb-3 flex items-center gap-2 text-[11px] text-on-surface/40">
-        {p.resolved === 'deny'
-          ? <ShieldAlert size={11} className="shrink-0" />
-          : <ShieldCheck size={11} className="shrink-0" />}
-        <span className="font-mono">{p.action}</span>
-        <span>
-          {p.resolved
-            ? RESOLUTION_COPY[p.resolved] ?? p.resolved
-            : 'approved automatically'}
-        </span>
-      </div>
-    );
-  }
-  return (
-    <div className="mb-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-3.5 py-3">
-      <div className="flex items-start gap-2.5">
-        <ShieldAlert size={14} className="shrink-0 mt-0.5 text-primary/80" />
-        <div className="min-w-0 flex-1">
-          <p className="px-label mb-1">Permission needed</p>
-          <p className="text-[12px] leading-5 text-on-surface/75 whitespace-pre-wrap">{p.detail}</p>
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {p.options.map(o => (
-              <button key={o.id} onClick={() => api.resolvePermission(p.id, o.id)}
-                className="px-2.5 py-1 rounded-lg border border-on-surface/15 hover:bg-on-surface/[0.06] transition-all duration-200 px-label">
-                {o.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* One turn: the user's message, the reply, and — critically — its own status.
-   There is no global "thinking" indicator anywhere in this file (CRS §5.3). */
-function TurnBlock({ turn }: { turn: Turn }) {
-  const live = !TERMINAL.includes(turn.status);
-  const openAsset = useContext(ViewerContext);
-  return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }} className="mb-8">
-
-      <div className="flex justify-end mb-4">
-        <div className="max-w-[80%] bg-on-surface/[0.07] border border-on-surface/[0.08] rounded-2xl rounded-br-sm px-4 py-2.5">
-          <p className="text-sm leading-6 whitespace-pre-wrap">{turn.userText}</p>
-        </div>
-      </div>
-
-      <div className="flex gap-3">
-        <div className="w-6 shrink-0 mt-0.5">
-          <div className="w-6 h-6 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center">
-            <Terminal size={11} className="text-primary/70" />
-          </div>
-        </div>
-
-        <div className="flex-1 min-w-0">
-          {live && (
-            <p className="px-label mb-2 flex items-center gap-1.5">
-              <Loader2 size={10} className="animate-spin" />
-              {STATUS_COPY[turn.status] ?? turn.status}
-            </p>
-          )}
-
-          {turn.plan && <PlanBlock plan={turn.plan} />}
-          {turn.permissions.map(p => <PermissionBlock key={p.id} p={p} />)}
-          {turn.toolCalls.map((c, i) => <ToolRow key={`${c.name}-${i}`} call={c} />)}
-          {turn.executions.map(x => <ExecutionBlock key={x.id} execution={x} />)}
-
-          {turn.assets.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {turn.assets.map(a => (
-                <button key={a.id} onClick={() => openAsset({ id: a.id, name: a.name })}
-                  aria-label={`Open ${a.name}`}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-on-surface/[0.09] text-[11px] text-on-surface/60 hover:text-on-surface/90 hover:bg-on-surface/[0.05] transition-colors duration-200">
-                  <FileText size={11} className="opacity-60" />{a.name}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {turn.workspaces.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {turn.workspaces.map(w => (
-                <span key={w.id}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/25 bg-primary/[0.05] text-[11px] text-on-surface/70">
-                  <Package size={11} className="text-primary/70" />
-                  {w.title}
-                  <span className="font-mono text-[9px] text-on-surface/40">v{w.version}</span>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {turn.assistantText && (
-            <div className="text-sm leading-6">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>{turn.assistantText}</ReactMarkdown>
-            </div>
-          )}
-
-          {turn.status === 'cancelled' && (
-            <p className="px-label mt-2 flex items-center gap-1.5">
-              <Ban size={10} /> Stopped{turn.assistantText ? ' — partial reply kept' : ''}
-            </p>
-          )}
-
-          {/* A failure renders as a failure, with an honest retry affordance —
-              never as an assistant message pretending to be a reply. */}
-          {turn.error && (
-            <div className="mt-2 flex items-start gap-2.5 rounded-xl border border-error/25 bg-error/[0.06] px-3.5 py-3">
-              <AlertTriangle size={14} className="text-error shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-[13px] text-on-surface/85">{turn.error.message}</p>
-                <p className="px-label mt-1">{turn.error.code}</p>
-              </div>
-              {turn.error.retryable && (
-                <button onClick={() => api.retry(turn.id)}
-                  aria-label="Retry this message"
-                  className="ml-auto shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-on-surface/15 hover:bg-on-surface/[0.06] transition-all duration-200 px-label">
-                  <RotateCw size={10} /> Retry
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-/** Bucket conversations by day, newest bucket first, preserving list order. */
-function groupByDay(rows: any[]): [string, any[]][] {
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const day = 86_400_000;
-
-  const bucket = (ts: number): string => {
-    if (!ts) return 'Earlier';
-    if (ts >= startOfToday) return 'Today';
-    if (ts >= startOfToday - day) return 'Yesterday';
-    if (ts >= startOfToday - 7 * day) return 'Previous 7 days';
-    if (ts >= startOfToday - 30 * day) return 'Previous 30 days';
-    return 'Earlier';
-  };
-
-  const order = ['Today', 'Yesterday', 'Previous 7 days', 'Previous 30 days', 'Earlier'];
-  const groups = new Map<string, any[]>();
-  for (const c of rows) {
-    const key = bucket(c.updated_at ?? c.created_at ?? 0);
-    (groups.get(key) ?? groups.set(key, []).get(key)!).push(c);
-  }
-  return order.filter(k => groups.has(k)).map(k => [k, groups.get(k)!] as [string, any[]]);
-}
-
-function ContextRail({ state, liveTurn, health, onClose }:
-  { state: ConversationState; liveTurn: Turn | undefined; health: any; onClose: () => void }) {
-  // One step per state the turn actually passes through, so Progress reflects
-  // the runtime rather than a hardcoded three-stage guess.
-  const ORDER = ['queued', 'building_context', 'thinking', 'streaming'];
-  const steps = liveTurn
-    ? ORDER.map((s, i) => ({
-        label: STATUS_COPY[s],
-        done: TERMINAL.includes(liveTurn.status) || ORDER.indexOf(liveTurn.status) > i,
-      }))
-    : [];
-
-  // Everything this conversation produced, newest first. The rail used to be
-  // six lines of diagnostics above 500px of black, while the generated file —
-  // the entire point of the app — was a chip you could miss next to the
-  // avatar. Files belong at the top of the panel that has the room for them.
-  const files = useMemo(() => {
-    const seen = new Set<string>();
-    const out: { id: string; name: string; bytes?: number }[] = [];
-    for (const t of state.turns) {
-      for (const x of t.executions) {
-        for (const a of x.artifacts ?? []) {
-          if (!seen.has(a.asset_id)) {
-            seen.add(a.asset_id);
-            out.push({ id: a.asset_id, name: a.name, bytes: a.bytes });
-          }
-        }
-      }
-      for (const a of t.assets) {
-        if (!seen.has(a.id)) {
-          seen.add(a.id);
-          out.push({ id: a.id, name: a.name });
-        }
-      }
-    }
-    return out.reverse();
-  }, [state.turns]);
-
-  const workspaces = useMemo(() => {
-    const seen = new Set<string>();
-    const out: { id: string; title: string; version: number }[] = [];
-    for (const t of state.turns) {
-      for (const w of t.workspaces) {
-        if (!seen.has(w.id)) { seen.add(w.id); out.push(w); }
-      }
-    }
-    return out.reverse();
-  }, [state.turns]);
-
-  return (
-    <aside aria-label="Context" className="w-[288px] h-full flex flex-col border-l border-on-surface/[0.07] bg-[var(--nav-bg)]">
-      <header className="h-14 shrink-0 flex items-center justify-between px-5 border-b border-on-surface/[0.07]">
-        <span className="px-label">Context</span>
-        <button onClick={onClose} aria-label="Hide context panel"
-          className="p-1 -mr-1 rounded text-on-surface/40 hover:text-on-surface transition-all duration-200">
-          <PanelRight size={14} />
-        </button>
-      </header>
-
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {/* Progress only exists while something is running. A permanent
-            "Steps appear here as a turn runs" is a heading explaining its own
-            emptiness — it occupied the top of the panel to say nothing. */}
-        {steps.length > 0 && (
-          <section className="px-5 py-4 border-b border-on-surface/[0.07]">
-            <p className="px-label mb-3">Progress</p>
-            <ol className="space-y-2.5">
-              {steps.map(s => (
-                <li key={s.label} className="flex items-center gap-2.5">
-                  {s.done ? <Check size={12} className="text-primary shrink-0" />
-                          : <Loader2 size={12} className="text-on-surface/45 animate-spin shrink-0" />}
-                  <span className={`text-[11px] ${s.done ? 'text-on-surface/55' : 'text-on-surface/80'}`}>{s.label}</span>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
-
-        {(files.length > 0 || workspaces.length > 0) && (
-          <section className="px-5 py-4 border-b border-on-surface/[0.07]">
-            <p className="px-label mb-3">Files</p>
-            <ul className="space-y-1">
-              {files.map(f => (
-                <li key={f.id}>
-                  <a href={`${API}/assets/${f.id}/download`} download={f.name}
-                    className="group flex items-center gap-2.5 -mx-2 px-2 py-1.5 rounded-lg
-                               hover:bg-on-surface/[0.05] transition-colors duration-200">
-                    <FileText size={13} className="shrink-0 text-on-surface/40" />
-                    <span className="text-[11px] text-on-surface/75 truncate flex-1">{f.name}</span>
-                    {f.bytes != null && (
-                      <span className="font-mono text-[9px] text-on-surface/30 tabular-nums shrink-0">
-                        {f.bytes < 1024 ? `${f.bytes}B` : `${(f.bytes / 1024).toFixed(0)}K`}
-                      </span>
-                    )}
-                    <Download size={11} className="shrink-0 text-on-surface/0 group-hover:text-on-surface/50 transition-colors duration-200" />
-                  </a>
-                </li>
-              ))}
-              {workspaces.map(w => (
-                <li key={w.id} className="flex items-center gap-2.5 -mx-2 px-2 py-1.5">
-                  <Package size={13} className="shrink-0 text-primary/60" />
-                  <span className="text-[11px] text-on-surface/75 truncate flex-1">{w.title}</span>
-                  <span className="font-mono text-[9px] text-on-surface/30 shrink-0">v{w.version}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        <section className="px-5 py-4 border-b border-on-surface/[0.07]">
-          <p className="px-label mb-3">Context</p>
-          <ul className="space-y-2.5">
-            <li className="flex items-center gap-2.5"><Cpu size={13} className="text-on-surface/40 shrink-0" />
-              <span className="text-[11px] text-on-surface/70">
-                {health?.model ? `${health.model.provider} · ${health.model.model}` : 'resolving provider…'}
-              </span></li>
-            <li className="flex items-center gap-2.5"><Terminal size={13} className="text-on-surface/40 shrink-0" />
-              <span className="text-[11px] text-on-surface/70">{state.turns.length} turns in context</span></li>
-            {/* Says which backend is actually isolating execution — or that
-                none is, rather than implying a sandbox that isn't there. */}
-            <li className="flex items-start gap-2.5">
-              {health?.sandbox
-                ? <ShieldCheck size={13} className="text-on-surface/40 shrink-0 mt-0.5" />
-                : <ShieldAlert size={13} className="text-error/70 shrink-0 mt-0.5" />}
-              <span className={`text-[11px] ${health?.sandbox ? 'text-on-surface/45' : 'text-error/80'}`}>
-                {health?.sandbox === 'appcontainer' ? 'Sandbox: AppContainer isolation'
-                  : health?.sandbox === 'unsandboxed' ? 'Sandbox: NONE — code runs unisolated'
-                  : health ? 'Sandbox: unavailable — execution refused'
-                  : 'Checking sandbox…'}
-              </span>
-            </li>
-            {health?.model && !health.model.local && (
-              <li className="flex items-start gap-2.5"><ShieldAlert size={13} className="text-on-surface/40 shrink-0 mt-0.5" />
-                <span className="text-[11px] text-on-surface/45">Cloud provider — prompts leave this device</span></li>
-            )}
-          </ul>
-        </section>
-
-        {/* The cursor, on screen. Reconnect correctness is the whole reason the
-            sequence is global and gapless, so it is worth being able to see. */}
-        <section className="px-5 py-4">
-          <p className="px-label mb-3">Stream</p>
-          <ul className="space-y-2.5 font-mono text-[10px] text-on-surface/50">
-            <li className="flex justify-between"><span>cursor</span><span className="tabular-nums text-on-surface/75">{state.cursor}</span></li>
-            <li className="flex justify-between"><span>socket</span><span className="text-on-surface/75">{state.connected ? 'open' : 'closed'}</span></li>
-            <li className="flex justify-between"><span>synced</span><span className="text-on-surface/75">{state.synced ? 'yes' : 'no'}</span></li>
-          </ul>
-        </section>
-      </div>
-
-      <footer className="h-10 shrink-0 flex items-center gap-2 px-5 border-t border-on-surface/[0.07]">
-        <Circle size={7} className={liveTurn ? 'text-primary fill-current animate-pulse' : 'text-on-surface/25 fill-current'} />
-        <span className="px-label">{liveTurn ? STATUS_COPY[liveTurn.status] ?? 'Working' : 'Idle'}</span>
-      </footer>
-    </aside>
-  );
-}

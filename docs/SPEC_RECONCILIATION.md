@@ -104,11 +104,11 @@ ship scope, and the Privacy Gateway promoted to its own stage.
 |---|---|---|
 | V2.0 | Chat runtime — Conversation, Turn, Job, Event, **Sandbox, Assets, Workspaces** | **built and tested** (116 tests) |
 | V2.1 | Privacy Gateway | boundary exists, scrub is an identity function |
-| V2.2 | Memory System | table only |
+| V2.2 | Memory System | **built** — store, dedupe, search, soft delete |
 | V2.3 | Voice | not started |
 | V2.4 | Agent Workflows | planner built, multi-agent not started |
 
-Two things need a decision first.
+One thing needs a decision first.
 
 **Workflow engine vs. jobs.** You describe both a durable workflow engine and a
 job scheduler. They do overlapping things — both handle retries, resuming, and
@@ -122,8 +122,10 @@ Real resuming means making every step separately durable. That's a genuine
 addition, not a tweak. Worth deciding whether the workflow engine sits on top of
 jobs or replaces them before building anything on either.
 
-**Planner mode.** You spec'd the `<plan>` block. The `<tool>` format is built,
-the planner isn't. It belongs with the tool runtime in V2.1.
+Planner mode has since been built, so it is no longer an open question. The
+`<plan>` block you spec'd is emitted as a `plan.proposed` event from the turn
+loop (`kernel/scheduler.py`), asserted by a golden test, and rendered by the
+client — a first-class event rather than prose scraped out of the token stream.
 
 ---
 

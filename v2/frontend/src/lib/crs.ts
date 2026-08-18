@@ -47,6 +47,15 @@ export type PermissionRequest = {
   resolved: string | null;
 };
 
+/* A question the model asked mid-turn. Separate from PermissionRequest on
+   purpose — see the reducer case for why they must not be conflated. */
+export type UserQuestion = {
+  id: string;
+  question: string;
+  options: { id: string; label: string }[];
+  answered: string | null;
+};
+
 export type Turn = {
   id: string;
   status: TurnStatus;
@@ -61,13 +70,14 @@ export type Turn = {
   assets: { id: string; name: string; kind: string }[];
   /* Every question this turn asked, in the order it asked them. */
   permissions: PermissionRequest[];
+  questions: UserQuestion[];
   createdAt: number;
 };
 
 export const emptyTurn = (id: string, userText: string, createdAt: number): Turn => ({
   id, status: 'queued', userText, assistantText: '', partial: false, error: null,
   plan: null, toolCalls: [], executions: [], workspaces: [], assets: [],
-  permissions: [], createdAt,
+  permissions: [], questions: [], createdAt,
 });
 
 export type ConversationState = {
@@ -279,6 +289,29 @@ export function reduce(state: ConversationState, e: CrsEvent): ConversationState
           p.id === e.payload.job_id ? { ...p, resolved: e.payload.choice } : p),
       })) };
 
+    /* A question the model asked because it did not know something. Carried in
+       its own list, not `permissions`: a permission is a safety decision about
+       something about to run, a question is the model admitting a gap. They
+       park a turn identically and must never look alike — approving a shell
+       command and choosing which file was meant are not the same act. */
+    case 'question.asked':
+      return { ...s, turns: upsert(s.turns, id, t => (
+        t.questions.some(q => q.id === e.payload.job_id) ? t : {
+          ...t,
+          questions: [...t.questions, {
+            id: e.payload.job_id, question: e.payload.question,
+            options: e.payload.options ?? [], answered: null,
+          }],
+        }
+      )) };
+
+    case 'question.resolved':
+      return { ...s, turns: upsert(s.turns, id, t => ({
+        ...t,
+        questions: t.questions.map(q =>
+          q.id === e.payload.job_id ? { ...q, answered: e.payload.choice } : q),
+      })) };
+
     default:
       return s;
   }
@@ -479,6 +512,39 @@ export const api = {
 
   executions: (turnId: string) => fetch(`${API}/turns/${turnId}/executions`).then(json),
   trace: (turnId: string) => fetch(`${API}/turns/${turnId}/trace`).then(json),
+
+  /* Declared tunables. The backend already returns each knob's bounds, type,
+     resolved value, where that value came from, and a sentence on what moving
+     it costs — so the UI renders the registry rather than restating it. */
+  tunables: (): Promise<{ tunables: Tunable[] }> =>
+    fetch(`${API}/tunables`).then(json),
+  setTunables: (values: Record<string, number>) =>
+    fetch(`${API}/tunables`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tunables: values }),
+    }).then(json),
+  resetTunable: (key?: string) =>
+    fetch(`${API}/tunables/reset`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(key ? { key } : {}),
+    }).then(json),
+};
+
+/** One row of `GET /tunables` — mirrors tunables.describe() exactly. */
+export type Tunable = {
+  key: string;
+  value: number;
+  default: number;
+  min: number;
+  max: number;
+  /** Python's type name: `int` or `float`. Decides the control's step. */
+  type: 'int' | 'float';
+  /** Where the live value came from. `environment` outranks a stored value, so
+   *  a knob resolved that way cannot be changed from this screen. */
+  source: 'default' | 'saved' | 'environment';
+  env: string;
+  summary: string;
+  cost: string;
 };
 
 /** Rehydrate turns from a history read (state tables), not from events. */

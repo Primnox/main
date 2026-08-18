@@ -296,6 +296,97 @@
   -webkit-backdrop-filter: blur(40px) saturate(180%);
 }
 
+/* ─── WORDMARK ───────────────────────────────────────────────────────────────
+   The brand mark is a 7px dot plus the wide-tracked uppercase wordmark — the
+   site's nav-logo, carried through V1 and V2. The dot is always drawn, so the
+   collapsed rail shows the mark rather than a truncated word; the wordmark
+   slides out from behind it on expand, which is what makes the open state read
+   as the dot leading the name.
+
+   The transition is declared ONLY inside `prefers-reduced-motion: no-preference`.
+   That is not politeness, it is correctness: measured in this app, a
+   transitioned property driven by :hover / :focus-within does not commit at
+   all once the global reduced-motion rule flattens its duration — the rail's
+   width and its labels both silently stopped changing. Declaring no transition
+   under `reduce` means the swap simply happens, instantly and reliably, which
+   is what someone who asked for reduced motion wants anyway.
+   ──────────────────────────────────────────────────────────────────────────── */
+/* `transition: none` in the base is load-bearing, not tidiness. The global
+   reduced-motion block sets `transition-duration: 0.01ms !important` on `*`,
+   and CSS's default `transition-property` is `all` — so every element is
+   transitioning every property whether it asked to or not. Measured three
+   times in this app (the rail's width, its labels, and this wordmark): a
+   matching, higher-specificity rule fires, the element matches the selector,
+   and the value still never commits. Opting the property out is what makes the
+   change take. */
+.px-wordmark { opacity: 0; transition: none; }
+
+.group:hover .px-wordmark,
+.group:focus-within .px-wordmark { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .px-wordmark {
+    transform: translateX(-10px);
+    transition: opacity 220ms ease,
+                transform 340ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .group:hover .px-wordmark,
+  .group:focus-within .px-wordmark { transform: translateX(0); }
+}
+
+/* Rail item labels. Same rules as the wordmark above: opacity rather than
+   display so the text stays in the accessibility tree at every width, and the
+   transition declared only under `no-preference` so the swap still commits when
+   the OS asks for reduced motion.
+
+   Opacity and not the nav's overflow alone, because clipping cut each label
+   mid-word — at 64px the icon and gap leave 13px, so "Knowledge" rendered as a
+   stray "Kn" against the edge and read as broken rather than as collapsed. */
+.px-rail-label { opacity: 0; transition: none; }   /* see .px-wordmark above */
+.group:hover .px-rail-label,
+.group:focus-within .px-rail-label { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .px-rail-label {
+    transition: opacity 180ms ease 40ms;
+  }
+}
+
+/* ─── GLASS ──────────────────────────────────────────────────────────────────
+   Actual glassmorphism, as distinct from `.glass-panel` above.
+
+   `.glass-panel` fills with --nav-bg, which is rgba(7,7,7,0.85) — 85% OPAQUE.
+   Nothing shows through that, so no matter what sits behind it, it reads as a
+   solid dark card with a blur nobody can see. It is a nav-bar background, and
+   for a nav bar that is the right choice: the whole point there is to hide what
+   scrolls under it.
+
+   This is the other thing. ~12% fill, so the backdrop genuinely comes through;
+   blur in the 10–20px range where the diffusion is still legible as diffusion
+   rather than as flat grey; a hairline top highlight for the lit edge.
+
+   Everything is color-mixed from --text, so it inverts with the palette: a
+   literal rgba(255,255,255,…) would assume a dark ground and vanish on the four
+   light themes. */
+.px-glass {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: var(--radius-panel);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow:
+    0 8px 32px rgb(0 0 0 / var(--shadow-op)),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+/* No backdrop-filter support (older WebKit, some embedded webviews): fall back
+   to an opaque-enough fill, because a 12% wash with nothing blurring behind it
+   is unreadable rather than merely less pretty. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .px-glass { background: color-mix(in srgb, var(--text) 8%, var(--bg)); }
+}
+
 .px-panel {
   background: linear-gradient(145deg, color-mix(in srgb, var(--text) 5%, var(--bg)), color-mix(in srgb, var(--text) 2%, var(--bg)));
   border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
@@ -318,6 +409,39 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── ESSENTIAL MOTION ───────────────────────────────────────────────────────
+   The blanket rule above is the standard reduced-motion reset, and it is too
+   blunt by exactly one case: a loading indicator.
+
+   `animation-iteration-count: 1` with a 0.01ms duration does not slow a spinner
+   down, it freezes it after a single instant rotation. So on any machine with
+   Reduce Motion enabled, every spinner in this app has been a static circle —
+   and a static spinner does not read as "reduced motion", it reads as HUNG.
+   The one moment the interface most needs to show it is alive is the one moment
+   this rule guaranteed it could not.
+
+   `prefers-reduced-motion` means "do not use gratuitous motion". A progress
+   indicator is not gratuitous; it is the only signal that work is happening.
+   WCAG's own carve-out is for motion essential to the information being
+   conveyed, and this is that.
+
+   So it keeps spinning under `reduce`, just calmer: 2.4s instead of 1s, which
+   is a slow sweep rather than a whirl. The class beats the `*` reset on
+   specificity (0,1,0 against 0,0,0), which is why both can carry !important.
+   ──────────────────────────────────────────────────────────────────────────── */
+@keyframes px-spin { to { transform: rotate(360deg); } }
+
+.px-spin {
+  animation: px-spin 1s linear infinite;
+  transform-origin: 50% 50%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .px-spin {
+    animation: px-spin 2.4s linear infinite !important;
   }
 }
 

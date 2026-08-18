@@ -24,6 +24,13 @@ from ..kernel.events import bus
 ALLOW_ONCE, ALLOW_TURN, DENY = "allow_once", "allow_turn", "deny"
 ALLOW_AUTO = "allow_auto"
 
+# Outcomes of a question that produced no usable answer. Three distinct values
+# rather than one, because the model should say different things: nobody was
+# there, the user declined to pick, or the turn was being cancelled anyway.
+# Collapsing them would have the model report "you chose X" for all three.
+ANSWER_TIMEOUT, ANSWER_UNCLEAR, ANSWER_CANCELLED = (
+    "__timeout__", "__unclear__", "__cancelled__")
+
 # How much is approved without asking.
 #
 #   all   nothing prompts. Every request is granted and recorded.
@@ -53,11 +60,17 @@ DEFAULT_TIMEOUT_S = 600
 
 class _Pending:
     __slots__ = ("event", "choice", "turn_id", "created_at",
-                 "request_id", "action", "detail", "options")
+                 "request_id", "action", "detail", "options", "kind")
 
     def __init__(self, turn_id: str | None, *, request_id: str = "",
                  action: str = "", detail: str = "",
-                 options: list[dict] | None = None) -> None:
+                 options: list[dict] | None = None,
+                 kind: str = "permission") -> None:
+        # "permission" is a safety decision with a fixed vocabulary;
+        # "question" is the model admitting it does not know something, and its
+        # options are whatever it needed to ask. They are parked and resolved
+        # the same way and must not be rendered the same way.
+        self.kind = kind
         self.event = threading.Event()
         self.choice: str | None = None
         self.turn_id = turn_id
@@ -196,9 +209,85 @@ class PermissionBroker:
             pending = self._pending.get(request_id)
         if pending is None:
             return False
-        pending.choice = choice if choice in (ALLOW_ONCE, ALLOW_TURN, DENY) else DENY
+
+        if pending.kind == "question":
+            # A question's options are the model's own, so the permission
+            # vocabulary does not apply. Anything unrecognised still falls back
+            # to the escape hatch rather than being taken as an answer — a
+            # question resolved with a value nobody offered would put words in
+            # the user's mouth, which is the thing this feature exists to stop.
+            valid = {o["id"] for o in pending.options}
+            pending.choice = choice if choice in valid else ANSWER_UNCLEAR
+        else:
+            pending.choice = choice if choice in (ALLOW_ONCE, ALLOW_TURN, DENY) else DENY
         pending.event.set()
         return True
+
+    def ask(self, *, request_id: str, question: str, options: list[dict],
+            turn_id: str | None = None, conversation_id: str | None = None,
+            timeout_s: int | None = None, should_cancel=None) -> str:
+        """Put a question to the user and block until it is answered.
+
+        Deliberately NOT routed through `request()`, for one reason:
+        auto-approval. `PRIMNOX2_AUTO_APPROVE=all` is a defensible default for
+        permissions — the user chose to stop being interrupted about tools they
+        trust. Applying it here would answer a question the model asked because
+        it did not know something, by silently choosing the first option. That
+        is a fabricated answer attributed to the user, and it is worse than the
+        guess the model would have made unaided, because it looks confirmed.
+
+        A question is always put to the user, whatever the permission setting.
+        """
+        # Read at call time, not bound as a default argument. `timeout_s: int =
+        # DEFAULT_TIMEOUT_S` binds the module value once at import, so changing
+        # it afterwards — from a test, or from a setting — has no effect and the
+        # call still waits the original ten minutes. Found the hard way: a test
+        # that patched it hung for the full duration.
+        timeout_s = DEFAULT_TIMEOUT_S if timeout_s is None else timeout_s
+
+        pending = _Pending(turn_id, request_id=request_id, action="question",
+                           detail=question, options=options, kind="question")
+        with self._lock:
+            self._pending[request_id] = pending
+
+        if conversation_id:
+            bus.emit("question.asked", {
+                "job_id": request_id, "question": question, "options": options,
+            }, conversation_id=conversation_id, turn_id=turn_id)
+
+        prior = None
+        if turn_id:
+            prior = _status_of(turn_id)
+            try:
+                turns.set_status(turn_id, "awaiting_input")
+            except ValueError:
+                pass
+
+        # Same poll-with-cancel loop as `request()`: a cancelled turn must not
+        # sit parked on a question nobody will answer (CRS §9.2).
+        deadline = time.time() + timeout_s
+        choice = ANSWER_TIMEOUT
+        while time.time() < deadline:
+            if pending.event.wait(timeout=0.2):
+                choice = pending.choice or ANSWER_UNCLEAR
+                break
+            if should_cancel is not None and should_cancel():
+                choice = ANSWER_CANCELLED
+                break
+
+        with self._lock:
+            self._pending.pop(request_id, None)
+
+        if conversation_id:
+            bus.emit("question.resolved", {"job_id": request_id, "choice": choice},
+                     conversation_id=conversation_id, turn_id=turn_id)
+
+        if turn_id and prior and prior not in turns.TERMINAL:
+            try:
+                turns.set_status(turn_id, prior)
+            except ValueError:
+                pass
+        return choice
 
     def cancel_for_turn(self, turn_id: str) -> int:
         """Deny every question belonging to a turn that is being cancelled."""

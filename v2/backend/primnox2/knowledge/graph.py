@@ -24,7 +24,17 @@ GLOBAL = "*"
 
 # Cheap and deliberate: the callers of this module budget in tokens, and a
 # tokenizer dependency here would buy accuracy nobody spends.
-CHARS_PER_TOKEN = 4
+def _tune(key):
+    from ..settings import tunables
+    return tunables.get(key)
+
+
+# Deliberately the SAME tunable the context service estimates with. This module
+# converts a token budget back into characters, and the context service converts
+# the rendered block back into tokens — two halves of one sum. A local constant
+# here read 4 while the context service read 3.5, so every block came out ~14%
+# over the budget reserved for it, and an oversized retrieval block is not
+# trimmed by the caller, it is dropped whole.
 
 
 def _derive_type(node: dict) -> str:
@@ -151,7 +161,7 @@ def clear_scope(conn, scope: str) -> int:
 
 
 # ── Reads ────────────────────────────────────────────────────────────────────
-def find_nodes(query: str, *, scope: str | None = None, limit: int = 12) -> list[dict]:
+def find_nodes(query: str, *, scope: str | None = None, limit: int | None = None) -> list[dict]:
     """Seed lookup: exact key, then label prefix, then substring.
 
     Ordered by tier so an exact hit is never buried under fuzzy ones, and by
@@ -173,7 +183,7 @@ def find_nodes(query: str, *, scope: str | None = None, limit: int = 12) -> list
         sql += " AND scope=:scope"
         params["scope"] = scope
     sql += " ORDER BY tier, salience DESC, label LIMIT :limit"
-    params["limit"] = limit
+    params["limit"] = limit or _tune("knowledge.seed_limit")
     return [dict(r) for r in db.connect().execute(sql, params)]
 
 
@@ -197,7 +207,7 @@ def neighbours(node_id: str, *, relation: str | None = None) -> list[dict]:
     return [dict(r) for r in db.connect().execute(sql, params)]
 
 
-def walk(seeds: list[str], *, depth: int = 2, limit: int = 60,
+def walk(seeds: list[str], *, depth: int | None = None, limit: int | None = None,
          relation: str | None = None) -> tuple[list[dict], list[dict]]:
     """Breadth-first from seed node ids. Returns (nodes, edges).
 
@@ -205,6 +215,8 @@ def walk(seeds: list[str], *, depth: int = 2, limit: int = 60,
     used" is X's immediate surroundings; a deep path through one branch buries
     the direct callers under transitive ones.
     """
+    depth = depth or _tune("knowledge.walk_depth")
+    limit = limit or _tune("knowledge.walk_limit")
     conn = db.connect()
     seen: dict[str, dict] = {}
     edges: list[dict] = []
@@ -233,13 +245,14 @@ def walk(seeds: list[str], *, depth: int = 2, limit: int = 60,
     return list(seen.values()), edges
 
 
-def render(nodes: list[dict], edges: list[dict], *, token_budget: int = 2000) -> str:
+def render(nodes: list[dict], edges: list[dict], *, token_budget: int | None = None) -> str:
     """Format a subgraph as citation lines, trimmed to a token budget.
 
     Nodes first: they are the answer's anchors, and a truncation that ate them
     would leave edges referring to labels the model never saw.
     """
-    char_budget = max(200, token_budget * CHARS_PER_TOKEN)
+    token_budget = token_budget or _tune("knowledge.query_tokens")
+    char_budget = max(200, int(token_budget * _tune("context.chars_per_token")))
     lines: list[str] = []
     for n in sorted(nodes, key=lambda x: (x.get("hops", 0), -x.get("weight", 0) or 0)):
         loc = f" loc={n['source_location']}" if n.get("source_location") else ""
@@ -268,7 +281,7 @@ def render(nodes: list[dict], edges: list[dict], *, token_budget: int = 2000) ->
 
 
 def query(question: str, *, scope: str | None = None, depth: int = 2,
-          token_budget: int = 2000, relation: str | None = None) -> str:
+          token_budget: int | None = None, relation: str | None = None) -> str:
     """The retrieval entry point: question in, citation lines out."""
     seeds = find_nodes(question, scope=scope)
     if not seeds:

@@ -109,6 +109,62 @@ def list_conversations(limit: int = 100, archived: bool = False) -> list[dict]:
     return (pinned + rest)[:limit]
 
 
+DEFAULT_TITLE = "New Chat"
+_TITLE_MAX = 60
+
+
+def title_from(text: str) -> str:
+    """A conversation's name, taken from the words that started it.
+
+    Derived rather than generated. Asking the model for a title costs a whole
+    extra round trip before the user has seen a single token of their actual
+    answer, and it is the one call most likely to fail on a flaky proxy or a
+    loaded local model — for a cosmetic string. The user's own opening line is
+    free, instant, deterministic, and describes the conversation better than a
+    7B's paraphrase of it.
+
+    Cut at a word boundary: "How do I convert a PPTX into a…" reads as a title,
+    "How do I convert a PPTX in" reads as a truncation bug.
+    """
+    flat = " ".join((text or "").split())
+    if not flat:
+        return DEFAULT_TITLE
+    if len(flat) <= _TITLE_MAX:
+        return flat
+    cut = flat[:_TITLE_MAX]
+    space = cut.rfind(" ")
+    if space > _TITLE_MAX // 2:            # only if it leaves something to read
+        cut = cut[:space]
+    return cut.rstrip(" ,.;:—-") + "…"
+
+
+def maybe_autotitle(conversation_id: str, text: str) -> str | None:
+    """Name a conversation after its first message. Returns the new title.
+
+    Guarded on the title still being the default, which is what makes this safe
+    to call on every turn: a conversation the user has renamed is never
+    overwritten, and the second message never replaces the name the first one
+    earned.
+    """
+    if ephemeral.is_incognito(conversation_id):
+        record = ephemeral.conversation(conversation_id) or {}
+        if (record.get("title") or DEFAULT_TITLE) != DEFAULT_TITLE:
+            return None
+        title = title_from(text)
+        ephemeral.rename_conversation(conversation_id, title)
+        return title
+
+    with db.tx() as c:
+        row = c.execute("SELECT title FROM conversations WHERE id = ?",
+                        (conversation_id,)).fetchone()
+        if row is None or (row["title"] or DEFAULT_TITLE) != DEFAULT_TITLE:
+            return None
+        title = title_from(text)
+        c.execute("UPDATE conversations SET title = ? WHERE id = ?",
+                  (title, conversation_id))
+    return title
+
+
 def rename_conversation(conversation_id: str, title: str) -> dict:
     title = (title or "").strip()
     if not title:
@@ -343,6 +399,17 @@ def create_turn(conversation_id: str, text: str, *,
     """
     tid, mid, ts = new_id(TURN), new_id(MSG), now_ms()
     _observe_live(conversation_id, text, "user")
+
+    # Name the conversation after the words that started it. Nothing called
+    # rename_conversation except the manual-rename endpoint, so every
+    # conversation stayed "New Chat" for life and the sidebar became a column of
+    # identical rows — the list could be scrolled but not read.
+    #
+    # Before the transaction below rather than inside it: this opens its own,
+    # and nesting db.tx() would deadlock. It is a no-op after the first message
+    # (the title is no longer the default), so calling it on every turn is
+    # cheap and needs no "is this the first turn" bookkeeping.
+    maybe_autotitle(conversation_id, text)
 
     if ephemeral.is_incognito(conversation_id):
         seq = ephemeral.next_seq(conversation_id)

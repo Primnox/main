@@ -171,23 +171,26 @@ def _chunk(text: str) -> list[str]:
     boundary is still retrievable from one chunk."""
     if not text:
         return []
+    from ..settings import tunables
+    chunk_chars = tunables.get("assets.chunk_chars")
+    overlap = tunables.get("assets.chunk_overlap")
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     chunks: list[str] = []
     current = ""
     for para in paragraphs:
-        if len(current) + len(para) + 2 <= CHUNK_CHARS:
+        if len(current) + len(para) + 2 <= chunk_chars:
             current = f"{current}\n\n{para}" if current else para
             continue
         if current:
             chunks.append(current)
-        if len(para) <= CHUNK_CHARS:
+        if len(para) <= chunk_chars:
             current = para
             continue
         # A single paragraph longer than a chunk is cut on a stride, keeping
         # an overlap so nothing falls between two cuts.
-        step = CHUNK_CHARS - CHUNK_OVERLAP
+        step = chunk_chars - overlap
         for i in range(0, len(para), step):
-            piece = para[i:i + CHUNK_CHARS]
+            piece = para[i:i + chunk_chars]
             if piece:
                 chunks.append(piece)
         current = ""
@@ -225,6 +228,28 @@ def _run_ingest(sched, job: dict) -> None:
             " WHERE id=?",
             (text, meta.get("page_count"), json.dumps(meta), now_ms(), asset_id),
         )
+
+    # Index it into the knowledge graph, so the next turn reaches this document
+    # through citations rather than by pasting it whole into the prompt. Done
+    # here rather than on first use because the whole premise is that the graph
+    # exists BEFORE the question — building it lazily would put a tree-sitter
+    # parse on the latency path of the reply.
+    #
+    # Best effort, and deliberately quiet: an asset that fails to index is still
+    # a perfectly good asset, and the context service falls back to its text.
+    try:
+        from ..knowledge import importer as knowledge_importer
+        from ..knowledge import service as knowledge_service
+
+        if text and knowledge_importer.available():
+            knowledge_service.request_build(
+                Path(row["path"]),
+                scope=knowledge_service.scope_for_asset(asset_id),
+                conversation_id=conversation_id,
+                asset_id=asset_id,
+            )
+    except Exception as exc:  # pragma: no cover - never block ingestion
+        print(f"assets: graph indexing skipped for {asset_id}: {exc}")
 
     # `ready` with no text is a real, useful state: the asset exists, its bytes
     # are stored, and the metadata says why there is no text yet.

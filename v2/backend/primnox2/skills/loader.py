@@ -37,7 +37,14 @@ SKILLS_DIR = Path(__file__).parent
 # touching this, but never so broadly that "read a file from the skill" becomes
 # a way to read the rest of the machine.
 READABLE_SUFFIXES = {".md", ".css", ".json", ".txt", ".js", ".html", ".svg"}
-MAX_ASSET_CHARS = 60_000
+
+
+def _max_asset_chars() -> int:
+    from ..settings import tunables
+    return tunables.get("skills.max_asset_chars")
+
+
+MAX_ASSET_CHARS = 60_000   # default; the live value comes from _max_asset_chars()
 
 
 @dataclass
@@ -81,8 +88,9 @@ class Skill:
         if not target.is_file() or target.suffix.lower() not in READABLE_SUFFIXES:
             return None
         text = target.read_text(encoding="utf-8", errors="replace")
-        if len(text) > MAX_ASSET_CHARS:
-            return text[:MAX_ASSET_CHARS] + "\n… (truncated)"
+        cap = _max_asset_chars()
+        if len(text) > cap:
+            return text[:cap] + "\n… (truncated)"
         return text
 
 
@@ -147,7 +155,17 @@ def get(name: str) -> Skill | None:
 # unbounded prompt. 32k chars is roughly 8k tokens: comfortable for a 128k
 # model, and the most a 32k-context local model can give up before the history
 # it needs starts falling out of the window.
-INLINE_BUDGET_CHARS = 32_000
+INLINE_BUDGET_CHARS = 32_000   # default; the live value comes from _budget()
+
+
+def _budget() -> int:
+    """Resolved per call. Before storage is configured — a bare import in a
+    script or a test collecting modules — the default stands."""
+    try:
+        from ..settings import tunables
+        return tunables.get("skills.inline_budget_chars")
+    except Exception:
+        return INLINE_BUDGET_CHARS
 
 
 def select(text: str, limit: int = 2) -> list[Skill]:
@@ -194,7 +212,7 @@ def select(text: str, limit: int = 2) -> list[Skill]:
     for score, skill in scored:
         if score < best or len(chosen) >= limit:
             break
-        if chosen and spent + len(skill.body) > INLINE_BUDGET_CHARS:
+        if chosen and spent + len(skill.body) > _budget():
             break
         chosen.append(skill)
         spent += len(skill.body)

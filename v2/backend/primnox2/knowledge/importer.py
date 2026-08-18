@@ -161,14 +161,23 @@ def import_extraction(
     return stats
 
 
-def import_tree(target: Path, *, scope: str, workspace_id: str | None = None) -> dict:
-    """Extract a directory and import it. The whole-repo path."""
+def import_tree(target: Path, *, scope: str, workspace_id: str | None = None,
+                asset_id: str | None = None) -> dict:
+    """Extract a directory OR a single file and import it.
+
+    `collect_files` accepts either, but `root` must be a directory: node ids and
+    every `source_file` are derived relative to it, and handing it a file makes
+    the ids relative to that one file. A single uploaded document would then
+    produce ids that never match the same document seen as part of a folder.
+    """
     target = Path(target).resolve()
     paths = collect(target)
     if not paths:
         return {"nodes": 0, "edges": 0, "files": 0}
+    root = target if target.is_dir() else target.parent
     result = import_extraction(
-        extract(paths, target), scope=scope, workspace_id=workspace_id
+        extract(paths, root), scope=scope,
+        workspace_id=workspace_id, asset_id=asset_id,
     )
     result["files"] = len(paths)
     return result

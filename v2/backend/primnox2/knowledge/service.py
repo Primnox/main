@@ -18,7 +18,7 @@ from pathlib import Path
 from ..kernel import scheduler
 from ..kernel.events import bus
 from ..storage import db
-from . import importer
+from . import facts, importer
 
 now_ms = lambda: int(time.time() * 1000)
 
@@ -26,13 +26,13 @@ KIND = "memory.graph_build"
 
 
 def request_build(target: Path | str, *, scope: str, workspace_id: str | None = None,
-                  conversation_id: str | None = None) -> str:
+                  conversation_id: str | None = None, asset_id: str | None = None) -> str:
     """Queue an index build. Returns the job id."""
     return scheduler.enqueue(
         None,
         KIND,
-        {"target": str(target), "scope": scope,
-         "workspace_id": workspace_id, "conversation_id": conversation_id},
+        {"target": str(target), "scope": scope, "workspace_id": workspace_id,
+         "conversation_id": conversation_id, "asset_id": asset_id},
         # Idempotent: the import replaces its scope wholesale, so running it
         # twice lands on the same graph. That is what makes an interrupted
         # build safe to retry on the boot sweep instead of failing the job.
@@ -67,7 +67,8 @@ def _run_build(sched, job: dict) -> None:
 
     try:
         result = importer.import_tree(
-            target, scope=scope, workspace_id=payload.get("workspace_id"))
+            target, scope=scope, workspace_id=payload.get("workspace_id"),
+            asset_id=payload.get("asset_id"))
     except Exception as exc:
         sched._finish(job["id"], "failed", error=f"{type(exc).__name__}: {exc}")
         return
@@ -145,16 +146,22 @@ def _to_networkx(scope: str):
 # Above roughly this many nodes a force-directed graph stops being a picture of
 # anything — it is a hairball, and the honest response to "show me the graph" is
 # the most connected part of it rather than all of it. Graphify's exporter takes
-# the cap; the default here just refuses to render 2,500 nodes and call it a
-# view. Callers who want everything can ask for it.
-DEFAULT_NODE_LIMIT = 400
+# the cap; the value lives in `knowledge.view_node_limit`, which is what both
+# render paths below actually read. Callers who want everything can ask for it.
 
 
-def render_html(scope: str, *, node_limit: int | None = DEFAULT_NODE_LIMIT) -> str | None:
-    """Graphify's own viewer for one scope, as a self-contained HTML string."""
+def render_html(scope: str, *, node_limit: int | None = -1) -> str | None:
+    """Graphify's own viewer for one scope, as a self-contained HTML string.
+
+    `node_limit=-1` means "whatever the tunable says" — distinct from None,
+    which means "no limit, render everything".
+    """
     import tempfile
     from pathlib import Path
 
+    if node_limit == -1:
+        from ..settings import tunables
+        node_limit = tunables.get("knowledge.view_node_limit") or None
     graph = _to_networkx(scope)
     if graph is None or graph.number_of_nodes() == 0:
         return None
@@ -172,6 +179,22 @@ def render_html(scope: str, *, node_limit: int | None = DEFAULT_NODE_LIMIT) -> s
 def graph_json(scope: str) -> dict:
     """Nodes and edges as plain JSON, for callers that want to draw it
     themselves rather than embed the shipped viewer."""
+    # `facts` is derived on read and never reaches knowledge_nodes, so the plain
+    # table query below returns nothing for it. `scopes()` still advertises it
+    # with a node count, so without this branch the two endpoints contradict
+    # each other and a caller that trusts the listing draws an empty canvas.
+    if scope == facts.SCOPE:
+        built = facts.build()
+        return {"scope": scope,
+                "nodes": [{"id": n["id"], "key": n["id"], "label": n["label"],
+                           "type": n["file_type"], "source_file": n["source_file"],
+                           "source_location": "", "salience": 1.0}
+                          for n in built["nodes"]],
+                "edges": [{"source_id": e["source"], "target_id": e["target"],
+                           "relation": e["relation"], "context": e["context"],
+                           "confidence": e["confidence"], "weight": e["weight"]}
+                          for e in built["edges"]]}
+
     conn = db.connect()
     nodes = [dict(r) for r in conn.execute(
         "SELECT id, key, label, type, source_file, source_location, salience"

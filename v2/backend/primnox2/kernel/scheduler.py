@@ -170,6 +170,21 @@ class Scheduler:
             self._finish(job["id"], "cancelled")
             return
 
+        # The guard above checks the TURN, but every event this job emits names
+        # the CONVERSATION, and `events.conversation_id` is a foreign key. A
+        # chat deleted while its reply was in flight therefore passed the turn
+        # check and then killed the job on the first emit with an unhandled
+        # IntegrityError — a stack trace in the log for something the user did
+        # on purpose. Deleting a conversation cancels its work; it is not a
+        # fault.
+        if not ephemeral.is_incognito(conversation_id):
+            alive = db.connect().execute(
+                "SELECT 1 FROM conversations WHERE id=?", (conversation_id,)
+            ).fetchone()
+            if alive is None:
+                self._finish(job["id"], "cancelled")
+                return
+
         bus.emit("job.started", {"job_id": job["id"], "kind": "chat.reply", "label": "Generating reply"},
                  conversation_id=conversation_id, turn_id=turn_id)
 
@@ -214,7 +229,11 @@ class Scheduler:
                           conversation_id=conversation_id, should_cancel=cancelled)
         corrections = 0
 
-        for step in range(tools.MAX_TOOL_STEPS + 1):
+        # Bound once, not per iteration: a settings change landing mid-turn
+        # would otherwise move the ceiling under a loop that is already running.
+        max_steps = tools.max_tool_steps()
+
+        for step in range(max_steps + 1):
             # Each model call in a turn writes its own prose, and joining them
             # with nothing between runs one into the next. Measured live: a
             # turn whose two calls both said "12 * 12 = 144" rendered as
@@ -239,7 +258,7 @@ class Scheduler:
             if call is None:
                 break
 
-            if step == tools.MAX_TOOL_STEPS:
+            if step == max_steps:
                 # A model that keeps calling tools is looping, not working.
                 visible_total.append("\n\n[Stopped: too many tool steps in one turn.]")
                 break

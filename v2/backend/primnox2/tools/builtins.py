@@ -10,6 +10,7 @@ before a handler runs, so a tool cannot forget to ask.
 from __future__ import annotations
 
 import json
+import re
 
 from ..assets import service as assets
 from ..knowledge import graph as knowledge, live as live_graph
@@ -19,12 +20,17 @@ from .registry import HIGH, LOW, MEDIUM, ToolContext, ToolSpec, register
 
 # What the model is shown inline. The full output is stored as an asset and
 # referenced (CRS §6.2.4) — a 200k-line log must not enter the context window.
-INLINE_OUTPUT_CHARS = 2000
+def _inline_chars() -> int:
+    from ..settings import tunables
+    return tunables.get("tools.inline_output_chars")
+
+
+INLINE_OUTPUT_CHARS = 2000   # default; the live value comes from _inline_chars()
 
 
 def _store_output(text: str, name: str, ctx: ToolContext) -> str | None:
     """Promote large output to an asset and return its id."""
-    if len(text) <= INLINE_OUTPUT_CHARS:
+    if len(text) <= _inline_chars():
         return None
     try:
         asset = assets.ingest_bytes(
@@ -39,9 +45,10 @@ def _store_output(text: str, name: str, ctx: ToolContext) -> str | None:
 
 
 def _clip(text: str) -> str:
-    if len(text) <= INLINE_OUTPUT_CHARS:
+    cap = _inline_chars()
+    if len(text) <= cap:
         return text
-    return text[:INLINE_OUTPUT_CHARS] + f"\n… {len(text) - INLINE_OUTPUT_CHARS} more characters, stored as an asset …"
+    return text[:cap] + f"\n… {len(text) - cap} more characters, stored as an asset …"
 
 
 def _execute_code(runtime: str, code: str, ctx: ToolContext, tier: str) -> dict:
@@ -182,6 +189,123 @@ register(ToolSpec(
 ))
 
 
+# ── Memory ───────────────────────────────────────────────────────────────────
+def _remember(args: dict, ctx: ToolContext) -> dict:
+    """Save a durable fact about the user, from the conversation.
+
+    This is where memory should be created. A settings screen with a textarea
+    asks the user to leave the conversation, restate something they just said,
+    and file it themselves — so nobody does it, and the store stays empty while
+    the assistant keeps forgetting. The moment a fact is worth keeping is the
+    moment it is said.
+
+    `provenance` records who decided. A fact the user asked to be kept and a
+    fact the model thought was worth keeping are different claims, and the
+    Memory tab shows which is which so a wrong inference can be found and
+    removed rather than quietly becoming true.
+    """
+    from ..memory import service as memory
+
+    text = (args.get("text") or "").strip()
+    if not text:
+        return {"status": "error", "summary": "nothing to remember",
+                "output": "A memory needs text."}
+
+    # Incognito exists to leave no trace. Writing a permanent fact out of a
+    # conversation that is never written to disk would be the one thing it
+    # promises not to do.
+    from ..chat import ephemeral
+    if ephemeral.is_incognito(ctx.conversation_id):
+        return {"status": "error", "summary": "incognito",
+                "output": "This is an incognito chat — nothing here is saved, "
+                          "including memories."}
+
+    try:
+        result = memory.remember(
+            text,
+            category=(args.get("category") or memory.DEFAULT_CATEGORY),
+            provenance=(memory.EXPLICIT if args.get("asked_by_user")
+                        else memory.INFERRED),
+            conversation_id=ctx.conversation_id,
+            turn_id=ctx.turn_id,
+        )
+    except memory.MemoryTooLong as exc:
+        # Returned as a tool error, not raised: the loop feeds this back to the
+        # model, which can shorten and call again. A raised exception would
+        # fail the turn over a fact that only needed distilling.
+        return {"status": "error", "summary": "too long to be one fact",
+                "output": str(exc)}
+    if not result["stored"]:
+        return {"status": "success", "summary": "already known",
+                "output": f"Already remembered something equivalent: {text}"}
+    return {"status": "success", "summary": "saved to memory",
+            "output": f"Remembered: {text}"}
+
+
+register(ToolSpec(
+    name="remember",
+    description=("Save a lasting fact about the user — a preference, a name, a "
+                 "recurring project, how they like to work. Use it when they "
+                 "say to remember something, and when a durable fact about "
+                 "THEM comes up. Not for facts about the task at hand."),
+    parameters={
+        "text": {"type": "string", "required": True,
+                 "description": "ONE fact, as a single short standalone "
+                                "sentence — 'Prefers concise answers.', not a "
+                                "paragraph and not the message it came from. "
+                                "Longer text is refused, not truncated."},
+        "category": {"type": "string", "required": False,
+                     "description": "personal, work, project or session."},
+        "asked_by_user": {"type": "boolean", "required": False,
+                          "description": "True when they explicitly asked."},
+    },
+    danger=LOW,
+    handler=_remember,
+))
+
+
+def _recall_memory(args: dict, ctx: ToolContext) -> dict:
+    """Search what is already known. Memory is injected into every prompt, but
+    the injection is capped — this reaches past the cap for an older fact."""
+    from ..memory import service as memory
+
+    hits = memory.search(args.get("query") or "", limit=int(args.get("limit") or 10))
+    if not hits:
+        return {"status": "success", "summary": "nothing known",
+                "output": "Nothing remembered about that."}
+    return {"status": "success", "summary": f"{len(hits)} remembered",
+            "output": "\n".join(f"- {h['text']}" for h in hits)}
+
+
+register(ToolSpec(
+    name="recall_memory",
+    # Descriptions are how a model routes, and these two were described only by
+    # what they hold, never by what they are FOR. Asked "what do I prefer",
+    # a small model read `graph_query`'s "far cheaper than reading whole files"
+    # as a recommendation and called it — getting back twenty-four lines of
+    # Primnox's own source and answering the user's question from them, with
+    # every appearance of having looked something up. Measured.
+    #
+    # Nothing was broken underneath: these are separate stores and separate
+    # code paths, and `recall_memory` would have searched memories alone. The
+    # model simply had no sentence telling it which question belongs where.
+    # So each description now names its own subject AND points at the other
+    # tool by name, because "this is for X" is weaker guidance than "this is
+    # for X, that is for Y" when the choice is what's being got wrong.
+    description=("THE tool for questions about the user — preferences, habits, "
+                 "their setup, anything they told you before. Use it whenever "
+                 "the question says 'I', 'my' or 'me'. It does not search code; "
+                 "graph_query does, and cannot answer for the user."),
+    parameters={
+        "query": {"type": "string", "required": False,
+                  "description": "What to look for. Omit for everything."},
+        "limit": {"type": "integer", "required": False, "description": "Max results."},
+    },
+    danger=LOW,
+    handler=_recall_memory,
+))
+
+
 # ── Knowledge graph ──────────────────────────────────────────────────────────
 def _graph_query(args: dict, ctx: ToolContext) -> dict:
     """Answer from the graph rather than from the corpus.
@@ -191,9 +315,10 @@ def _graph_query(args: dict, ctx: ToolContext) -> dict:
     the model exactly which file to read next if it needs the body — which is
     cheaper than inlining a body it may not need.
     """
+    question = args["question"]
     budget = int(args.get("token_budget") or 2000)
     text = knowledge.query(
-        args["question"],
+        question,
         scope=args.get("scope") or None,
         depth=min(int(args.get("depth") or 2), 4),
         token_budget=budget,
@@ -203,16 +328,49 @@ def _graph_query(args: dict, ctx: ToolContext) -> dict:
         return {"status": "success", "summary": "no matches",
                 "output": "Nothing in the knowledge graph matched. "
                           "The corpus may not be indexed yet."}
+
+    # A wrong tool that returns nothing corrects itself; the model tries again.
+    # A wrong tool that returns something plausible does not — and this one
+    # always returns something, because a codebase contains a line about
+    # roughly any word you can put to it. Asked what the user prefers, it
+    # answered out of Primnox's own source and the reply read like recall.
+    #
+    # The result is still handed over rather than withheld: the guess is
+    # keyword-shaped and will misfire on a legitimate question ("why did I
+    # write this?"), where suppressing a real answer would be the worse error.
+    # It is prepended, not appended, because the note has to be read before the
+    # citations it is a warning about — after two thousand tokens of graph, the
+    # answer is already forming.
+    if _about_the_user(question):
+        text = ("NOTE: this reads indexed code and documents, and the question "
+                "looks like it is about the user. Nothing below is evidence of "
+                "what they said, prefer, or decided — call recall_memory for "
+                "that. Use these lines only if the question really was about "
+                "the code.\n\n") + text
     return {"status": "success",
             "summary": f"{len(text.splitlines())} graph lines",
             "output": text}
 
 
+# Whole words only: "my" must not fire on "mypy", and "i" not on every
+# identifier containing the letter. Deliberately a small, boring list — the
+# note it triggers is a caveat, so a false positive costs one sentence, while
+# a clever matcher that fired on prose would cost trust in the caveat itself.
+_FIRST_PERSON = re.compile(
+    r"\b(i|me|my|mine|myself|we|us|our|ours)\b", re.IGNORECASE)
+
+
+def _about_the_user(question: str) -> bool:
+    return bool(_FIRST_PERSON.search(question or ""))
+
+
 register(ToolSpec(
     name="graph_query",
-    description=("Search the knowledge graph of indexed code and documents. "
-                 "Returns nodes and relationships with file:line citations — "
-                 "far cheaper than reading whole files."),
+    description=("Search indexed CODE AND DOCUMENTS — files, symbols, how a "
+                 "system works. Returns nodes and relationships with file:line "
+                 "citations, far cheaper than reading whole files. It holds "
+                 "nothing about the user: for what they prefer or told you "
+                 "earlier, use recall_memory instead."),
     parameters={
         "question": {"type": "string", "required": True,
                      "description": "A symbol, concept, or natural-language question."},
@@ -227,6 +385,98 @@ register(ToolSpec(
     },
     danger=LOW,
     handler=_graph_query,
+))
+
+
+# ── Asking ───────────────────────────────────────────────────────────────────
+def _ask_user(args: dict, ctx: ToolContext) -> dict:
+    """Put a question to the user and wait for the answer.
+
+    The alternative to asking is guessing, and a guess from a small model does
+    not arrive labelled as one — it arrives as a confident sentence. Asked which
+    of two databases to migrate, a 7B picks one and writes the migration.
+    Nothing downstream can tell that choice apart from an instruction.
+
+    So this is as much a correctness feature as a courtesy: it converts the most
+    expensive kind of hallucination — an invented premise the whole rest of the
+    answer is built on — into a question that costs one click.
+
+    Bounded to a short list of concrete options rather than open text. A model
+    that is already unsure writes vague open questions ("what would you like me
+    to do?"), which move the work back to the user without narrowing anything.
+    Being made to enumerate the actual alternatives is what forces the
+    ambiguity to become explicit.
+    """
+    from ..ids import new_id
+    from .permissions import (ANSWER_CANCELLED, ANSWER_TIMEOUT, ANSWER_UNCLEAR,
+                              broker)
+
+    question = (args.get("question") or "").strip()
+    if not question:
+        return {"status": "error", "summary": "no question",
+                "output": "A question needs text."}
+
+    raw = args.get("options") or []
+    if isinstance(raw, str):                       # a model may send "a, b, c"
+        raw = [p.strip() for p in raw.split(",")]
+    labels = [str(o).strip() for o in raw if str(o).strip()][:4]
+    if len(labels) < 2:
+        return {"status": "error", "summary": "needs options",
+                "output": "Give 2-4 concrete options the user can choose "
+                          "between. If you cannot name the alternatives, you "
+                          "do not yet know what you are asking."}
+
+    options = [{"id": f"opt{i}", "label": l} for i, l in enumerate(labels)]
+    # Always available: the user may reject the framing itself, and a question
+    # with no way to say "none of these" forces a wrong answer into the record.
+    options.append({"id": ANSWER_UNCLEAR, "label": "None of these"})
+
+    choice = broker.ask(
+        request_id=new_id("ask"), question=question, options=options,
+        turn_id=ctx.turn_id, conversation_id=ctx.conversation_id,
+        should_cancel=ctx.should_cancel,
+    )
+
+    if choice == ANSWER_CANCELLED:
+        return {"status": "error", "summary": "cancelled",
+                "output": "The turn was cancelled while waiting."}
+    if choice == ANSWER_TIMEOUT:
+        return {"status": "success", "summary": "no answer",
+                "output": "Nobody answered. Proceed with your best judgement "
+                          "and SAY which assumption you made."}
+    if choice == ANSWER_UNCLEAR:
+        return {"status": "success", "summary": "none of these",
+                "output": "The user rejected all the options. Do not pick one "
+                          "anyway — ask a different question or say what is "
+                          "unclear."}
+
+    picked = next((o["label"] for o in options if o["id"] == choice), None)
+    if picked is None:
+        return {"status": "success", "summary": "no usable answer",
+                "output": "No recognisable answer came back. Proceed with your "
+                          "best judgement and say what you assumed."}
+    return {"status": "success", "summary": f"answered: {picked}",
+            "output": f"The user chose: {picked}"}
+
+
+register(ToolSpec(
+    name="ask_user",
+    description=("Ask the user a question when you genuinely do not know "
+                 "something you need — which file they meant, which of two "
+                 "readings of the request is right, whether to overwrite. "
+                 "Prefer this over guessing: a guess you write down is "
+                 "indistinguishable from an instruction they gave you. Do NOT "
+                 "use it for things you can find out with another tool."),
+    parameters={
+        "question": {"type": "string", "required": True,
+                     "description": "One specific question, in plain words."},
+        "options": {"type": "array", "required": True,
+                    "description": "2-4 concrete choices. Name the real "
+                                   "alternatives, not 'yes'/'no' unless the "
+                                   "question is genuinely binary."},
+    },
+    danger=LOW,
+    handler=_ask_user,
 ))
 
 
@@ -427,4 +677,52 @@ register(ToolSpec(
     # about — prompting here would train the user to click through prompts.
     danger=LOW,
     handler=_read_skill,
+))
+
+
+# ── Design system ────────────────────────────────────────────────────────────
+def _render_slide_json(args: dict, ctx: ToolContext) -> dict:
+    """Render a layout request JSON to PPTX via the design system."""
+    import json
+    from ..ppt_design.renderer import render_layout_json
+
+    try:
+        spec = args.get("spec")
+        if isinstance(spec, str):
+            spec = json.loads(spec)
+        if not isinstance(spec, dict):
+            return {"status": "error", "summary": "spec must be a JSON object",
+                    "output": ""}
+
+        filename = args.get("filename") or "deck.pptx"
+        theme = args.get("theme") or "light"
+
+        ok, msg = render_layout_json(spec, filename, theme=theme)
+        if ok:
+            return {"status": "success", "summary": f"created {filename}",
+                    "output": msg}
+        else:
+            return {"status": "error", "summary": "layout error",
+                    "output": msg}
+    except Exception as e:
+        return {"status": "error", "summary": "render failed",
+                "output": str(e)}
+
+
+register(ToolSpec(
+    name="render_slide_json",
+    description=("Render a layout request JSON to a PPTX file. The JSON "
+                 "routes through the design system: no code generation, just "
+                 "layout selection and deterministic rendering."),
+    parameters={
+        "spec": {"type": "object", "required": True,
+                 "description": "Layout request: {slide_type, title, bullets, ...}"},
+        "filename": {"type": "string", "required": False,
+                     "description": "Output filename, default 'deck.pptx'."},
+        "theme": {"type": "string", "required": False,
+                  "description": "light | dark | brand"},
+    },
+    danger=LOW,
+    persistent=True,
+    handler=_render_slide_json,
 ))

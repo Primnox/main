@@ -25,21 +25,33 @@ from ..chat import ephemeral
 from ..models import gateway
 from ..storage import db
 
-# Characters per token. Deliberately conservative: over-estimating the cost of
-# text truncates a little early, while under-estimating it produces a request
-# the provider rejects outright, which is the far worse failure.
-CHARS_PER_TOKEN = 3.5
+# Every number below is a DECLARED TUNABLE (settings/tunables.py), resolved per
+# call: environment, then stored setting, then default. They are read through
+# functions rather than bound at import so a change in the settings screen takes
+# effect on the next turn instead of the next restart.
+#
+# The one that mattered: history was capped at a hardcoded 100 turns, which
+# truncated a 500-turn conversation while 87% of the model's window sat unused
+# and dropped the turns the user had cited by number. Crucible scored that
+# CRITICAL. The cap is now a safety valve two orders of magnitude higher, and
+# the token budget is what actually decides.
+from ..settings import tunables
 
-# Fraction of the model's window reserved for its reply.
-OUTPUT_RESERVE = 0.25
 
-# Never spend more than this share of the budget on asset text, so a large
-# document cannot crowd out the conversation it is being discussed in.
-ASSET_BUDGET_SHARE = 0.5
+def _tune(key: str):
+    return tunables.get(key)
+
+
+def chars_per_token() -> float:
+    return _tune("context.chars_per_token")
+
+
+def output_reserve() -> float:
+    return _tune("context.output_reserve")
 
 
 def estimate_tokens(text: str) -> int:
-    return max(1, int(len(text) / CHARS_PER_TOKEN)) if text else 0
+    return max(1, int(len(text) / chars_per_token())) if text else 0
 
 
 @dataclass
@@ -53,6 +65,7 @@ class ContextBundle:
     truncated_assets: list[str] = field(default_factory=list)
     pending_assets: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    retrieved: list[str] = field(default_factory=list)   # which sources fired
 
     def to_dict(self) -> dict:
         return {
@@ -60,13 +73,14 @@ class ContextBundle:
             "included_turns": self.included_turns, "dropped_turns": self.dropped_turns,
             "assets": self.asset_ids, "truncated_assets": self.truncated_assets,
             "pending_assets": self.pending_assets, "notes": self.notes,
+            "retrieved": self.retrieved,
         }
 
 
 def budget_for_model() -> int:
     provider, model = gateway.active_provider()
     caps = gateway.capabilities_for(getattr(provider, "base_url", "local"), model)
-    return max(1024, int(caps.context_window * (1 - OUTPUT_RESERVE)))
+    return max(1024, int(caps.context_window * (1 - output_reserve())))
 
 
 def _history_rows(conversation_id: str, history_limit: int) -> list[dict]:
@@ -112,7 +126,7 @@ def build(
     turn_id: str | None = None,
     budget: int | None = None,
     system_prompt: str | None = None,
-    history_limit: int = 100,
+    history_limit: int | None = None,
 ) -> ContextBundle:
     """Assemble everything the model will see for this turn."""
     bundle = ContextBundle(budget=budget or budget_for_model())
@@ -125,7 +139,7 @@ def build(
     # long conversation can never squeeze out the thing being asked.
     user_cost = estimate_tokens(user_text)
     if system_cost + user_cost > bundle.budget:
-        keep = int((bundle.budget - system_cost) * CHARS_PER_TOKEN)
+        keep = int((bundle.budget - system_cost) * chars_per_token())
         if keep < 200:
             bundle.notes.append("prompt exceeds the model's context window")
             user_text = user_text[:200]
@@ -135,15 +149,44 @@ def build(
         user_cost = estimate_tokens(user_text)
     spent += system_cost + user_cost
 
-    # ── assets ────────────────────────────────────────────────────────────
+    # ── retrieval, done by the runtime ────────────────────────────────────
+    # FIRST, before assets and before history. The order is the architecture:
+    # the graph is what the model is given, and raw text is what it falls back
+    # to. Running retrieval after assets meant a single large document could
+    # consume the window and leave the graph — the cheaper, more precise source
+    # — nothing to spend.
+    #
+    # It also survives truncation. A chat fifty turns deep is exactly where the
+    # model most needs reminding what the codebase looks like, and exactly
+    # where history would otherwise have eaten the budget first.
+    graph_budget = max(_tune("context.graph_tokens_min"),
+                       min(_tune("context.graph_tokens_max"),
+                           int((bundle.budget - spent) * _tune("context.graph_share"))))
+    retrieval_blocks: list[str] = []
+    for label, text in _retrieve(conversation_id, user_text, graph_budget):
+        cost = estimate_tokens(text)
+        if spent + cost > bundle.budget:
+            continue
+        retrieval_blocks.append(text)
+        bundle.retrieved.append(label)
+        spent += cost
+
+    # ── assets, only what the graph did not already cover ─────────────────
     asset_block = ""
     if turn_id:
         bundle.pending_assets = assets.pending_for_turn(turn_id)
         attached = [a for a in assets.for_turn(turn_id) if a["status"] == "ready"]
-        if attached:
-            allowance = int((bundle.budget - spent) * ASSET_BUDGET_SHARE)
-            asset_block, used, truncated = _render_assets(attached, allowance)
-            bundle.asset_ids = [a["id"] for a in attached]
+        # An asset already reachable through the graph is not pasted in whole.
+        # This is the token argument the whole design rests on: the graph answer
+        # is bounded by its budget, the document is bounded by nothing.
+        indexed = _indexed_assets({a["id"] for a in attached})
+        unindexed = [a for a in attached if a["id"] not in indexed]
+        bundle.asset_ids = [a["id"] for a in attached]
+        if indexed:
+            bundle.retrieved.append(f"assets_via_graph:{len(indexed)}")
+        if unindexed:
+            allowance = int((bundle.budget - spent) * _tune("context.asset_share"))
+            asset_block, used, truncated = _render_assets(unindexed, allowance)
             bundle.truncated_assets = truncated
             spent += used
 
@@ -158,7 +201,8 @@ def build(
     # who presses stop and then asks something else hits this.
     #
     # A cancelled turn WITH partial text is a real exchange and stays.
-    rows = _history_rows(conversation_id, history_limit)
+    rows = _history_rows(conversation_id,
+                         history_limit or _tune("context.history_turns"))
 
     selected: list[dict] = []
     seen_turns: set[int] = set()
@@ -184,6 +228,8 @@ def build(
     selected.reverse()
 
     messages: list[dict] = [{"role": "system", "content": system_text}]
+    for block in retrieval_blocks:
+        messages.append({"role": "system", "content": block})
     if asset_block:
         messages.append({"role": "system", "content": asset_block})
     messages.extend({"role": m["role"], "content": m["content"]} for m in selected)
@@ -192,6 +238,80 @@ def build(
     bundle.messages = messages
     bundle.tokens = spent
     return bundle
+
+
+def _indexed_assets(asset_ids: set[str]) -> set[str]:
+    """Which of these assets already have nodes in the knowledge graph."""
+    if not asset_ids:
+        return set()
+    try:
+        placeholders = ",".join("?" * len(asset_ids))
+        rows = db.connect().execute(
+            f"SELECT DISTINCT scope FROM knowledge_nodes"
+            f" WHERE scope IN ({placeholders})",
+            tuple(f"asset:{a}" for a in asset_ids),
+        )
+        return {r["scope"].split(":", 1)[1] for r in rows}
+    except Exception:
+        return set()
+
+
+def _retrieve(conversation_id: str, user_text: str,
+              graph_budget: int | None = None) -> list[tuple[str, str]]:
+    """Everything the runtime looks up on the user's behalf, before the model runs.
+
+    Each source is guarded independently. Retrieval is an enhancement; a graph
+    that fails to load must cost the answer its extra context, never the answer
+    itself — and these run on the hot path of every single turn.
+    """
+    out: list[tuple[str, str]] = []
+
+    # Permanent memory: who the user is. Injected whole, because it is small by
+    # construction and filtering it by relevance would mean a preference only
+    # applies to questions that happen to mention it.
+    try:
+        from ..memory import service as memory
+
+        block = memory.render_for_prompt()
+        if block:
+            out.append(("memory", _clip(block, _tune("context.memory_tokens"))))
+    except Exception:
+        pass
+
+    # The conversation's own graph: what THIS chat has established.
+    try:
+        from ..knowledge import live
+
+        graph = live.for_conversation(conversation_id)
+        block = graph.render(limit=12)
+        if block:
+            out.append(("conversation", _clip(
+                "Established in this conversation:\n" + block, _tune("context.live_tokens"))))
+    except Exception:
+        pass
+
+    # The knowledge graph: what the indexed corpus says about the words the
+    # user actually used.
+    try:
+        from ..knowledge import graph as knowledge
+
+        hits = knowledge.query(user_text, token_budget=graph_budget)
+        if hits:
+            out.append(("graph",
+                        "Relevant code and documents, with citations. Cite the "
+                        "file and line when you use one:\n" + hits))
+    except Exception:
+        pass
+
+    return out
+
+
+def _clip(text: str, token_budget: int) -> str:
+    limit = int(token_budget * chars_per_token())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rfind("\n")
+    return text[: cut if cut > 0 else limit] + "\n…"
 
 
 def _render_assets(attached: list[dict], allowance: int) -> tuple[str, int, list[str]]:
@@ -217,7 +337,7 @@ def _render_assets(attached: list[dict], allowance: int) -> tuple[str, int, list
             used += estimate_tokens(header) + 8
             continue
 
-        limit_chars = int(per_asset * CHARS_PER_TOKEN)
+        limit_chars = int(per_asset * chars_per_token())
         if len(text) > limit_chars:
             text = text[:limit_chars] + "\n… document truncated …"
             truncated.append(a["id"])

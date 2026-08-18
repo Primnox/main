@@ -25,8 +25,14 @@ from .assets import service as assets
 from .chat import turns
 from .kernel import scheduler
 from .kernel.events import bus
+from .knowledge import facts
+from .knowledge import flowchart
 from .knowledge import importer as knowledge_importer
 from .knowledge import service as knowledge_service   # noqa: F401 — registers memory.graph_build
+from .memory import service as memory
+from .settings import models as model_profiles
+from .settings import service as settings_service
+from .settings import tunables
 from .sandbox import manager as sandbox
 from .sandbox import supervisor
 from .kernel.trace import recorder
@@ -67,6 +73,19 @@ async def _startup() -> None:
     paths.configure(APPDATA)
     db.configure(APPDATA / "primnox.db")
     db.init()
+
+    # Stored settings become environment variables here, immediately after the
+    # database opens and before anything reads configuration. Later is too late:
+    # `gateway.active_provider()` resolves from os.environ, so a setting applied
+    # after the first turn would look like it had not saved.
+    applied = settings_service.apply_to_environment()
+    if applied:
+        print(f"[boot] settings applied: {', '.join(applied)}")
+    # After the flat settings, so an activated profile is what wins — it is the
+    # more specific statement of intent, and it carries the key.
+    active_profile = model_profiles.apply_active()
+    if active_profile:
+        print(f"[boot] model profile: {active_profile}")
 
     swept = db.sweep_on_boot()
     swept["executions_failed"] = sandbox.sweep_on_boot()
@@ -118,8 +137,17 @@ async def ws_endpoint(ws: WebSocket) -> None:
     # FastAPI's HTTP middleware does not run for websocket upgrades, so the
     # origin check has to be here. Without it any web page could open
     # ws://127.0.0.1:4109/ws and read the whole event stream.
+    #
+    # A MISSING origin is rejected, not waved through. The check used to read
+    # `if origin is not None and origin not in ALLOWED_ORIGINS`, which refused a
+    # wrong origin and accepted no origin at all — measured: `Origin:
+    # https://evil.example` got 403 while omitting the header entirely got 101
+    # and the full live stream. Every legitimate client sends one (a browser
+    # always does; Tauri sends tauri://localhost), so the header's absence means
+    # the caller is not one of them. Trusting the anonymous case more than the
+    # named one is backwards.
     origin = ws.headers.get("origin")
-    if origin is not None and origin not in ALLOWED_ORIGINS:
+    if origin not in ALLOWED_ORIGINS:
         await ws.close(code=1008)
         return
 
@@ -446,6 +474,33 @@ async def preview_asset(asset_id: str) -> dict:
     return preview.describe(asset)
 
 
+@app.get("/assets/{asset_id}/slide-image/{ref}")
+async def slide_image(asset_id: str, ref: int):
+    """One picture out of a deck, by the index its preview handed out.
+
+    Separate from the preview rather than inlined as a data URI: a deck of
+    photographs would make the describe call tens of megabytes, and the viewer
+    only ever needs the pictures on the slide it is showing. Cached hard — the
+    bytes are addressed by the asset's own content hash and the shape index, so
+    they cannot change under the same URL.
+    """
+    from fastapi.responses import Response
+
+    asset = assets.get(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="no such asset")
+    path = Path(asset["path"])
+    if not path.is_file():
+        raise HTTPException(status_code=410, detail="the stored file is gone")
+
+    found = preview.slide_image(path, ref)
+    if found is None:
+        raise HTTPException(status_code=404, detail="no such image in this deck")
+    blob, content_type = found
+    return Response(content=blob, media_type=content_type,
+                    headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+
 @app.get("/assets/{asset_id}/download")
 async def download_asset(asset_id: str, inline: bool = False):
     """Serve the bytes, so a generated file is one click away.
@@ -525,10 +580,184 @@ async def list_tools() -> dict:
     ]}
 
 
+# ── Model profiles ───────────────────────────────────────────────────────────
+@app.get("/models")
+async def list_model_profiles() -> dict:
+    return model_profiles.describe()
+
+
+@app.post("/models")
+async def save_model_profile(request: Request) -> dict:
+    body = await _json(request)
+    try:
+        model_profiles.save(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if body.get("activate"):
+        model_profiles.activate(body["name"])
+    return model_profiles.describe()
+
+
+@app.post("/models/{name}/model")
+async def choose_model(name: str, request: Request) -> dict:
+    body = await _json(request)
+    model = (body.get("model") or "").strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="model is required")
+    try:
+        model_profiles.use_model(name, model)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=name)
+    return model_profiles.describe()
+
+
+@app.post("/models/{name}/discover")
+async def discover_models(name: str) -> dict:
+    """Ask the provider what it offers. Ollama natively, everyone else through
+    the OpenAI-compatible /v1/models."""
+    try:
+        found = model_profiles.discover(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=name)
+    return {"found": found, **model_profiles.describe()}
+
+
+@app.post("/models/{name}/activate")
+async def activate_model_profile(name: str) -> dict:
+    try:
+        model_profiles.activate(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=name)
+    return model_profiles.describe()
+
+
+@app.delete("/models/{name}")
+async def delete_model_profile(name: str) -> dict:
+    if not model_profiles.delete(name):
+        raise HTTPException(status_code=404, detail=name)
+    return model_profiles.describe()
+
+
+# ── Tunables ─────────────────────────────────────────────────────────────────
+@app.get("/tunables")
+async def read_tunables() -> dict:
+    # Each row carries its provenance — environment, saved, or default — because
+    # "why is this 40" is the only question anyone asks of a settings screen.
+    return {"tunables": tunables.describe()}
+
+
+@app.patch("/tunables")
+async def write_tunables(request: Request) -> dict:
+    body = await _json(request)
+    result = tunables.set_many(body.get("tunables") or {})
+    return {**result, "tunables": tunables.describe()}
+
+
+@app.post("/tunables/reset")
+async def reset_tunables(request: Request) -> dict:
+    body = await _json(request)
+    return {"reset": tunables.reset(body.get("key")), "tunables": tunables.describe()}
+
+
+# ── Settings ─────────────────────────────────────────────────────────────────
+@app.get("/settings")
+async def read_settings() -> dict:
+    # Never returns the API key — only whether one is present. A settings screen
+    # that displays your own key displays it to whoever is behind you.
+    return settings_service.describe()
+
+
+@app.patch("/settings")
+async def write_settings(request: Request) -> dict:
+    body = await _json(request)
+    result = settings_service.set_many(body.get("settings") or {})
+    if body.get("api_key") is not None:
+        settings_service.set_api_key(body["api_key"])
+        result["api_key_present"] = settings_service.has_api_key()
+    return {**result, **settings_service.describe()}
+
+
+# ── Memory ───────────────────────────────────────────────────────────────────
+@app.get("/memories")
+async def list_memories(category: str | None = None, q: str | None = None) -> dict:
+    rows = memory.search(q) if q else memory.live(category)
+    return {"memories": rows, "stats": memory.stats(),
+            "categories": list(memory.CATEGORIES)}
+
+
+@app.post("/memories")
+async def create_memory(request: Request) -> dict:
+    body = await _json(request)
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    return memory.remember(
+        text,
+        category=body.get("category") or memory.DEFAULT_CATEGORY,
+        provenance=memory.EXPLICIT,
+    )
+
+
+@app.patch("/memories/{memory_id}")
+async def edit_memory(memory_id: str, request: Request) -> dict:
+    body = await _json(request)
+    if body.get("restore"):
+        if not memory.restore(memory_id):
+            raise HTTPException(status_code=404, detail=memory_id)
+        return {"id": memory_id, "restored": True}
+    if not memory.update(memory_id, body.get("text") or ""):
+        raise HTTPException(status_code=404, detail=memory_id)
+    return {"id": memory_id, "updated": True}
+
+
+@app.delete("/memories/{memory_id}")
+async def delete_memory(memory_id: str) -> dict:
+    # Soft delete: `forget` sets deleted_at rather than removing the row, so a
+    # later import cannot resurrect something the user chose to forget.
+    if not memory.forget(memory_id):
+        raise HTTPException(status_code=404, detail=memory_id)
+    return {"id": memory_id, "forgotten": True}
+
+
+@app.delete("/memories")
+async def delete_all_memories() -> dict:
+    return {"forgotten": memory.forget_all()}
+
+
 # ── Knowledge graph ──────────────────────────────────────────────────────────
 @app.get("/knowledge/scopes")
 async def knowledge_scopes() -> dict:
-    return {"scopes": knowledge_service.indexed_scopes()}
+    """What can be viewed, with the user's own knowledge FIRST.
+
+    Ordering is the product decision here. An indexed repository is a
+    developer's view of a codebase, and opening a feature called "what Primnox
+    knows" on `_startup()` calling `_warm_sandbox()` describes the application
+    rather than the person using it. Corpora are labelled `Indexed:` so a node
+    count against one can never read as knowledge about the user.
+    """
+    facts_stats = facts.stats()
+    scopes = [{"scope": facts.SCOPE, "label": "What Primnox knows about you",
+               "nodes": facts_stats["nodes"], "kind": "facts",
+               "by_kind": facts_stats["by_kind"], "updated_at": None}]
+
+    # Every conversation scope was labelled "This conversation", so a picker
+    # holding five of them offered the same words five times and the only way to
+    # tell them apart was the node count. That phrase is right when the graph is
+    # opened FROM a conversation — there it really is *this* one — and useless in
+    # a list of all of them. Named after the conversation instead.
+    titles = {c["id"]: c["title"] for c in turns.list_conversations(limit=1000)}
+
+    for row in knowledge_service.indexed_scopes():
+        scope = row["scope"]
+        if scope.startswith("conv:"):
+            title = titles.get(scope[5:])
+            label = title or "A conversation"
+            kind = "conversation"
+        else:
+            label = f"Indexed: {scope}"
+            kind = "corpus"
+        scopes.append({**row, "kind": kind, "label": label})
+    return {"scopes": scopes}
 
 
 @app.post("/knowledge/index")
@@ -560,6 +789,22 @@ async def knowledge_graph(scope: str) -> dict:
     return knowledge_service.graph_json(scope)
 
 
+@app.post("/knowledge/flowchart", response_class=HTMLResponse)
+async def flowchart_view(request: Request) -> HTMLResponse:
+    """Render a mermaid flowchart through Graphify's viewer.
+
+    POST rather than GET: a diagram is a body, and putting one in a query
+    string would break on the first newline.
+    """
+    body = await _json(request)
+    source = body.get("source") or ""
+    html = flowchart.render_html(source)
+    if html is None:
+        raise HTTPException(status_code=422,
+                            detail="not a flowchart this renderer understands")
+    return HTMLResponse(html)
+
+
 @app.get("/knowledge/view", response_class=HTMLResponse)
 async def knowledge_view(scope: str, limit: int | None = None) -> HTMLResponse:
     """Graphify's own viewer, rendered from our tables.
@@ -571,7 +816,22 @@ async def knowledge_view(scope: str, limit: int | None = None) -> HTMLResponse:
     """
     # `limit=0` means "all of it" — an explicit opt-in to the hairball, rather
     # than the default nobody chose.
-    node_limit = knowledge_service.DEFAULT_NODE_LIMIT if limit is None else (limit or None)
+    # -1 defers to the tunable; an explicit limit=0 means everything.
+    node_limit = -1 if limit is None else (limit or None)
+
+    # The user's own knowledge is derived on read rather than stored, so it does
+    # not go through the scope table.
+    if scope == facts.SCOPE:
+        if node_limit == -1:
+            node_limit = tunables.get("knowledge.view_node_limit") or None
+        html = facts.render_html(node_limit)
+        if html is None:
+            raise HTTPException(
+                status_code=404,
+                detail="nothing saved yet — memories, decisions and documents "
+                       "appear here as you use Primnox")
+        return HTMLResponse(html)
+
     html = knowledge_service.render_html(scope, node_limit=node_limit)
     if html is None:
         raise HTTPException(status_code=404, detail=f"nothing indexed under {scope!r}")

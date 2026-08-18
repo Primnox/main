@@ -1,0 +1,84 @@
+{
+  "_comment": [
+    "The shipped provider catalogue. DATA, not code — adding a provider is an",
+    "edit here, never a rebuild.",
+    "",
+    "A user file at <data root>/providers.json overrides and extends this one,",
+    "matched by name, so a local edit survives an app update.",
+    "",
+    "`fallback_models` is a HINT, used only until discovery succeeds. Model ids",
+    "go stale faster than anything else in this file, so nothing depends on",
+    "these being current: `discover` asks the provider what it actually offers",
+    "and replaces the list. A provider whose endpoint answers /v1/models never",
+    "needs an entry here at all.",
+    "",
+    "`kind` selects the discovery strategy: `ollama` asks /api/tags natively,",
+    "everything else asks the OpenAI-compatible /v1/models."
+  ],
+  "providers": [
+    {
+      "name": "Ollama (local)",
+      "base_url": "${OLLAMA_HOST}/v1",
+      "api_type": "openai",
+      "kind": "ollama",
+      "needs_key": false,
+      "fallback_models": []
+    },
+    {
+      "name": "Anthropic",
+      "base_url": "https://api.anthropic.com",
+      "api_type": "anthropic",
+      "kind": "cloud",
+      "needs_key": true,
+      "fallback_models": []
+    },
+    {
+      "name": "OpenAI",
+      "base_url": "https://api.openai.com/v1",
+      "api_type": "openai",
+      "kind": "cloud",
+      "needs_key": true,
+      "fallback_models": []
+    },
+    {
+      "name": "Groq",
+      "base_url": "https://api.groq.com/openai/v1",
+      "api_type": "openai",
+      "kind": "cloud",
+      "needs_key": true,
+      "fallback_models": []
+    },
+    {
+      "name": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_type": "openai",
+      "kind": "cloud",
+      "needs_key": true,
+      "fallback_models": []
+    },
+    {
+      "name": "Together",
+      "base_url": "https://api.together.xyz/v1",
+      "api_type": "openai",
+      "kind": "cloud",
+      "needs_key": true,
+      "fallback_models": []
+    },
+    {
+      "name": "LM Studio (local)",
+      "base_url": "http://127.0.0.1:1234/v1",
+      "api_type": "openai",
+      "kind": "cloud",
+      "needs_key": false,
+      "fallback_models": []
+    },
+    {
+      "name": "llama.cpp (local)",
+      "base_url": "http://127.0.0.1:8080/v1",
+      "api_type": "openai",
+      "kind": "cloud",
+      "needs_key": false,
+      "fallback_models": []
+    }
+  ]
+}

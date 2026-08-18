@@ -779,7 +779,13 @@ class TestSkills:
         assert skill is not None
 
         assert "themed-documents" in prompt, "the model cannot ask for what it cannot see"
-        assert len(loader.index()) < 400, "the always-present cost grew"
+        # 400 held while two skills shipped. Four more (data-analysis,
+        # interactive-apps, memory-and-recall, running-commands) + the design
+        # system put the index at 709 chars — roughly 177 tokens on every turn.
+        # Still an order of magnitude under inlining all bodies. Two paths to
+        # slides now: code generation (35-40% on 0.5B) and design routing
+        # (70-85% target). Both live in system prompt index.
+        assert len(loader.index()) < 800, "the always-present cost grew"
         assert "from primnox_docs import Deck" not in prompt, \
             "the whole skill is inlined again — the point was that it is not"
 
@@ -802,12 +808,51 @@ class TestSkills:
             assert loader.select(asked) == [], f"wrongly selected for: {asked}"
 
     def test_the_body_carries_what_the_model_needs(self):
+        """The deck is inline. Everything else is one `read_skill` away, and the
+        body has to name the file or it may as well not ship."""
+        from primnox2.skills import loader
+
+        skill = loader.get("themed-documents")
+        for expected in ("primnox_docs", "Deck", "midnight", "paper",
+                         "layouts.md", "pdf-and-word.md"):
+            assert expected in skill.body, f"the skill never mentions {expected}"
+        for name, expected in (("layouts.md", ("kpi", "table", "chart", "palette")),
+                               ("pdf-and-word.md", ("Report", "Doc", "chart_style"))):
+            text = skill.read_asset(name)
+            assert text, f"{name} is named by the body but does not ship"
+            for token in expected:
+                assert token in text, f"{name} never mentions {token}"
+
+    def test_the_smallest_deck_comes_first(self):
+        """A small model reads the top of the body and copies whatever is there,
+        so the opening has to be a complete runnable deck and the instruction to
+        send it as a tool call. Measured on qwen2.5:0.5b, 20 runs each: the
+        previous 5k body produced 0 decks, this one produced 8. The difference
+        is almost entirely that the directive and the template come first."""
         from primnox2.skills import loader
 
         body = loader.get("themed-documents").body
-        for expected in ("primnox_docs", "Deck", "Report", "Doc", "chart_style",
-                         "midnight", "paper"):
-            assert expected in body, f"the skill never mentions {expected}"
+        assert "run_python" in body[:200], \
+            "the reply-with-a-tool-call instruction is not the first thing said"
+        head = body[:900]
+        for expected in ("from primnox_docs import Deck", "Deck(", "bullets(",
+                         "print(d.save())"):
+            assert expected in head, \
+                f"the opening example is missing {expected}:\n{head}"
+
+    def test_the_layout_file_warns_about_the_silent_failure(self):
+        """`kpi('Metrics', ['Revenue', 'Users'])` unpacks each string into
+        characters and saves a deck of nonsense with no error anywhere. Measured:
+        two cards reading `e | R | v` and `s | U | e`. The warning lives in
+        layouts.md alongside kpi and friends; the body keeps only the happy path."""
+        from primnox2.skills import loader
+
+        skill = loader.get("themed-documents")
+        layouts = skill.read_asset("layouts.md")
+        assert "kpi('Metrics', ['Revenue', 'Users'])" in layouts, \
+            "the wrong-shaped call is not shown, so it cannot be recognised"
+        assert "tuples" in layouts, \
+            "the tuple vs. string hazard is documented where it matters"
 
     def test_reading_an_unknown_skill_lists_the_real_ones(self):
         """A dead end should say where the road is."""

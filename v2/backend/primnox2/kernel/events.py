@@ -141,6 +141,24 @@ class EventBus:
         event_id = new_id(EVT)
         payload_json = json.dumps(payload)
 
+        def _referenced_rows_exist(cid: str | None, tid: str | None) -> bool:
+            """Whether the rows this event's foreign keys point at still exist.
+
+            Checked only after an IntegrityError, so a genuine constraint bug
+            still raises instead of being silently swallowed as a deletion.
+            """
+            try:
+                c = db.connect()
+                if cid is not None and c.execute(
+                        "SELECT 1 FROM conversations WHERE id=?", (cid,)).fetchone() is None:
+                    return False
+                if tid is not None and c.execute(
+                        "SELECT 1 FROM turns WHERE id=?", (tid,)).fetchone() is None:
+                    return False
+            except Exception:
+                return False
+            return True
+
         def _write(c: sqlite3.Connection) -> int:
             # §3.1.2 — increment the counter row inside this transaction, so a
             # rollback takes the number with it. AUTOINCREMENT would burn the
@@ -155,11 +173,33 @@ class EventBus:
             )
             return seq
 
-        if conn is not None:
-            sequence = _write(conn)
-        else:
-            with db.tx() as c:
-                sequence = _write(c)
+        try:
+            if conn is not None:
+                sequence = _write(conn)
+            else:
+                with db.tx() as c:
+                    sequence = _write(c)
+        except sqlite3.IntegrityError:
+            # The conversation or turn this event names was deleted between the
+            # caller deciding to emit and this write. Both are foreign keys, so
+            # the insert fails.
+            #
+            # Dropped rather than raised, because an event whose conversation is
+            # gone has nowhere to live and nobody to reach: deleting a
+            # conversation cascades its events away, so this row would be
+            # removed the moment it landed. Raising instead killed the in-flight
+            # `chat.reply` job with a stack trace for something the user did on
+            # purpose — closing a chat while it was still answering.
+            #
+            # Narrow on purpose: only IntegrityError, and the callers that write
+            # state alongside their event pass `conn`, so their transaction
+            # still rolls back as one unit.
+            if not _referenced_rows_exist(conversation_id, turn_id):
+                return {"event_id": event_id, "sequence": None, "ts": now,
+                        "scope": scope, "conversation_id": conversation_id,
+                        "turn_id": turn_id, "kind": kind, "payload": payload,
+                        "dropped": "target no longer exists"}
+            raise
 
         event = {
             "event_id": event_id,
