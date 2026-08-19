@@ -976,6 +976,7 @@ export const ChatExpandedSidebar = ({
                         <div className="flex items-center gap-1.5 pt-2 border-t border-on-surface/10">
                           <div className="flex-1 min-w-0">
                             <Select
+                              label="Model"
                               value={pickerCurrentModel()}
                               onChange={(v) => quickSetProviderAndModel(pickerProviderKey, v)}
                               options={(providerModelsCache[pickerProviderKey]?.models || []).map(m => ({ value: m, label: m }))}

@@ -200,6 +200,26 @@
 }
 .px-btn-ghost:hover { border-color: var(--p-line); background: var(--p-faint); }
 
+/* Range input. The thumb used to be injected by the Slider component as a
+   per-instance <style> block keyed on a useId() selector — a duplicate copy in
+   the DOM for every mounted slider, even though the declarations never varied.
+   They are static, so they live here once. The track *fill* stays inline on the
+   element: it is a gradient computed from the current value. */
+.px-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  margin-top: -6px;
+}
+.px-slider::-webkit-slider-runnable-track {
+  height: 1px;
+  border-radius: 0;
+}
+
 /* Hairline list row — the site's .feat-row. Replaces card grids: an index
    column, the content, and a trailing affordance. */
 .px-row {

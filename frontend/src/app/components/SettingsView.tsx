@@ -646,6 +646,7 @@ export const IslandSettings = ({
                       <Row label="Model" hint="Live-detected where possible, with a safe fallback list otherwise." stack>
                         <div className="flex gap-2">
                           <Select
+                            label="Model"
                             value={modelForProvider(selectedProviderKey)}
                             onChange={(v) => setModelForProvider(selectedProviderKey, v)}
                             options={(providerModelsCache[selectedProviderKey]?.models?.length
@@ -670,7 +671,7 @@ export const IslandSettings = ({
 
                 <Section index="03" title="Voice">
                   <Row label="VAD sensitivity" hint="How readily the microphone treats sound as speech.">
-                    <Slider value={vadSensitivity} onChange={setVadSensitivity} min={0} max={100} format={(v) => `${v}%`} />
+                    <Slider label="VAD sensitivity" value={vadSensitivity} onChange={setVadSensitivity} min={0} max={100} format={(v) => `${v}%`} />
                   </Row>
                   <Row label="Wake word" hint="Spoken phrase that starts a voice command." stack>
                     <Field value={wakeWord} onChange={setWakeWord} placeholder="hey primnox" mono />
@@ -797,6 +798,7 @@ export const IslandSettings = ({
                 <Section index="04" title="Data Management">
                   <Row label="Meeting retention" hint="Recordings and transcripts older than this are removed by the cleanup pass.">
                     <Slider
+                      label="Meeting retention"
                       value={meetingRetentionDays}
                       onChange={setMeetingRetentionDays}
                       min={1} max={365}
@@ -838,6 +840,7 @@ export const IslandSettings = ({
                   <div className="py-6 space-y-5 border-b border-on-surface/10">
                     <Row label="Provider type" stack>
                       <Select
+                        label="Provider type"
                         value={calType}
                         onChange={(v) => setCalType(v as any)}
                         options={[
@@ -939,6 +942,7 @@ export const IslandSettings = ({
 
                       <Row label="Storage provider" stack>
                         <Select
+                          label="Storage provider"
                           value={providerType}
                           onChange={(v) => setProviderType(v as any)}
                           options={[
@@ -982,7 +986,7 @@ export const IslandSettings = ({
                       )}
 
                       <Row label="Backup every" hint="Hours between automatic uploads.">
-                        <Slider value={backupInterval} onChange={setBackupInterval} min={1} max={168} format={(v) => `${v}h`} />
+                        <Slider label="Backup every" value={backupInterval} onChange={setBackupInterval} min={1} max={168} format={(v) => `${v}h`} />
                       </Row>
 
                       <div className="pt-6">
@@ -1003,6 +1007,7 @@ export const IslandSettings = ({
                     {cloudBackupList.length > 0 ? (
                       <div className="space-y-4">
                         <Select
+                          label="Backup to restore"
                           value={restoreFile}
                           onChange={setRestoreFile}
                           options={[

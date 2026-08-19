@@ -10,7 +10,7 @@
  * Editorial, not card-based: hairline rules and negative space, mono micro-labels,
  * Syne for headings. Matches primnox.github.io.
  */
-import { ReactNode, useState, useId } from 'react';
+import { ReactNode, useState } from 'react';
 import { Eye, EyeOff, Check } from 'lucide-react';
 
 /* ── Section ────────────────────────────────────────────────────────────────
@@ -75,10 +75,15 @@ export const Toggle = ({ checked, onChange, label }: {
    It matched the site, but it did not read as a text box — with a password field
    (which renders dots) it was not obvious that typing had registered at all.
    So: keep the hairline language, but give the input a real filled area, a
-   legible placeholder and a visible focus state. Affordance beats purity. */
-export const Field = ({ value, onChange, placeholder, type = 'text', mono = false, suffix }: {
+   legible placeholder and a visible focus state. Affordance beats purity.
+
+   `label` is optional: left unset, `aria-label` renders as nothing and the
+   browser falls back to the placeholder for the accessible name, which every
+   call site supplies. Pass it where the placeholder is an example rather than
+   a description ("Work", "hey primnox"). */
+export const Field = ({ value, onChange, placeholder, type = 'text', mono = false, suffix, label }: {
   value: string; onChange: (v: string) => void; placeholder?: string;
-  type?: string; mono?: boolean; suffix?: ReactNode;
+  type?: string; mono?: boolean; suffix?: ReactNode; label?: string;
 }) => (
   <div className="flex items-center gap-2 w-full group">
     <div className="relative flex-1 min-w-0">
@@ -89,6 +94,7 @@ export const Field = ({ value, onChange, placeholder, type = 'text', mono = fals
         placeholder={placeholder}
         spellCheck={false}
         autoComplete="off"
+        aria-label={label}
         className={`w-full bg-[var(--surface)] border border-on-surface/15
           hover:border-on-surface/30 focus:border-primary focus:bg-[var(--p-faint)]
           outline-none rounded px-3.5 py-2.5 text-[13px] text-on-surface
@@ -102,8 +108,8 @@ export const Field = ({ value, onChange, placeholder, type = 'text', mono = fals
 
 /* Secret input: masked by default with a reveal toggle. Keys are never rendered
    in plain text unless the user asks for it. */
-export const SecretField = ({ value, onChange, placeholder }: {
-  value: string; onChange: (v: string) => void; placeholder?: string;
+export const SecretField = ({ value, onChange, placeholder, label }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; label?: string;
 }) => {
   const [shown, setShown] = useState(false);
   const isSet = value.trim().length > 0;
@@ -113,6 +119,7 @@ export const SecretField = ({ value, onChange, placeholder }: {
         value={value}
         onChange={onChange}
         placeholder={placeholder}
+        label={label}
         type={shown ? 'text' : 'password'}
         mono
         suffix={
@@ -142,12 +149,17 @@ export const SecretField = ({ value, onChange, placeholder }: {
   );
 };
 
-export const Select = ({ value, onChange, options }: {
+/* Unlike an <input>, a <select> has no placeholder to fall back on, so without
+   `label` it reaches a screen reader with no accessible name at all. Required
+   for that reason — every call site passes one. */
+export const Select = ({ value, onChange, options, label }: {
   value: string; onChange: (v: string) => void; options: { value: string; label: string }[];
+  label: string;
 }) => (
   <select
     value={value}
     onChange={(e) => onChange(e.target.value)}
+    aria-label={label}
     className="bg-[var(--surface)] border border-on-surface/15 hover:border-on-surface/30
       focus:border-primary outline-none rounded px-3.5 py-2.5 pr-8 font-mono text-[12px]
       text-on-surface cursor-pointer transition-colors"
@@ -162,32 +174,32 @@ export const Select = ({ value, onChange, options }: {
 
 /* ── Slider ─────────────────────────────────────────────────────────────────
    Hairline track, primary-filled to the thumb. Fill is painted with a gradient
-   so it needs no extra element and stays exact at any width. */
-export const Slider = ({ value, onChange, min = 0, max = 100, step = 1, format }: {
+   so it needs no extra element and stays exact at any width.
+
+   Thumb and track styling live in tailwind.css as `.px-slider`. They used to be
+   an inline <style> block built around a useId() selector, which put an
+   identical copy in the DOM for every slider on the screen; nothing in it
+   depended on the instance.
+
+   `label` is required for the same reason as on Select — a range input has no
+   placeholder, so without it the control is announced unnamed. `aria-valuetext`
+   carries the formatted value, so a reader says "168h" rather than "168". */
+export const Slider = ({ value, onChange, min = 0, max = 100, step = 1, format, label }: {
   value: number; onChange: (v: number) => void;
   min?: number; max?: number; step?: number; format?: (v: number) => string;
+  label: string;
 }) => {
-  const id = useId();
   const pct = ((value - min) / (max - min)) * 100;
   return (
     <div className="flex items-center gap-5 w-full max-w-[340px]">
-      <style>{`
-        #s${id.replace(/[:]/g, '')}::-webkit-slider-thumb {
-          -webkit-appearance: none; appearance: none;
-          width: 13px; height: 13px; border-radius: 50%;
-          background: var(--primary); cursor: pointer; margin-top: -6px;
-        }
-        #s${id.replace(/[:]/g, '')}::-webkit-slider-runnable-track {
-          height: 1px; border-radius: 0;
-        }
-      `}</style>
       <input
-        id={`s${id.replace(/[:]/g, '')}`}
         type="range"
         min={min} max={max} step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 appearance-none bg-transparent cursor-pointer outline-none"
+        aria-label={label}
+        aria-valuetext={format ? format(value) : undefined}
+        className="px-slider flex-1 appearance-none bg-transparent cursor-pointer outline-none"
         style={{
           background: `linear-gradient(to right, var(--primary) ${pct}%, var(--border) ${pct}%)`,
           height: '1px',

@@ -14,6 +14,12 @@
       "port": 4109
     },
     {
+      "name": "primnox-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 5173
+    },
+    {
       "name": "primnox-v2-frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "v2/frontend", "run", "dev"],

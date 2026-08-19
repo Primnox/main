@@ -74,7 +74,7 @@ export const CustomProviderForm = ({ editing, onSave, onCancel }: {
         </div>
         {error && <p className="font-mono text-[10px] text-error">{error}</p>}
         {detected.length > 0 && (
-          <Select value={model} onChange={setModel} options={detected.map(m => ({ value: m, label: m }))} />
+          <Select label="Detected model" value={model} onChange={setModel} options={detected.map(m => ({ value: m, label: m }))} />
         )}
         <div className="flex gap-3 pt-1">
           <Button variant="solid" onClick={save} disabled={!name.trim() || !baseUrl.trim()}>Save</Button>
