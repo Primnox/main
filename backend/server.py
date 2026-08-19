@@ -104,7 +104,6 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "app://.",
         "tauri://localhost",
         "http://tauri.localhost",
         "https://tauri.localhost",
@@ -203,12 +202,19 @@ async def websocket_endpoint(ws: WebSocket):
     # does NOT run for websocket connections, so any website could otherwise
     # open ws://127.0.0.1:4009/ws and receive core.settings (incl. API keys)
     # plus a live feed of mic/screen/chat events. Reject any connection whose
-    # Origin header isn't one of our own frontends (or absent, e.g. Electron).
+    # Origin header isn't one of our own frontends (or absent — some webviews
+    # omit it for same-origin upgrades).
+    #
+    # The packaged Tauri origins have to be here, not just in the HTTP CORS
+    # list above: WebView2 sends `http://tauri.localhost` as Origin on the
+    # websocket upgrade, so without them a packaged build connects, gets
+    # rejected 1008, and the whole live feed silently dies while HTTP keeps
+    # working.
     origin = ws.headers.get("origin")
     allowed_origins = {
         "http://localhost:3000", "http://127.0.0.1:3000",
         "http://localhost:5173", "http://127.0.0.1:5173",
-        "app://.",
+        "tauri://localhost", "http://tauri.localhost", "https://tauri.localhost",
     }
     if origin is not None and origin not in allowed_origins:
         log.critical(f"SECURITY: Rejected cross-origin WebSocket from origin '{origin}'")
@@ -268,7 +274,27 @@ async def post_message(request: Request, background_tasks: BackgroundTasks):
                     from pypdf import PdfReader
                     reader = PdfReader(io.BytesIO(content))
                     pdf_text = "\n".join(p.extract_text() or "" for p in reader.pages)
-                    extracted_parts.append(f"[File: {filename}]\n{pdf_text[:2500]}")
+                    # Both branches below exist so the model can tell what it
+                    # was actually handed. Forwarding the raw slice hid two
+                    # very different documents behind the same output:
+                    #   - an image-only scan extracts to "", and arrived as a
+                    #     bare "[File: x.pdf]" that reads exactly like a blank
+                    #     page, so the model answered as though it were one;
+                    #   - page 1 of a 220-page contract arrived looking like
+                    #     the whole contract, with nothing marking the cut.
+                    if not pdf_text.strip():
+                        # No PDF OCR path exists (easyocr ships, but only
+                        # spatial_engine.py uses it), so saying so is the fix.
+                        body = (f"(no extractable text — {len(reader.pages)} page(s); this "
+                                "looks like a scanned / image-only PDF. Its contents could "
+                                "not be read, so do not answer as if it were blank.)")
+                    else:
+                        body = pdf_text[:2500]
+                        if len(pdf_text) > 2500:
+                            body += (f"\n...[truncated: the first 2500 of {len(pdf_text)} "
+                                     f"characters across {len(reader.pages)} page(s) — this "
+                                     "is the START of the document, not all of it]")
+                    extracted_parts.append(f"[File: {filename}]\n{body}")
 
                 elif lower.endswith((".pptx", ".ppt")):
                     from pptx import Presentation
@@ -409,6 +435,49 @@ async def auto_assign_chat(session_id: str):
     return {"status": "failed", "reason": "model returned invalid folder id", "raw": raw}
 
 
+def _can_reach_a_model(settings: dict) -> bool:
+    """Can Primnox actually reach a model right now?
+
+    Surfaced to the UI as `has_api_key`, which drives the "Primnox can't
+    think" banner. It used to test a fixed OR of the Groq/OpenAI/Anthropic
+    keys, which was wrong in three ways that all produce a scary banner on
+    a perfectly working install: Gemini wasn't counted, a Custom endpoint
+    (whose credentials live in its own profile, and which may legitimately
+    need no key) wasn't counted, and Ollama/llama.cpp need no key at all.
+
+    So the question is answered against whichever provider is ACTIVE,
+    rather than against a list that has to be kept in sync by hand.
+    """
+    model = (settings.get("active_model") or "").strip()
+
+    # Local runtimes talk to a server on localhost — nothing to authenticate.
+    if model in ("Ollama_Local", "LlamaCpp_Local") or model.endswith("_Local"):
+        return True
+
+    if model == "Custom":
+        active_id = settings.get("active_custom_provider_id")
+        profiles = settings.get("custom_providers") or []
+        profile = next((p for p in profiles if p.get("id") == active_id), None)
+        # Fall back to the first saved profile — the id can go stale if a
+        # profile was removed, and a usable endpoint still means we can think.
+        profile = profile or (profiles[0] if profiles else None)
+        return bool(profile and profile.get("base_url"))
+
+    _KEY_FOR_MODEL = {
+        "Groq_Llama_3": "groq_api_key",
+        "OpenAI_GPT_4o": "openai_api_key",
+        "Anthropic_Claude_3": "anthropic_api_key",
+        "Gemini_Flash": "gemini_api_key",
+    }
+    key_name = _KEY_FOR_MODEL.get(model)
+    if key_name:
+        return bool(settings.get(key_name))
+
+    # Unknown/unset active_model: any configured cloud key means the user
+    # has *something* usable, so don't cry wolf.
+    return any(bool(settings.get(k)) for k in _KEY_FOR_MODEL.values())
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": APP_VERSION}
@@ -454,7 +523,7 @@ async def get_status():
         "mic_muted": core.mic_muted,
         "incognito": core.incognito,
         "active_model": core.settings.get("active_model", "Groq_Llama_3"),
-        "has_api_key": bool(core.settings.get("groq_api_key") or core.settings.get("openai_api_key") or core.settings.get("anthropic_api_key")),
+        "has_api_key": _can_reach_a_model(core.settings),
         "notes_count": notes_count,
         "reminders_count": reminders_count,
         "db_sizes_kb": db_sizes,
@@ -535,12 +604,8 @@ async def get_dashboard():
     except Exception:
         pass
 
-    # Flag whether the primary AI key is configured (don't expose the key itself)
-    has_api_key = bool(core.settings.get("groq_api_key") or
-                       core.settings.get("openai_api_key") or
-                       core.settings.get("anthropic_api_key") or
-                       core.settings.get("gemini_api_key") or
-                       core.settings.get("active_model", "").endswith("_Local"))
+    # Flag whether Primnox can actually reach a model (don't expose the key itself)
+    has_api_key = _can_reach_a_model(core.settings)
 
     user_name = core.settings.get("operator_alias") or core.settings.get("nickname") or ""
 
@@ -637,6 +702,9 @@ async def post_daily_brief(background_tasks: BackgroundTasks):
             pass
         result = route_skill(
             user_message="daily brief",
+            # This endpoint always means this one skill — naming it skips
+            # semantic routing (and its model call) for a fixed invocation.
+            skill_name="Daily Brief",
             metadata={
                 "notes_count": notes_count,
                 "feed_history": list(core.feed.history[-100:]),

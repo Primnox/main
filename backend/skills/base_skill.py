@@ -1,18 +1,40 @@
 # skills/base_skill.py
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from abc import ABC, abstractmethod
 
 
 @dataclass
 class SkillContext:
-    """Typed context carrier passed into every skill execution."""
+    """Typed context carrier passed into every skill execution.
+
+    `progress` is an optional ``(event_type, payload) -> None`` sink for
+    live activity events. A multi-step skill can run for the better part of
+    a minute, and without this the UI has nothing to show between "started"
+    and "complete" but a spinner. Optional on purpose: skills invoked
+    outside a chat turn (scheduled jobs, tests) have nowhere to send them,
+    and must not have to care.
+    """
     file_path: Optional[str] = None
     user_message: Optional[str] = None
     session_id: Optional[str] = None
     chat_history: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+    progress: Optional[Callable[[str, dict], None]] = None
+
+    def emit(self, event_type: str, **payload) -> None:
+        """Fire a progress event, or do nothing if nobody's listening.
+
+        Never raises: a broken UI channel must not take down the skill run
+        that was doing the actual work.
+        """
+        if self.progress is None:
+            return
+        try:
+            self.progress(event_type, payload)
+        except Exception:
+            pass
 
 
 @dataclass

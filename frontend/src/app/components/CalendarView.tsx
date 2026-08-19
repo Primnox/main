@@ -138,13 +138,13 @@ function MiniMonth({
   return (
     <div className="select-none">
       <div className="flex items-center justify-between mb-3">
-        <button onClick={onPrev} className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
+        <button onClick={onPrev} aria-label="Previous month" className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
           <ChevronLeft size={12} />
         </button>
         <span className="font-mono text-[10px] font-bold text-on-surface/50 uppercase tracking-widest">
           {MONTH_NAMES[month].slice(0, 3)} {year}
         </span>
-        <button onClick={onNext} className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
+        <button onClick={onNext} aria-label="Next month" className="p-1 rounded hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
           <ChevronRight size={12} />
         </button>
       </div>
@@ -923,7 +923,13 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
   const [showAddTask,    setShowAddTask]    = useState(false);
   const [newTaskTitle,   setNewTaskTitle]   = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
-  const [newTaskPriority,setNewTaskPriority]= useState('medium');
+  // Backend priority vocabulary is 'low' | 'normal' | 'urgent' (see
+  // notes_manager.add_task's default, tools.py's add_task enum, and the
+  // urgent-highlighting checks in SummaryViews.tsx). This used to default to
+  // 'medium' and offer 'low'/'medium'/'high' below — neither value the rest
+  // of the app ever checks for, so a task created here as "high priority"
+  // would silently never be flagged urgent anywhere else in the UI.
+  const [newTaskPriority,setNewTaskPriority]= useState('normal');
   const [addingTask,     setAddingTask]     = useState(false);
 
   useEffect(() => {
@@ -1092,11 +1098,11 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div className="shrink-0 flex items-center justify-between px-6 pt-5 pb-3 border-b border-on-surface/[0.05]">
         <div className="flex items-center gap-2">
-          <button onClick={navPrev} className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
+          <button onClick={navPrev} aria-label="Previous period" className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
             <ChevronLeft size={14} />
           </button>
           <span className="font-mono text-sm font-bold text-on-surface/70 min-w-[220px] select-none">{viewLabel}</span>
-          <button onClick={navNext} className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
+          <button onClick={navNext} aria-label="Next period" className="p-1.5 rounded-lg hover:bg-on-surface/5 text-on-surface/55 hover:text-on-surface/70 transition-colors">
             <ChevronRight size={14} />
           </button>
           <button
@@ -1217,7 +1223,7 @@ export function CalendarView({ onNavigate: _onNavigate }: { onNavigate: (id: any
                   className="w-full bg-transparent text-[10px] text-on-surface/50 outline-none"
                 />
                 <div className="flex gap-1">
-                  {['low','medium','high'].map(p => (
+                  {['low','normal','urgent'].map(p => (
                     <button key={p} onClick={() => setNewTaskPriority(p)}
                       className={`px-2 py-0.5 text-[9px] font-mono uppercase rounded transition-colors ${
                         newTaskPriority === p ? 'bg-success/20 text-success' : 'text-on-surface/55 hover:text-on-surface/60'

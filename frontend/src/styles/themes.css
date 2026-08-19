@@ -44,6 +44,11 @@
   --a-line: rgba(255,182,149,0.18);
   --a-text: rgba(255,182,149,0.85);
   --g-line: rgba(52,211,153,0.30);
+  --radius-control: 10px;
+  --radius-panel: 16px;
+  --shadow-panel: 0 18px 60px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.035);
+  --shadow-panel-hover: 0 24px 72px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.05);
+  --shadow-focus: 0 0 0 3px color-mix(in srgb, var(--primary) 24%, transparent);
 }
 
 /* void */

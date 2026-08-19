@@ -331,7 +331,13 @@ class TestAdaptedClaudeSkillExecute:
         skill = _make_skill(tmp_path)
         result = skill.run(SkillContext(user_message="run broken code"))
 
-        assert result.success is True
+        # The model's explanation is kept, and the loop didn't crash — but the
+        # run is reported as a failure, because the only command it ran failed
+        # and nothing was produced. This used to assert success is True; see
+        # test_document_generation_verification.py for why that was the wrong
+        # contract (a confident summary over a file that never existed).
+        assert result.success is False
+        assert "boom" in result.error
         assert "failed" in result.output_text or "sorry" in result.output_text
 
     def test_bash_block_is_dispatched_to_run_shell(self, monkeypatch, tmp_path):
@@ -498,7 +504,13 @@ class TestAdaptedClaudeSkillExecute:
         result = _make_skill(tmp_path).run(SkillContext(user_message="deck"))
 
         assert ran == []  # never reached the sandbox
-        assert result.success is True
+        # The refusal counts as a failed command, and the model then stopped
+        # without actually building anything with python-pptx — so no deck
+        # exists and the run is reported as a failure rather than as success
+        # over a missing file. (Was `success is True`; see
+        # test_document_generation_verification.py.)
+        assert result.success is False
+        assert "python-pptx" in result.output_text
 
     def test_node_blocks_still_run_when_node_is_available(self, monkeypatch, tmp_path):
         # The JS path stays in the codebase — if the sandbox limitation is
@@ -546,6 +558,38 @@ class TestAdaptedClaudeSkillExecute:
         assert "just a little context" in captured["prompt"]
         assert "truncated" not in captured["prompt"]
 
+    def test_output_path_resolves_the_created_artifact(self, monkeypatch, tmp_path, isolated_workspace):
+        # execute() used to only record the bare filename in
+        # extras["files_created"] and never set output_path at all — callers
+        # that want to actually open/attach the result (like pdf_skill.py's
+        # output_path) had nothing to go on. It should resolve to the file's
+        # real path inside this workspace's host-side directory.
+        responses = iter([
+            _fake_think_response("```python\nopen('report.pdf', 'w').close()\n```"),
+            _fake_think_response("done — wrote report.pdf"),
+        ])
+        monkeypatch.setattr(brain, "think", lambda *a, **kw: next(responses))
+        monkeypatch.setattr(
+            code_exec, "run_python",
+            lambda code, session_id="", workspace_id="", **kw: {
+                "success": True, "stdout": "", "stderr": "", "files_created": ["report.pdf"],
+            },
+        )
+
+        skill = _make_skill(tmp_path)
+        ctx = SkillContext(user_message="make a pdf", session_id="s1")
+        result = skill.run(ctx)
+
+        expected = isolated_workspace / skill._workspace_id(ctx) / "report.pdf"
+        assert result.output_path == str(expected)
+
+    def test_output_path_is_none_when_nothing_was_created(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(brain, "think", lambda *a, **kw: _fake_think_response("just an answer"))
+
+        result = _make_skill(tmp_path).run(SkillContext(user_message="hello"))
+
+        assert result.output_path is None
+
     def test_chat_history_is_included_in_the_prompt(self, monkeypatch, tmp_path):
         captured = {}
 
@@ -560,3 +604,46 @@ class TestAdaptedClaudeSkillExecute:
         skill.run(SkillContext(user_message="summarize it", chat_history=history))
 
         assert "quarterly report" in captured["prompt"]
+
+
+class TestDocumentQualityGuidance:
+    """Document skills get an OUTPUT QUALITY section appended to the
+    execution contract. Without it the model optimizes for "the file opens"
+    and ships library defaults — default font, default black-on-white,
+    default title slide — which is exactly the templated look that made
+    generated PDFs and decks feel generic.
+
+    Capability skills (webapp-testing, mcp-builder, …) must NOT get it:
+    they produce code and test runs, not documents, so design guidance is
+    pure prompt noise that crowds out their real instructions.
+    """
+
+    def test_document_skills_get_the_quality_section(self):
+        for name in ("pdf", "pptx", "docx", "xlsx"):
+            contract = AdaptedClaudeSkill._execution_contract(False, name)
+            assert "OUTPUT QUALITY" in contract, f"{name} lost its quality guidance"
+
+    def test_quality_section_names_the_actual_failure_mode(self):
+        contract = AdaptedClaudeSkill._execution_contract(False, "pptx")
+        # The point isn't "make it pretty" — it's that accepting the
+        # library's defaults is what produces the templated result.
+        assert "default" in contract.lower()
+        assert "palette" in contract.lower()
+
+    def test_non_document_skills_do_not_get_it(self):
+        for name in ("webapp-testing", "mcp-builder", "skill-creator", "frontend-design"):
+            contract = AdaptedClaudeSkill._execution_contract(False, name)
+            assert "OUTPUT QUALITY" not in contract, f"{name} should not carry document design guidance"
+
+    def test_skill_name_matching_is_case_insensitive(self):
+        assert "OUTPUT QUALITY" in AdaptedClaudeSkill._execution_contract(False, "  PDF ")
+
+    def test_missing_skill_name_degrades_to_no_quality_section(self):
+        # Defaulted arg — a caller that forgets to pass a name should get a
+        # usable contract, not a crash.
+        assert "OUTPUT QUALITY" not in AdaptedClaudeSkill._execution_contract(False)
+
+    def test_runtime_mechanics_survive_alongside_the_quality_section(self):
+        contract = AdaptedClaudeSkill._execution_contract(False, "pdf")
+        assert "HOW TO ACT ON THIS" in contract
+        assert "No network access" in contract

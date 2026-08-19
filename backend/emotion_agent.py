@@ -28,6 +28,23 @@ def save_settings(settings):
     SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
     SETTINGS_FILE.write_text(json.dumps(settings, indent=4), encoding="utf-8")
 
+def _strip_code_fence(text: str) -> str:
+    """Unwraps a ```json ... ``` fence if the model wrapped its JSON in one.
+
+    The previous version tested for single backticks while slicing three
+    characters off, so a real triple-backtick fence was mangled into
+    `json\\n{...}` and json.loads() always raised.
+    """
+    text = (text or "").strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
+
 def run_emotion_analysis():
     """
     Analyzes the user's most recent chat behavior to determine their emotional state.
@@ -35,15 +52,20 @@ def run_emotion_analysis():
     """
     log.info("Running Emotion & Behavior Synthesizer...")
     try:
-        sessions = get_all_sessions()
+        # get_all_sessions() returns {"sessions": [...], "folders": [...]},
+        # not a bare list. Indexing the dict raised KeyError: 0 on the very
+        # first statement, so this agent had never once completed a run — the
+        # broad `except` below turned that into a one-line "failed: 0" warning
+        # every 30 minutes and the mood system was silently dead.
+        sessions = (get_all_sessions() or {}).get("sessions") or []
         if not sessions:
             return
-            
+
         recent_session = sessions[0]
         msgs = get_session_messages(recent_session["id"])[-20:]
-        
+
         # Only analyze if user has spoken recently
-        user_msgs = [m for m in msgs if m["speaker"] != "Primnox"]
+        user_msgs = [m for m in msgs if m.get("speaker") != "Primnox"]
         if not user_msgs:
             return
             
@@ -83,13 +105,17 @@ Chat History:
 '''
         
         result = think(prompt, system_override="You are an emotion analysis engine. Analyze the conversation tone and output a single emotion label as JSON. No conversation.")
-        content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-        
-        if content.startswith("`json"): content = content[7:]
-        if content.startswith("`"): content = content[3:]
-        if content.endswith("`"): content = content[:-3]
-            
-        data = json.loads(content.strip())
+        if "error" in result:
+            log.warning(f"Emotion analysis skipped — model unavailable: {result['error']}")
+            return
+        choices = result.get("choices") or [{}]
+        content = (choices[0].get("message", {}).get("content") or "").strip()
+
+        content = _strip_code_fence(content)
+        if not content:
+            return
+
+        data = json.loads(content)
         confidence = data.get("confidence", 0)
         dominant = data.get("dominant_emotion", "Neutral")
         
@@ -103,7 +129,9 @@ Chat History:
             log.info(f"System mood updated to: {dominant}")
             
     except Exception as e:
-        log.error(f"Emotion analysis failed: {e}")
+        # Include the type — the bare message here was literally "0" for the
+        # KeyError above, which said nothing about what had gone wrong.
+        log.error(f"Emotion analysis failed: {type(e).__name__}: {e}")
 
 if __name__ == "__main__":
     run_emotion_analysis()

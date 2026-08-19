@@ -83,6 +83,89 @@ _groq_lb_state = {
     "current_idx": 0,
 }
 
+# Endpoints (url + model) that have told us they can't do tool calling. Plenty
+# of models behind an OpenAI-compatible proxy — and most self-hosted ones —
+# reject a request carrying `tools` outright with a 400. Primnox attaches tools
+# to every agentic turn, so on such a provider EVERY message failed with a raw
+# API error and the app was unusable end to end. Learned once per endpoint,
+# then that provider is simply used without tools for the rest of the process.
+_no_tool_support: set[tuple[str, str]] = set()
+_no_tool_support_lock = threading.Lock()
+
+_TOOLS_UNSUPPORTED_MARKERS = (
+    "tool calling",
+    "tools is not supported",
+    "tools are not supported",
+    "does not support tools",
+    "tool_choice",
+    "function calling",
+    "unsupported parameter: 'tools'",
+    'unsupported parameter: "tools"',
+)
+
+
+def _rejects_tools(response_text: str) -> bool:
+    """Is this 400 the provider saying "I don't do tool calling"?
+
+    Deliberately matched on the message rather than a status code alone: a
+    400 usually means our payload was wrong, and silently dropping the tools
+    on every 400 would hide real bugs and quietly downgrade a capable model.
+    """
+    lowered = (response_text or "").lower()
+    if "not support" not in lowered and "unsupported" not in lowered and "invalid" not in lowered:
+        return False
+    return any(marker in lowered for marker in _TOOLS_UNSUPPORTED_MARKERS)
+
+
+_CONTEXT_OVERFLOW_MARKERS = (
+    "context_length_exceeded",
+    "reduce the length of the messages",
+    "maximum context length",
+    "too many tokens",
+    "prompt is too long",
+    "input length and `max_tokens` exceed",
+)
+
+
+def _context_too_long(response_text: str) -> bool:
+    lowered = (response_text or "").lower()
+    return any(marker in lowered for marker in _CONTEXT_OVERFLOW_MARKERS)
+
+
+def _drop_oldest_turn(messages: list) -> bool:
+    """Sheds the oldest history so an over-long conversation can be retried.
+
+    Keeps the system prompt (index 0) and the user's CURRENT message (last),
+    since dropping either changes what was asked rather than how much history
+    came with it. Returns False when only those two remain — at that point the
+    prompt itself doesn't fit and trimming can't help.
+
+    Drops a QUARTER of the trimmable history per call, not one message. The
+    retry budget is small, and a 60-turn chat shortened one message at a time
+    would exhaust it while still overflowing — the user would see a failure
+    that one more round of trimming would have fixed.
+    """
+    if len(messages) <= 2:
+        return False
+    # Skip index 0 when it's the system prompt; never touch the final message.
+    start = 1 if messages and messages[0].get("role") == "system" else 0
+    trimmable = len(messages) - 1 - start
+    if trimmable <= 0:
+        return False
+    del messages[start:start + max(1, trimmable // 4)]
+    return True
+
+
+def _tools_known_unsupported(url: str, model_name: str) -> bool:
+    with _no_tool_support_lock:
+        return (url, model_name) in _no_tool_support
+
+
+def _remember_tools_unsupported(url: str, model_name: str) -> None:
+    with _no_tool_support_lock:
+        _no_tool_support.add((url, model_name))
+
+
 def rotate_groq_model():
     """Advances the global Groq model index to load balance (thread-safe)."""
     with _groq_lb_lock:
@@ -384,6 +467,21 @@ def get_ollama_status(base_url: str = "http://localhost:11434") -> dict:
 # instead of re-probing.
 _LOCAL_UNREACHABLE_UNTIL = 0.0
 _LOCAL_CIRCUIT_COOLDOWN = 30  # seconds
+
+
+def _error_detail(res: dict, status_code: int, provider: str) -> str:
+    """Best-effort human/log-readable error string from a provider error body.
+    Only used to populate the "error" key on a failure path — the value's exact
+    text is never shown to the user (choices[].content carries that), it just
+    has to be truthy and non-blank so callers can branch on it."""
+    err = res.get("error") if isinstance(res, dict) else None
+    if isinstance(err, dict):
+        detail = err.get("message") or err.get("type") or ""
+    elif err:
+        detail = str(err)
+    else:
+        detail = ""
+    return f"{provider} error (HTTP {status_code}): {detail}" if detail else f"{provider} error (HTTP {status_code})"
 
 
 def resolve_think_text(response: dict, fallback: str) -> str:
@@ -709,6 +807,17 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                     }
                 }]
             }
+            # An Anthropic error body has no content[].text, so the mapping
+            # above silently produces an empty completion. Propagate the real
+            # error instead — see resolve_think_text()'s docstring for why a
+            # failure MUST be distinguishable by an "error" key rather than by
+            # the caller inspecting choices[].
+            status = getattr(resp, "status_code", 200)
+            if status != 200 or "error" in res:
+                mapped_res["error"] = _error_detail(res, status, "Anthropic")
+                mapped_res["choices"][0]["message"]["content"] = content or (
+                    f"anthropic request failed (HTTP {status})."
+                )
             return mapped_res
 
         elif active_model == "Ollama_Local":
@@ -733,10 +842,12 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                 return res
             except requests.exceptions.Timeout:
                 log.error("Ollama timed out — model may be loading. Try again shortly.")
-                return {"choices": [{"message": {"content": "ollama timed out — the model might still be loading. try again in a few seconds."}}]}
+                return {"error": "ollama timed out",
+                        "choices": [{"message": {"content": "ollama timed out — the model might still be loading. try again in a few seconds."}}]}
             except requests.exceptions.ConnectionError:
                 log.error("Ollama not reachable — is it running? (ollama serve)")
-                return {"choices": [{"message": {"content": "ollama isn't running bro. start it with `ollama serve`."}}]}
+                return {"error": "ollama unreachable",
+                        "choices": [{"message": {"content": "ollama isn't running bro. start it with `ollama serve`."}}]}
 
         elif active_model == "LlamaCpp_Local":
             llamacpp_url = _safe_local_url(settings.get("llamacpp_base_url", "http://localhost:8080"), 8080)
@@ -760,10 +871,12 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                 return res
             except requests.exceptions.Timeout:
                 log.error("llama.cpp timed out — model may still be loading.")
-                return {"choices": [{"message": {"content": "llama.cpp timed out — the model might still be loading. try again in a few seconds."}}]}
+                return {"error": "llama.cpp timed out",
+                        "choices": [{"message": {"content": "llama.cpp timed out — the model might still be loading. try again in a few seconds."}}]}
             except requests.exceptions.ConnectionError:
                 log.error("llama.cpp not reachable — is the server running?")
-                return {"choices": [{"message": {"content": "llama.cpp server isn't running. start it with `./llama-server -m your_model.gguf`"}}]}
+                return {"error": "llama.cpp unreachable",
+                        "choices": [{"message": {"content": "llama.cpp server isn't running. start it with `./llama-server -m your_model.gguf`"}}]}
 
         elif active_model == "Custom":
             profile = get_active_custom_provider(settings)
@@ -773,7 +886,8 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
             api_key = profile.get("api_key", "") if profile else ""
             if not custom_url:
                 log.error("Custom provider has no base URL set!")
-                return {"choices": [{"message": {"content": "no custom endpoint selected. add or pick one in Settings."}}]}
+                return {"error": "custom provider has no base URL",
+                        "choices": [{"message": {"content": "no custom endpoint selected. add or pick one in Settings."}}]}
             log.info(f"Routing think() → Custom {custom_api_type} ({custom_model} @ {custom_url})")
             try:
                 if custom_api_type == "anthropic":
@@ -793,7 +907,17 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                     )
                     res = resp.json()
                     content = res.get("content", [{}])[0].get("text", "")
-                    return {"choices": [{"message": {"content": content}}]}
+                    mapped = {"choices": [{"message": {"content": content}}]}
+                    # Same mapping blind spot as the native Anthropic branch —
+                    # an error body yields no content[].text, which must not be
+                    # handed back as a successful empty completion.
+                    status = getattr(resp, "status_code", 200)
+                    if status != 200 or "error" in res:
+                        mapped["error"] = _error_detail(res, status, "Custom (anthropic)")
+                        mapped["choices"][0]["message"]["content"] = content or (
+                            f"custom provider request failed (HTTP {status})."
+                        )
+                    return mapped
                 else:
                     headers = {"Content-Type": "application/json"}
                     if api_key:
@@ -814,16 +938,19 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
                     return resp.json()
             except requests.exceptions.Timeout:
                 log.error("Custom provider timed out.")
-                return {"choices": [{"message": {"content": "custom provider timed out."}}]}
+                return {"error": "custom provider timed out",
+                        "choices": [{"message": {"content": "custom provider timed out."}}]}
             except requests.exceptions.ConnectionError:
                 log.error("Custom provider not reachable.")
-                return {"choices": [{"message": {"content": f"couldn't reach the custom provider at {custom_url}."}}]}
+                return {"error": f"custom provider unreachable at {custom_url}",
+                        "choices": [{"message": {"content": f"couldn't reach the custom provider at {custom_url}."}}]}
 
         elif active_model == "Gemini_Flash":
             api_key = get_api_key("gemini")
             if not api_key:
                 log.error("Gemini API key missing!")
-                return {"choices": [{"message": {"content": "Gemini API key not set. Add it in Settings or set GEMINI_API_KEY env var."}}]}
+                return {"error": "Gemini API key not set",
+                        "choices": [{"message": {"content": "Gemini API key not set. Add it in Settings or set GEMINI_API_KEY env var."}}]}
             gemini_model = settings.get("gemini_model", "gemini-2.0-flash")
             log.info(f"Routing think() → Gemini ({gemini_model})")
             resp = requests.post(
@@ -841,7 +968,8 @@ def _think_inner(prompt, context=None, image_base64=None, messages=None, system_
             try:
                 res = resp.json()
             except Exception:
-                return {"choices": [{"message": {"content": f"Gemini returned non-JSON (HTTP {resp.status_code})"}}]}
+                return {"error": f"Gemini returned non-JSON (HTTP {resp.status_code})",
+                        "choices": [{"message": {"content": f"Gemini returned non-JSON (HTTP {resp.status_code})"}}]}
             if "error" in res:
                 log.warning(f"Gemini error: {res['error']}")
             return res
@@ -1277,18 +1405,43 @@ def _think_stream_inner(prompt, context="", session_id="", images_b64=None, _scr
             for step in range(max_steps):
                 tried_groq = set()
                 recovered_400 = False
-                for _retry in range(len(GROQ_FALLBACK_CHAIN) + 1):
-                    resp = requests.post(
-                        url,
-                        headers=headers,
-                        json={
-                            "model": model_name,
-                            "messages": messages,
-                            "tools": active_tool_definitions,
-                            "tool_choice": "auto"
-                        },
-                        timeout=60
-                    )
+                for _retry in range(len(GROQ_FALLBACK_CHAIN) + 2):
+                    payload = {"model": model_name, "messages": messages}
+                    if not _tools_known_unsupported(url, model_name):
+                        payload["tools"] = active_tool_definitions
+                        payload["tool_choice"] = "auto"
+                    resp = requests.post(url, headers=headers, json=payload, timeout=60)
+
+                    # The provider can't do tool calling. Remember it and send
+                    # the same turn again as a plain completion — the model
+                    # loses its tools but the user gets an answer, which beats
+                    # a raw 400 pasted into the chat.
+                    if (resp.status_code == 400 and "tools" in payload
+                            and _rejects_tools(resp.text)):
+                        _remember_tools_unsupported(url, model_name)
+                        log.warning(
+                            f"{model_name} rejected tool calling — continuing without tools "
+                            f"for this provider ({resp.text[:120]})")
+                        continue
+
+                    # Too much conversation for this model's window. Drop the
+                    # oldest turn and try again rather than losing the message
+                    # — a long chat should degrade to less history, not to
+                    # "Sorry, something went wrong."
+                    if resp.status_code == 400 and _context_too_long(resp.text):
+                        if _drop_oldest_turn(messages):
+                            log.warning(
+                                f"{model_name} context exceeded — retrying with "
+                                f"{len(messages)} messages")
+                            continue
+                        # Nothing left to trim: the system prompt plus this one
+                        # message already overflows, so this model can never
+                        # answer. Say which model, and that it's a settings
+                        # problem — "try again" would be false advice.
+                        log.error(f"{model_name} cannot fit Primnox's prompt even with no history")
+                        yield ("[MODEL TOO SMALL] " + model_name)
+                        return
+
                     if resp.status_code == 429:
                         if "groq.com" in url and (model_name in GROQ_FALLBACK_CHAIN or model_name == pinned_groq_model):
                             tried_groq.add(model_name)

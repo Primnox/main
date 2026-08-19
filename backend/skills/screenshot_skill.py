@@ -29,17 +29,36 @@ class ScreenshotSkill(BaseSkill):
             log.info("Screenshot captured.")
 
             vision_data = describe_screen()
-            description = vision_data.get("description", "no visual description.")
+            # `.get("description", <default>)` never fired its default: on a
+            # failure the key was present but EMPTY, so this rendered as
+            # "ss saved bro. i see: ..." — a confident claim to have looked,
+            # followed by nothing. Treat blank as absent, and say which it is.
+            description = (vision_data.get("description") or "").strip()
+            vision_error = vision_data.get("error")
 
             meta_path = base_dir / f"ss_{timestamp}_meta.txt"
             with open(meta_path, "w", encoding="utf-8") as f:
-                f.write(f"Description: {description}")
+                f.write(f"Description: {description or vision_error or 'unavailable'}")
 
             enforce_quota()
 
+            if not description:
+                return SkillResult(
+                    success=True,  # the screenshot itself did save
+                    output_text=(
+                        f"ss saved — but i couldn't read it: "
+                        f"{vision_error or 'no description came back'}"
+                    ),
+                    output_path=str(img_path),
+                    extras={"meta_path": str(meta_path), "vision_failed": True},
+                )
+
+            # Only ellipsise when something was actually cut off; the "..." used
+            # to be unconditional, so a complete description looked truncated.
+            summary = description if len(description) <= 200 else description[:200].rstrip() + "…"
             return SkillResult(
                 success=True,
-                output_text=f"ss saved bro. i see: {description[:100]}...",
+                output_text=f"ss saved bro. i see: {summary}",
                 output_path=str(img_path),
                 extras={"meta_path": str(meta_path)}
             )

@@ -140,13 +140,19 @@ export const CommandCenter = ({
   };
 
   return (
-    <div className="flex-1 flex h-full bg-surface overflow-hidden">
+    <div className="flex-1 flex h-full bg-surface overflow-hidden relative">
+      <div className="orb orb-1 opacity-[0.055]" />
+      <div className="orb orb-2 opacity-[0.035]" />
       {/* LEFT CHAT SIDEBAR (History/Folders) */}
-      <div className={`border-r border-on-surface/5 bg-[var(--surface)] flex flex-col pt-12 text-on-surface overflow-hidden shrink-0 transition-all duration-300 ${showLeftPane ? "w-64 lg:w-72 opacity-100" : "w-0 opacity-0 pointer-events-none"}`}>
+      <div className={`border-r border-on-surface/10 bg-surface-container-low/70 backdrop-blur-xl flex flex-col pt-8 text-on-surface overflow-hidden shrink-0 transition-all duration-300 relative z-10 ${showLeftPane ? "w-64 lg:w-72 opacity-100" : "w-0 opacity-0 pointer-events-none"}`}>
         
         {/* Header & New Chat Button */}
-        <div className="px-6 mb-6">
-          <button onClick={() => loadChat('current')} className="w-full flex items-center justify-between p-3 bg-primary text-surface font-bold rounded-xl hover:bg-on-surface active:scale-95 transition-all duration-300 ease-out focus-visible:ring-1 focus-visible:ring-success/50 shadow-[0_0_20px_rgba(79,70,229,0.3)] group">
+        <div className="px-5 mb-6">
+          <div className="mb-4 px-1">
+            <p className="font-mono text-[9px] uppercase tracking-[0.28em] text-primary mb-1.5">Synapse archive</p>
+            <p className="text-xs leading-relaxed text-on-surface/48">Pinned context and recent threads, kept close.</p>
+          </div>
+          <button onClick={() => loadChat('current')} className="px-interactive w-full flex items-center justify-between p-3.5 bg-primary text-on-primary font-semibold rounded-control hover:brightness-110 cursor-pointer shadow-[0_12px_30px_color-mix(in_srgb,var(--primary)_22%,transparent)] group focus-visible:shadow-focus">
             <span className="text-sm">New Chat</span>
             <Plus size={18} className="group-hover:rotate-90 transition-transform" />
           </button>
@@ -218,23 +224,24 @@ export const CommandCenter = ({
       </div>
 
       {/* RIGHT MAIN CHAT AREA */}
-      <div className="flex-1 flex flex-col h-full relative">
+      <div className="flex-1 flex flex-col h-full relative z-10">
         <div 
-          className="flex-1 overflow-y-auto p-8 lg:p-16 space-y-16 custom-scrollbar"
+          className="flex-1 overflow-y-auto p-6 lg:p-12 space-y-10 custom-scrollbar"
           style={{ maskImage: 'linear-gradient(to bottom, black 80%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, black 80%, transparent 100%)' }}
         >
           {liveMessages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center animate-in fade-in slide-in-from-bottom-8 duration-1000 mt-20">
-              <div className="w-24 h-24 rounded-full border border-on-surface/5 flex items-center justify-center relative mb-8">
+            <div className="h-full max-w-3xl mx-auto flex flex-col items-center justify-center text-center animate-in fade-in slide-in-from-bottom-8 duration-700 px-6">
+              <div className="w-20 h-20 rounded-panel border border-primary/20 bg-primary/5 shadow-panel flex items-center justify-center relative mb-7">
                 <div className="absolute inset-0 border border-primary/20 rounded-full animate-ping [animation-duration:3s]" />
                 <Sparkles size={32} className="text-primary/60" />
               </div>
-              <h1 className="text-3xl font-bold text-on-surface tracking-tighter mb-4 lowercase italic">Initialize Synapse Stream</h1>
-              <p className="text-on-surface/60 max-w-md leading-relaxed mb-12 lowercase font-light">The neural interface is online and awaiting input. Send a command or attach a file to begin.</p>
+              <p className="font-mono text-[9px] uppercase tracking-[0.32em] text-primary mb-3">Workspace online</p>
+              <h1 className="font-display text-3xl lg:text-4xl font-semibold text-on-surface tracking-tight mb-4 lowercase italic">Initialize synapse stream</h1>
+              <p className="text-on-surface/58 max-w-lg leading-relaxed mb-9 lowercase">Your context is loaded. Ask for a plan, interrogate the workspace, or drop in a file and make the machine earn its electricity.</p>
               
-              <div className="flex gap-4">
-                <button onClick={() => setInputValue("Analyze my current workspace")} className="bg-on-surface/5 hover:bg-on-surface/10 text-on-surface/60 hover:text-on-surface px-6 py-3 rounded-full font-mono text-[11px] uppercase tracking-widest active:scale-95 transition-all duration-300 ease-out focus-visible:ring-1 focus-visible:ring-success/50">Analyze Workspace</button>
-                <button onClick={() => setInputValue("Summarize system status")} className="bg-on-surface/5 hover:bg-on-surface/10 text-on-surface/60 hover:text-on-surface px-6 py-3 rounded-full font-mono text-[11px] uppercase tracking-widest active:scale-95 transition-all duration-300 ease-out focus-visible:ring-1 focus-visible:ring-success/50">System Status</button>
+              <div className="flex flex-wrap justify-center gap-3">
+                <button onClick={() => setInputValue("Analyze my current workspace")} className="px-interactive bg-surface-container border border-on-surface/10 hover:border-primary/30 hover:bg-primary/10 text-on-surface/70 hover:text-on-surface px-5 py-3 rounded-pill font-mono text-[10px] uppercase tracking-widest cursor-pointer focus-visible:shadow-focus">Analyze Workspace</button>
+                <button onClick={() => setInputValue("Summarize system status")} className="px-interactive bg-surface-container border border-on-surface/10 hover:border-primary/30 hover:bg-primary/10 text-on-surface/70 hover:text-on-surface px-5 py-3 rounded-pill font-mono text-[10px] uppercase tracking-widest cursor-pointer focus-visible:shadow-focus">System Status</button>
               </div>
             </div>
           ) : (
@@ -246,12 +253,12 @@ export const CommandCenter = ({
                 className={`flex gap-8 max-w-4xl ${msg.sender?.toUpperCase() === 'PRIMNOX' ? '' : 'ml-auto flex-row-reverse'}`}
               >
                 <div className={`w-12 h-12 flex items-center justify-center shrink-0 rounded-xl
-                  ${msg.sender?.toUpperCase() === 'PRIMNOX' ? 'bg-primary/10 text-primary shadow-[0_0_20px_rgba(79,70,229,0.2)]' : 'bg-on-surface/5 text-on-surface/50 grayscale'}`}
+                  ${msg.sender?.toUpperCase() === 'PRIMNOX' ? 'bg-primary/10 text-primary shadow-[0_0_24px_color-mix(in_srgb,var(--primary)_18%,transparent)]' : 'bg-on-surface/5 text-on-surface/50 grayscale'}`}
                 >
                   {msg.sender?.toUpperCase() === 'PRIMNOX' ? <Terminal size={22} /> : <User size={22} />}
                 </div>
                 <div className={`glass-panel p-6 rounded-3xl space-y-3 relative transition-all duration-700
-                  ${msg.sender?.toUpperCase() === 'PRIMNOX' ? 'rounded-tl-none bg-[var(--surface)] shadow-[0_0_40px_rgba(79,70,229,0.15)] border border-primary/20' : 'rounded-tr-none bg-primary/5 shadow-2xl'}`}
+                  ${msg.sender?.toUpperCase() === 'PRIMNOX' ? 'rounded-tl-none bg-surface-container-low shadow-panel border border-primary/20' : 'rounded-tr-none bg-primary/5 shadow-panel border border-on-surface/10'}`}
                 >
                    <div className={`flex justify-between items-center pb-3 mb-3 font-mono text-[11px] tracking-[0.2em]
                      ${msg.sender?.toUpperCase() === 'PRIMNOX' ? 'text-primary/60' : 'text-on-surface/60'}`}
@@ -270,7 +277,7 @@ export const CommandCenter = ({
         <footer className="p-8 lg:p-12 pt-0 z-20 pointer-events-auto shrink-0">
           <div className="max-w-4xl mx-auto flex items-center justify-between w-full gap-2">
             <button onClick={() => setShowLeftPane(!showLeftPane)} className="p-3 bg-surface-container rounded-2xl hover:bg-surface-container-high text-on-surface/50 hover:text-on-surface shrink-0 active:scale-95 transition-all duration-300 ease-out focus-visible:ring-1 focus-visible:ring-success/50" title="Toggle Chat History"><History size={20}/></button>
-            <div className="flex-1 glass-panel rounded-3xl flex items-center p-4 group focus-within:shadow-[0_0_60px_rgba(79,70,229,0.2)] transition-all relative pointer-events-auto bg-[var(--nav-bg)] backdrop-blur-3xl">
+            <div className="flex-1 glass-panel rounded-panel flex items-center p-3 group focus-within:shadow-focus transition-all relative pointer-events-auto bg-[var(--nav-bg)] backdrop-blur-3xl">
             <div className="absolute -top-10 left-8 px-4 py-1 bg-surface-container rounded-full font-mono text-[9px] text-on-surface/55 uppercase tracking-[0.4em] opacity-0 group-focus-within:opacity-100 transition-all translate-y-2 group-focus-within:translate-y-0">Neural_Input_Active</div>
             
             <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} />

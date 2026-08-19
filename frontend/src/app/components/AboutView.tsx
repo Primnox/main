@@ -306,6 +306,7 @@ export const KnowledgePage = ({
                     <div className="space-y-1.5">
                       <span className="font-mono text-[9px] uppercase tracking-widest text-on-surface/50">Chat model</span>
                       <Select
+                        label={`Chat model for ${name}`}
                         value={chatModelFor(key)}
                         onChange={(v) => markDirty(() => setChatModelFor(key, v))}
                         options={(chatModels.providerModelsCache[key]?.models || []).map(m => ({ value: m, label: m }))}
@@ -316,6 +317,7 @@ export const KnowledgePage = ({
                         <span className="font-mono text-[9px] uppercase tracking-widest text-on-surface/50">Voice synthesis model</span>
                         {ttsModels.providerModelsCache[key]?.models?.length ? (
                           <Select
+                            label={`Voice synthesis model for ${name}`}
                             value={ttsModelFor(key)}
                             onChange={(v) => markDirty(() => setTtsModelFor(key, v))}
                             options={ttsModels.providerModelsCache[key].models.map(m => ({ value: m, label: m }))}

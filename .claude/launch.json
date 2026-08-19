@@ -2,23 +2,28 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "frontend",
+      "name": "primnox-v2-backend",
+      "runtimeExecutable": "C:/project/backend/venv/Scripts/python.exe",
+      "runtimeArgs": ["v2/backend/run.py"],
+      "port": 4109
+    },
+    {
+      "name": "primnox-v2-backend-echo",
+      "runtimeExecutable": "C:/project/backend/venv/Scripts/python.exe",
+      "runtimeArgs": ["v2/backend/run_echo.py"],
+      "port": 4109
+    },
+    {
+      "name": "primnox-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 5173,
-      "cwd": "frontend"
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 5173
     },
     {
-      "name": "seed-website",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "-p", "5500", "website"],
-      "port": 5500
-    },
-    {
-      "name": "live-website",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "-p", "5510", "../primnox_web"],
-      "port": 5510
+      "name": "primnox-v2-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "v2/frontend", "run", "dev"],
+      "port": 5273
     }
   ]
 }

@@ -15,18 +15,27 @@ export interface IslandErrorPayload {
 }
 
 // ── Chord hint definitions ─────────────────────────────────────────────────
+// Every entry here MUST have a handler that actually fires. Half of this list
+// used to be fiction: "Ctrl+Space — Command Palette" (the palette is Ctrl+K,
+// App.tsx), "Ctrl+` — Terminal" and "Ctrl+Z — Undo" (neither has ever had a
+// handler). A user holding Ctrl read those, pressed them, and nothing
+// happened — a hint overlay that lies is worse than no overlay, because it
+// makes the whole app feel broken.
+//
+// Alt+Tab and Alt+F4 were also listed. Those are Windows' shortcuts, not
+// Primnox's; telling the user how to switch apps inside your own app is
+// noise, and it padded the panel to three chips of mostly nothing.
+//
+// If you add a shortcut here, add the handler in the same change. If you
+// remove a handler, remove its hint.
 const CHORD_HINTS: Record<string, { key: string; label: string }[]> = {
   Control: [
-    { key: 'Ctrl+Z', label: 'Undo' },
-    { key: 'Ctrl+Shift+P', label: 'Smart Paste' },
-    { key: 'Ctrl+Shift+Z', label: 'Zenith Mode' },
-    { key: 'Ctrl+Space', label: 'Command Palette' },
-    { key: 'Ctrl+`', label: 'Terminal' },
+    { key: 'Ctrl+K', label: 'Command Palette' },   // App.tsx
+    { key: 'Ctrl+Shift+P', label: 'Smart Paste' }, // below, onKeyDown
+    { key: 'Ctrl+Shift+Z', label: 'Zenith Mode' }, // below, onKeyDown
   ],
   Alt: [
-    { key: 'Alt+D', label: 'Deadline Bomb' },
-    { key: 'Alt+Tab', label: 'Switch App' },
-    { key: 'Alt+F4', label: 'Close Window' },
+    { key: 'Alt+D', label: 'Deadline Bomb' },      // below, onKeyDown
   ],
 };
 
@@ -732,12 +741,28 @@ export const DynamicIsland = ({
                           </div>
                         )}
                       </div>
-                      {/* Progress bar — only shown when SMTC reports a duration */}
+                      {/* Progress bar — only shown when SMTC reports a duration.
+                          The track was bg-on-surface/5, which is invisible on a
+                          dark panel: with no rail behind it the fill read as a
+                          stray underline that stopped halfway across, rather
+                          than as progress through a track. The rail has to be
+                          visible for the fill to mean anything.
+
+                          Animated with scaleX rather than width — width forces
+                          layout on every tick, transform is composited. */}
                       {(nowPlaying.duration_ms ?? 0) > 0 && (
-                        <div className="h-0.5 w-full bg-on-surface/5 rounded-full overflow-hidden">
+                        <div
+                          className="h-0.5 w-full bg-on-surface/15 rounded-full overflow-hidden"
+                          role="progressbar"
+                          aria-label={`${nowPlaying.title} playback position`}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={Math.round(npProgress)}
+                        >
                           <motion.div
-                            className="h-full bg-on-surface/25 rounded-full"
-                            style={{ width: `${npProgress}%` }}
+                            className="h-full w-full bg-primary/70 rounded-full origin-left"
+                            style={{ transform: `scaleX(${npProgress / 100})` }}
+                            transition={{ ease: 'linear', duration: 0.3 }}
                           />
                         </div>
                       )}

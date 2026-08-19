@@ -43,10 +43,11 @@ class TestCheckPipDeps:
         assert skill_router._check_pip_deps(DummySkillAllPresent) == []
 
     def test_real_skills_declare_correct_pip_names_for_known_mismatches(self):
-        # Regression guard for the actual bug: these two skills' import name
-        # differs from their pip package name.
+        # Regression guard for the actual bug: this skill's import name
+        # differs from its pip package name. (The other original example,
+        # PPTSkill's ("pptx", "python-pptx"), went away with the homegrown
+        # PPT skill — the pptx Claude Skill installs its own deps inside the
+        # sandbox instead of declaring REQUIRES_PIP.)
         from skills.screenshot_skill import ScreenshotSkill
-        from skills.ppt_skill import PPTSkill
 
         assert ("PIL", "Pillow") in ScreenshotSkill.REQUIRES_PIP
-        assert ("pptx", "python-pptx") in PPTSkill.REQUIRES_PIP

@@ -9,7 +9,108 @@ import permission_manager
 def _reset():
     with permission_manager._lock:
         permission_manager._pending.clear()
+        permission_manager._granted_scopes.clear()
     permission_manager._broadcast_cb = None
+
+
+def _answering(answer: bool, log: list):
+    """Broadcast callback that answers every prompt with `answer` and records
+    each one, so a test can count how many times the user was asked."""
+    def fake_broadcast(event_type, data):
+        log.append(data)
+        threading.Thread(
+            target=lambda: permission_manager.resolve_permission(data["token"], answer)
+        ).start()
+    return fake_broadcast
+
+
+class TestRunScopedApproval:
+    """One Allow covers a whole multi-step run. Before this, a skill that ran
+    5 sandboxed commands showed 5 separate Allow/Deny dialogs — including for
+    fragments like a lone import line."""
+
+    def setup_method(self):
+        _reset()
+
+    def test_second_request_in_the_same_scope_does_not_prompt(self):
+        prompts = []
+        permission_manager.set_broadcast_callback(_answering(True, prompts))
+        scope = permission_manager.open_scope()
+
+        assert permission_manager.request_permission("run_python", "step 1", scope=scope, timeout=5) is True
+        assert permission_manager.request_permission("run_python", "step 2", scope=scope, timeout=5) is True
+        assert permission_manager.request_permission("run_python", "step 3", scope=scope, timeout=5) is True
+
+        assert len(prompts) == 1, "the user should only be asked once per run"
+
+    def test_the_one_prompt_is_flagged_as_covering_the_run(self):
+        prompts = []
+        permission_manager.set_broadcast_callback(_answering(True, prompts))
+        permission_manager.request_permission(
+            "run_python", "step 1", scope=permission_manager.open_scope(), timeout=5)
+        assert prompts[0]["covers_run"] is True
+
+    def test_unscoped_requests_still_prompt_every_time(self):
+        # tools.py's delete_memory/delete_note pass no scope and must keep
+        # asking for each individual destructive action.
+        prompts = []
+        permission_manager.set_broadcast_callback(_answering(True, prompts))
+
+        permission_manager.request_permission("delete_note", "Delete A?", timeout=5)
+        permission_manager.request_permission("delete_note", "Delete B?", timeout=5)
+
+        assert len(prompts) == 2
+        assert prompts[0]["covers_run"] is False
+
+    def test_deny_is_never_remembered(self):
+        # A Deny aborts the run, so there is nothing to inherit — and
+        # remembering it would silently suppress a later, legitimate prompt.
+        prompts = []
+        permission_manager.set_broadcast_callback(_answering(False, prompts))
+        scope = permission_manager.open_scope()
+
+        assert permission_manager.request_permission("run_python", "step 1", scope=scope, timeout=5) is False
+        assert permission_manager.request_permission("run_python", "step 2", scope=scope, timeout=5) is False
+
+        assert len(prompts) == 2
+
+    def test_separate_runs_do_not_share_an_approval(self):
+        prompts = []
+        permission_manager.set_broadcast_callback(_answering(True, prompts))
+
+        permission_manager.request_permission("run_python", "run A", scope=permission_manager.open_scope(), timeout=5)
+        permission_manager.request_permission("run_python", "run B", scope=permission_manager.open_scope(), timeout=5)
+
+        assert len(prompts) == 2
+
+    def test_released_scope_prompts_again(self):
+        prompts = []
+        permission_manager.set_broadcast_callback(_answering(True, prompts))
+        scope = permission_manager.open_scope()
+
+        permission_manager.request_permission("run_python", "step 1", scope=scope, timeout=5)
+        permission_manager.release_scope(scope)
+        permission_manager.request_permission("run_python", "later", scope=scope, timeout=5)
+
+        assert len(prompts) == 2
+
+    def test_grant_expires_even_if_never_released(self):
+        prompts = []
+        permission_manager.set_broadcast_callback(_answering(True, prompts))
+        scope = permission_manager.open_scope()
+        permission_manager.request_permission("run_python", "step 1", scope=scope, timeout=5)
+
+        # Backdate the grant past the TTL, as if the run crashed before its
+        # finally block could release it.
+        with permission_manager._lock:
+            permission_manager._granted_scopes[scope] -= permission_manager._SCOPE_TTL_SECONDS + 1
+
+        permission_manager.request_permission("run_python", "much later", scope=scope, timeout=5)
+        assert len(prompts) == 2
+
+    def test_release_of_unknown_or_blank_scope_is_a_no_op(self):
+        permission_manager.release_scope("")
+        permission_manager.release_scope("never-granted")
 
 
 class TestRequestPermission:

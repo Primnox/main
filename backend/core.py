@@ -50,6 +50,38 @@ def _get_session_lock(session_id: str) -> threading.Lock:
             _session_locks[session_id] = lock
         return lock
 
+
+_GENERIC_FAILURE = "Sorry, something went wrong. Please try again."
+
+
+def _explain_api_error(token: str) -> str:
+    """Turns a raw provider error into something the user can act on.
+
+    Every API failure used to surface as "Sorry, something went wrong. Please
+    try again." — which for the common causes is not just unhelpful but
+    actively wrong: an unusable model or a missing key will fail identically
+    on every retry, forever, with no hint that the fix lives in Settings.
+    """
+    if token.startswith("[MODEL TOO SMALL]"):
+        model = token[len("[MODEL TOO SMALL]"):].strip()
+        return (f"**{model}** can't fit Primnox's prompt — its context window is too small, "
+                "so it will fail on every message. Pick a larger model in Settings.")
+
+    lowered = token.lower()
+    if "context_length_exceeded" in lowered or "maximum context length" in lowered:
+        return ("This chat has outgrown the model's context window. Start a new chat, "
+                "or switch to a model with a larger one in Settings.")
+    if "invalid_api_key" in lowered or "incorrect api key" in lowered or "401" in token[:20]:
+        return "That API key was rejected. Check it in Settings."
+    if "insufficient_quota" in lowered or "billing" in lowered:
+        return "The provider says this account is out of quota. Check your billing, or switch providers in Settings."
+    if "429" in token[:20] or "rate limit" in lowered:
+        return "The provider is rate-limiting us. Give it a moment and try again."
+    if "model_not_found" in lowered or "does not exist" in lowered or "404" in token[:20]:
+        return "That model isn't available on this account. Pick a different one in Settings."
+    return _GENERIC_FAILURE
+
+
 class PrimnoxCore:
     def __init__(self):
         log.info("Initializing PrimnoxCore...")
@@ -343,8 +375,8 @@ class PrimnoxCore:
         # ── Skill intercept (before LLM) ─────────────────────────────────
         # Only match triggers against the original user message, NOT file contents
         try:
-            from skills.skill_router import get_skill_for_trigger
-            skill_cls = get_skill_for_trigger(trigger_text)
+            from skills.skill_router import resolve_skill_for_message
+            skill_cls = resolve_skill_for_message(trigger_text)
             if skill_cls:
                 log.info(f"Skill trigger matched: {skill_cls.name}")
                 # Broadcast skill_started so the frontend task pill appears
@@ -370,6 +402,13 @@ class PrimnoxCore:
                     log.warning(f"Could not load chat history for skill context: {e}")
                 skill_result = route_skill(
                     user_message=raw_text,
+                    # Named explicitly because the skill is already resolved
+                    # above — without this, route_skill re-resolves from the
+                    # message and pays for a second classification call.
+                    skill_name=skill_cls.name,
+                    # Live activity events for the chat panel — without this
+                    # a multi-step skill is a spinner for 30s+.
+                    progress=self.broadcast_callback,
                     session_id=session_id,
                     chat_history=recent_history,
                     metadata={
@@ -481,10 +520,10 @@ class PrimnoxCore:
                         self.broadcast_callback("privacy_scrub", payload)
                     continue
 
-                if token.startswith("[API ERROR"):
+                if token.startswith("[API ERROR") or token.startswith("[MODEL TOO SMALL]"):
                     log.error(f"LLM API Error intercepted: {token}")
                     if self.broadcast_callback:
-                        self.broadcast_callback("message", {"sender": "Primnox", "text": "Sorry, something went wrong. Please try again."})
+                        self.broadcast_callback("message", {"sender": "Primnox", "text": _explain_api_error(token)})
                     break
 
                 # Tool call announced, WITH its real arguments (the code for
@@ -556,7 +595,7 @@ class PrimnoxCore:
         except Exception as e:
             log.error(f"Stream exception: {e}")
             if self.broadcast_callback:
-                self.broadcast_callback("message", {"sender": "Primnox", "text": "Sorry, something went wrong. Please try again."})
+                self.broadcast_callback("message", {"sender": "Primnox", "text": _explain_api_error(token)})
         
         response = full_text.strip()
 
@@ -746,7 +785,7 @@ class PrimnoxCore:
         elif route == "MEETING":
             response = "on it. summarizing the last call."
         elif route == "SCREENSHOT":
-            res = route_skill(user_message="take ss")
+            res = route_skill(user_message="take ss", skill_name="Screenshot")
             response = res.get("output_text", "ss failed")
         elif route == "SEARCH":
             search_query = text.lower().replace("search", "").replace("google", "").strip()
@@ -851,10 +890,10 @@ class PrimnoxCore:
                     if not token:
                         continue
                     
-                    if token.startswith("[API ERROR"):
+                    if token.startswith("[API ERROR") or token.startswith("[MODEL TOO SMALL]"):
                         log.error(f"LLM API Error intercepted: {token}")
                         if self.broadcast_callback:
-                            self.broadcast_callback("message", {"sender": "Primnox", "text": "Sorry, something went wrong. Please try again."})
+                            self.broadcast_callback("message", {"sender": "Primnox", "text": _explain_api_error(token)})
                         break
 
                     response_chunks.append(token)
@@ -874,7 +913,7 @@ class PrimnoxCore:
             except Exception as e:
                 log.error(f"Stream exception: {e}")
                 if self.broadcast_callback:
-                    self.broadcast_callback("message", {"sender": "Primnox", "text": "Sorry, something went wrong. Please try again."})
+                    self.broadcast_callback("message", {"sender": "Primnox", "text": _explain_api_error(token)})
             
             response = "".join(response_chunks)
 

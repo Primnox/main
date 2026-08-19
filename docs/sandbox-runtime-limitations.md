@@ -1,11 +1,18 @@
 # Sandbox runtime limitations
 
-Some native code will not initialise under the `PrimnoxSandbox` account. This
-is an **open investigation**, not a solved problem. It is written down because
-the symptom is baffling on first contact and costs hours to re-derive.
+**RESOLVED (2026-08-12): Node.js and Pillow now work in the sandbox.** Not
+via the `PrimnoxSandbox` Windows account this whole document investigates —
+that account genuinely cannot run them, for the reasons documented below,
+and no fix exists for it. The fix is a **second, preferred backend**:
+`appcontainer_sandbox.py` + the AppContainer path in `code_exec.py`. See
+"Resolution" near the bottom for what it is and why it works. Keep reading
+from the top if you want the investigation that ruled out every alternative
+first — it's still accurate, and it's why AppContainer was worth trying.
 
-Primnox is not blocked on it: `runtime_capabilities.py` probes what actually
-works and skills route around what doesn't. See "Design response" below.
+Some native code will not initialise under the `PrimnoxSandbox` account
+specifically. It is written down because the symptom is baffling on first
+contact and costs hours to re-derive, and because the investigation itself
+(what was ruled out, and how) is what led to the actual fix.
 
 ## Symptom
 
@@ -208,34 +215,73 @@ weakening in the sandbox account itself.
 avenue that doesn't involve subverting this boundary has been tried and
 ruled out. See "Strategic note" below.
 
-## Strategic note
+## Strategic note (superseded — kept for the reasoning trail)
 
 A local Windows user account is a mediocre isolation primitive: it is
 ACL-based only (no memory, CPU or kernel-surface isolation), and — as this
 document shows — a large fraction of Windows will not initialise inside one.
 
-**WSL2 was scoped as the replacement** (a real VM boundary; Node, Pillow,
+**WSL2 was scoped as a replacement** (a real VM boundary; Node, Pillow,
 LibreOffice and pandoc all work normally there) — full architecture,
 provisioning module, and backend-selection design were written and unit
 tested (2026-08-11). **The user explicitly declined it** ("i dont want
 wsl") and the WSL2 code was removed at their request. Do not re-propose
-WSL2 for this — it was a considered, deliberate rejection, not an oversight.
-If Node/Pillow support is revisited, it needs a different mechanism than
-WSL2.
+WSL2 for this — it was a considered, deliberate rejection, not an oversight,
+and it's moot now regardless: AppContainer resolved the same problem
+without leaving Windows. See "Resolution" below.
 
-Accepted current state: the Windows-account sandbox is permanent, with the
-Node/Pillow limitation staying in place. `runtime_capabilities.py` and the
-capability-aware prompt/fallback in `skills/adapted_skill.py` (below) are
-what make that limitation survivable rather than a hard failure — that
-part is not affected by the WSL2 decision and stays as-is.
+## Resolution: AppContainer (2026-08-12)
+
+`appcontainer_sandbox.py` + the AppContainer branch of `code_exec.py`
+(`_active_backend()`, `_build_appcontainer_command()`,
+`_create_appcontainer_process()`) — a **second backend**, preferred when
+available, with the `PrimnoxSandbox` account kept permanently as fallback.
+
+**Why it works where a separate Windows account can't:** every failure
+above traces to one thing — a separate `LogonUser()` session lacks the
+winlogon-minted logon-session SID that `USER32.dll`'s own init requires.
+AppContainer doesn't create a separate logon session at all.
+`CreateAppContainerProfile` mints an isolated SID; the process launches via
+plain `CreateProcess` carrying that SID in a security-capabilities
+attribute, **in Primnox's own session** — so it inherits the session's
+already-legitimate window station. Confirmed live: `node.exe` and
+`import PIL._imaging` both succeed under it.
+
+Isolation still holds, confirmed live against the same checks used
+throughout this document: `settings.json`/`memory.db`/`chat.db`/source all
+`PermissionError` with zero capabilities granted; network `URLError` (zero
+capabilities means no network capability at all — a first-class Windows
+Filtering Platform deny, not a bolted-on firewall rule). File access is
+explicit icacls allow-listing on the AppContainer SID, same pattern as
+`sandbox_account.py`'s grants, reused via a SID-object bridge rather than
+duplicated.
+
+Three non-obvious things it took to get working, in case this needs
+revisiting:
+1. `STARTF_USESTDHANDLES` (the normal way to capture output) makes the
+   AppContainer process die with `STATUS_DLL_INIT_FAILED` — regardless of
+   handle type. Fix: Python/Node launch directly (no shell wrapper) and
+   redirect their *own* stdout/stderr internally.
+2. A custom environment block passed alongside the security-capabilities
+   attribute fails outright (`ERROR_ENVVAR_NOT_FOUND`) unless
+   `LOCALAPPDATA` is present — AppContainer's own per-container storage
+   redirection needs it. Distinct from `APPDATA`/Roaming, where secrets
+   live; adding it exposes nothing new.
+3. Node's own module resolution walks up the directory tree and hits the
+   drive root, which the AppContainer was never granted — fixed with
+   `--preserve-symlinks --preserve-symlinks-main`, not a permission grant.
+
+`runtime_capabilities.py` needed zero changes — it now reports Node/Pillow
+as available automatically, exactly as the "kept in the codebase" note
+below anticipated.
 
 ## Design response
 
-Do **not** fix this by widening the sandbox account's privileges. The point
-of the architecture is that model-generated code runs somewhere restricted;
-trading that away for nicer PowerPoints is the wrong trade.
-
-Instead:
+Do **not** fix this by widening the `PrimnoxSandbox` account's privileges.
+The point of the architecture is that model-generated code runs somewhere
+restricted; trading that away for nicer PowerPoints was always the wrong
+trade — which is exactly why the fix ended up being a different isolation
+primitive instead, not a weaker version of the old one.
 
 - `runtime_capabilities.detect()` probes the sandbox at first use and caches
   the result. It probes *inside* the sandbox, and probes the module that
@@ -243,13 +289,20 @@ Instead:
   and proves nothing).
 - `skills/adapted_skill.py` puts the capability list in the prompt, so a
   skill picks a working implementation up front rather than discovering the
-  gap mid-workflow. It also refuses a `javascript` block outright when Node
-  is unavailable, naming the Python equivalent.
+  gap mid-workflow.
 - `skills/sandboxed_render.py` takes a `requires=` tuple and renders
   in-process when a needed library is missing, instead of paying for a
   sandboxed execution that is certain to fail.
 
-The JavaScript path is deliberately **kept in the codebase**. If this
-limitation is ever resolved, `detect()` starts reporting Node as available
-and the higher-fidelity `pptxgenjs`/`docx-js` path lights up with no code
+This machinery stays even though Node/Pillow now work through AppContainer —
+it's what makes ANY future gap (a different missing library, a machine
+where AppContainer provisioning fails) survivable rather than a hard
+failure, and the Windows-account backend still needs it as long as it
+exists as a fallback.
+
+The JavaScript path was **kept in the codebase** through the whole
+investigation on exactly this bet — that the gap was one isolation
+primitive away from closing, not a dead end. If this limitation is ever
+resolved, `detect()` starts reporting Node as available and the
+higher-fidelity `pptxgenjs`/`docx-js` path lights up with no code
 change.

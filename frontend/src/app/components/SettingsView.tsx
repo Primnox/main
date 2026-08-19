@@ -401,21 +401,28 @@ export const IslandSettings = ({
 
   // ── Render ──────────────────────────────────────────────────────────────
   return (
-    <div className="h-full flex overflow-hidden bg-surface text-on-surface">
+    <div className="h-full flex overflow-hidden bg-surface text-on-surface relative">
+      <div className="orb orb-1 opacity-[0.06]" />
+      <div className="orb orb-3 opacity-[0.04]" />
 
       {/* Tab rail — mono labels and a hairline divider, matching the app sidebar */}
-      <div className="w-[210px] shrink-0 border-r border-on-surface/10 flex flex-col overflow-y-auto">
-        <nav className="flex-1 py-8">
+      <div className="w-[232px] shrink-0 border-r border-on-surface/10 bg-surface-container-low/55 backdrop-blur-xl flex flex-col overflow-y-auto relative z-10">
+        <div className="px-7 pt-8 pb-5 border-b border-on-surface/10">
+          <p className="font-mono text-[9px] uppercase tracking-[0.28em] text-primary mb-2">Control plane</p>
+          <h2 className="font-display text-xl font-semibold tracking-tight">Make it yours.</h2>
+          <p className="mt-2 text-xs leading-relaxed text-on-surface/50">Identity, intelligence, privacy, and backups - without the corporate maze.</p>
+        </div>
+        <nav className="flex-1 py-5 px-3 space-y-1">
           {TABS.map(({ id, icon: Icon }) => {
             const active = activeTab === id;
             return (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`w-full flex items-center gap-3 px-7 py-3.5 font-mono text-[10px] uppercase tracking-[0.14em] transition-all duration-300 border-l-2 ${
+                className={`px-interactive w-full flex items-center gap-3 px-4 py-3.5 rounded-control font-mono text-[10px] uppercase tracking-[0.14em] cursor-pointer border ${
                   active
-                    ? 'border-primary text-on-surface bg-[var(--p-faint)]'
-                    : 'border-transparent text-on-surface/60 hover:text-on-surface hover:bg-[var(--hover)]'
+                    ? 'border-primary/30 text-on-surface bg-primary/10 shadow-[inset_3px_0_0_var(--primary)]'
+                    : 'border-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.035]'
                 }`}
               >
                 <Icon size={14} className="shrink-0" />
@@ -425,7 +432,7 @@ export const IslandSettings = ({
           })}
         </nav>
 
-        <div className="p-6 border-t border-on-surface/10">
+        <div className="p-5 border-t border-on-surface/10 bg-surface-container-low/70">
           <div className="flex items-center gap-2 mb-2">
             <span className="w-[6px] h-[6px] rounded-full bg-[var(--green)] animate-pulse shrink-0" />
             <Status tone="good">Kernel_Stable</Status>
@@ -444,7 +451,7 @@ export const IslandSettings = ({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className="max-w-[760px] px-12 py-10"
+            className="relative z-10 max-w-[900px] px-8 py-8 lg:px-12 lg:py-10"
           >
             {/* ── SYSTEM CORE ─────────────────────────────────────────── */}
             {activeTab === 'System_Core' && (
@@ -457,7 +464,7 @@ export const IslandSettings = ({
                           key={t.id}
                           onClick={() => setTheme(t.id)}
                           title={t.label}
-                          className={`group relative p-2 border transition-all ${
+                          className={`px-interactive group relative p-2 rounded-control border cursor-pointer ${
                             theme === t.id
                               ? 'border-[var(--p-line-2)] bg-[var(--p-fill)]'
                               : 'border-on-surface/10 hover:border-on-surface/30'
@@ -639,6 +646,7 @@ export const IslandSettings = ({
                       <Row label="Model" hint="Live-detected where possible, with a safe fallback list otherwise." stack>
                         <div className="flex gap-2">
                           <Select
+                            label="Model"
                             value={modelForProvider(selectedProviderKey)}
                             onChange={(v) => setModelForProvider(selectedProviderKey, v)}
                             options={(providerModelsCache[selectedProviderKey]?.models?.length
@@ -663,7 +671,7 @@ export const IslandSettings = ({
 
                 <Section index="03" title="Voice">
                   <Row label="VAD sensitivity" hint="How readily the microphone treats sound as speech.">
-                    <Slider value={vadSensitivity} onChange={setVadSensitivity} min={0} max={100} format={(v) => `${v}%`} />
+                    <Slider label="VAD sensitivity" value={vadSensitivity} onChange={setVadSensitivity} min={0} max={100} format={(v) => `${v}%`} />
                   </Row>
                   <Row label="Wake word" hint="Spoken phrase that starts a voice command." stack>
                     <Field value={wakeWord} onChange={setWakeWord} placeholder="hey primnox" mono />
@@ -790,6 +798,7 @@ export const IslandSettings = ({
                 <Section index="04" title="Data Management">
                   <Row label="Meeting retention" hint="Recordings and transcripts older than this are removed by the cleanup pass.">
                     <Slider
+                      label="Meeting retention"
                       value={meetingRetentionDays}
                       onChange={setMeetingRetentionDays}
                       min={1} max={365}
@@ -831,6 +840,7 @@ export const IslandSettings = ({
                   <div className="py-6 space-y-5 border-b border-on-surface/10">
                     <Row label="Provider type" stack>
                       <Select
+                        label="Provider type"
                         value={calType}
                         onChange={(v) => setCalType(v as any)}
                         options={[
@@ -932,6 +942,7 @@ export const IslandSettings = ({
 
                       <Row label="Storage provider" stack>
                         <Select
+                          label="Storage provider"
                           value={providerType}
                           onChange={(v) => setProviderType(v as any)}
                           options={[
@@ -975,7 +986,7 @@ export const IslandSettings = ({
                       )}
 
                       <Row label="Backup every" hint="Hours between automatic uploads.">
-                        <Slider value={backupInterval} onChange={setBackupInterval} min={1} max={168} format={(v) => `${v}h`} />
+                        <Slider label="Backup every" value={backupInterval} onChange={setBackupInterval} min={1} max={168} format={(v) => `${v}h`} />
                       </Row>
 
                       <div className="pt-6">
@@ -996,6 +1007,7 @@ export const IslandSettings = ({
                     {cloudBackupList.length > 0 ? (
                       <div className="space-y-4">
                         <Select
+                          label="Backup to restore"
                           value={restoreFile}
                           onChange={setRestoreFile}
                           options={[

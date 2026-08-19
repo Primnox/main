@@ -249,8 +249,21 @@ def delete_memory(key_or_text):
     log.info(f"Deleting memory matching: {key_or_text}")
     conn = get_db()
     c = conn.cursor()
-    c.execute("DELETE FROM memories WHERE key = ? OR text = ?", (key_or_text, key_or_text))
+    c.execute("DELETE FROM memories WHERE key = ?", (key_or_text,))
     rows_deleted = c.rowcount
+    if rows_deleted == 0 and key_or_text:
+        # Exact key match failed, so key_or_text is more likely a user-typed
+        # phrase (e.g. from a "forget X" command) than a real sha256 key.
+        # Those phrases are lowercased and trigger-word-stripped by the
+        # caller, so they almost never equal a stored memory's full,
+        # mixed-case sentence verbatim — matching WHERE text = ? here used to
+        # mean "forget X" essentially never found anything. Fall back to a
+        # case-insensitive substring match against the stored text.
+        c.execute(
+            "DELETE FROM memories WHERE LOWER(text) LIKE LOWER(?)",
+            (f"%{key_or_text}%",),
+        )
+        rows_deleted = c.rowcount
     conn.commit()
 
     if rows_deleted > 0:

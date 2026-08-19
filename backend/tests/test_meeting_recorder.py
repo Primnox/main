@@ -79,6 +79,47 @@ class TestWavStreaming:
         with wave.open(str(path), 'rb') as wf:
             assert wf.getnframes() == 20
 
+    def test_buffer_stays_bounded_across_many_synthetic_chunks(self, rec, tmp_path):
+        """Simulates a long meeting: thousands of small audio-callback chunks
+        interleaved with periodic flushes (as the 2s polling loop does in
+        production). Regression check for the original bug — audio_frames
+        used to accumulate for the ENTIRE call (multi-GB for a 2h meeting)
+        because nothing ever drained it until the very end.
+
+        Asserts directly on the in-process list (not real process memory):
+        (a) audio_frames never grows past one flush-interval's worth of
+            chunks, no matter how many total chunks are fed in, and
+        (b) the WAV file on disk ends up with every sample that was ever
+            appended, so streaming-to-disk didn't drop or corrupt data.
+        """
+        path = tmp_path / "spk.wav"
+        rec._spk_writer = rec._open_wav_writer(path, 1, 16000)
+
+        SAMPLES_PER_CHUNK = 10
+        TOTAL_CHUNKS = 20_000          # far more than a real meeting would ever buffer at once
+        FLUSH_EVERY = 50               # simulates a flush on each ~2s poll tick
+
+        max_buffer_len_seen = 0
+        for i in range(1, TOTAL_CHUNKS + 1):
+            with rec._frame_lock:
+                rec.audio_frames.append(_pcm_silence(SAMPLES_PER_CHUNK))
+            max_buffer_len_seen = max(max_buffer_len_seen, len(rec.audio_frames))
+            if i % FLUSH_EVERY == 0:
+                rec._flush_audio_to_disk()
+
+        rec._flush_audio_to_disk()  # drain whatever's left after the loop
+        rec._close_wav_writers()
+
+        # (a) The buffer never grew beyond one flush interval's worth of
+        # chunks — i.e. it stayed bounded regardless of TOTAL_CHUNKS, rather
+        # than growing linearly with the number of chunks fed in.
+        assert max_buffer_len_seen <= FLUSH_EVERY
+        assert rec.audio_frames == []
+
+        # (b) The full recording made it to disk, uncorrupted and complete.
+        with wave.open(str(path), 'rb') as wf:
+            assert wf.getnframes() == SAMPLES_PER_CHUNK * TOTAL_CHUNKS
+
 
 class TestReadWav:
     def test_reads_existing_file(self, rec, tmp_path):

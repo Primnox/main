@@ -1,11 +1,12 @@
 /**
- * Electron-compatible IPC surface implemented on top of Tauri.
+ * The app's IPC surface, backed by Tauri.
  *
- * The React app was written against `window.electron.ipcRenderer`, exposed by
- * `public/preload.js` under Electron. Rather than rewrite ~25 call sites across
- * App.tsx, TitleBar.tsx, DynamicIsland.tsx and usePrimnox.ts, this installs the
- * same shape backed by Tauri's `invoke` / `listen`. Both runtimes therefore run
- * identical React code, and the Electron build is completely untouched.
+ * Electron has been removed — Tauri is the only shell now. The
+ * `window.electron.ipcRenderer` SHAPE is kept deliberately: the React app and
+ * `island/island.js` were written against it across ~25 call sites, and
+ * renaming a working interface buys nothing but churn and regression risk.
+ * Read `window.electron` as "the desktop IPC bridge"; nothing Electron
+ * remains behind it.
  *
  * Install it from `main.tsx` before React mounts.
  */

@@ -1,7 +1,7 @@
 """Bounded scratch space for AI-generated files (PDFs, PPTs, screenshots).
 
-Skills that produce output files (pdf_skill.py, ppt_skill.py,
-screenshot_skill.py) previously wrote directly and indefinitely into the
+Skills that produce output files (screenshot_skill.py, and the pdf/pptx/
+docx/xlsx Claude Skills) previously wrote directly and indefinitely into the
 user's real Documents folder — disk usage grew forever with zero
 size-based ceiling (cleanup_manager.py only handles time-based retention
 for meetings/memories, nothing size-based for generated files). This gives

@@ -7,6 +7,7 @@ import {
 } from '../hooks/useProviderModels';
 import { Select } from './settings/primitives';
 import { StructuredBlock } from './StructuredBlock';
+import { SkillActivity } from './SkillActivity';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // Prism "light" build: only the languages we register below are bundled,
@@ -202,6 +203,23 @@ const PrivacyMirrorBlock = ({ data }: { data: { mapping?: ScrubItem[]; model?: s
 };
 
 // ── Typing dots ───────────────────────────────────────────────────────────────
+/** What an answered Allow/Deny card turns into. The buttons are removed once
+ *  answered, so without this the card would just lose its controls and leave
+ *  no record of what the user actually chose. */
+const PermissionOutcome = ({ state }: { state: 'allowed' | 'denied' | 'failed' }) => {
+  const { Icon, label, tone } = state === 'allowed'
+    ? { Icon: ShieldCheck, label: 'Allowed', tone: 'text-primary' }
+    : state === 'denied'
+      ? { Icon: X, label: 'Denied', tone: 'text-on-surface/50' }
+      : { Icon: X, label: "Couldn't send your answer", tone: 'text-red-400' };
+  return (
+    <div className={`flex items-center gap-1.5 mt-1.5 text-[11px] font-medium ${tone}`}>
+      <Icon size={13} />
+      <span>{label}</span>
+    </div>
+  );
+};
+
 const TypingDots = () => (
   <div className="flex items-center gap-1.5 py-1">
     {[0, 1, 2].map(i => (
@@ -362,7 +380,23 @@ export const ChatExpandedSidebar = ({
   }, [renameState]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const end = messagesEndRef.current;
+    if (!end) return;
+    // liveMessages changes on every token flush (~10x/second while streaming),
+    // and this used to scroll unconditionally each time — so scrolling up to
+    // re-read anything mid-reply was impossible, the view snapped back within
+    // 100ms, and the competing smooth-scrolls fought each other. Follow the
+    // stream only while the user is already parked at the bottom; the moment
+    // they read up, leave their scroll position alone.
+    let scroller = end.parentElement;
+    while (scroller && scroller.scrollHeight <= scroller.clientHeight + 1) {
+      scroller = scroller.parentElement;
+    }
+    if (scroller) {
+      const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      if (distanceFromBottom > 120) return;
+    }
+    end.scrollIntoView({ behavior: 'smooth' });
   }, [liveMessages]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -655,6 +689,7 @@ export const ChatExpandedSidebar = ({
                       <span className="text-[10px] text-on-surface/52 shrink-0">{f.count}</span>
                     </button>
                     <button onClick={() => deleteFolder(f.id)}
+                      aria-label={`Delete folder ${f.title}`}
                       className="pr-2.5 opacity-0 group-hover:opacity-100 text-on-surface/48 hover:text-error/80 transition-all">
                       <Trash2 size={11} />
                     </button>
@@ -769,6 +804,7 @@ export const ChatExpandedSidebar = ({
                               <p className="text-[10px] font-mono text-primary/60 uppercase tracking-widest mb-1 select-none">Primnox</p>
                             )}
                             {msg.privacyScrub && <PrivacyMirrorBlock data={msg.privacyScrub} />}
+                            {!!msg.activity?.length && <SkillActivity phases={msg.activity} />}
                             {msg.isTyping && !msg.text ? (
                               <TypingDots />
                             ) : (
@@ -788,6 +824,9 @@ export const ChatExpandedSidebar = ({
                                   }
                                 }}
                               />
+                            )}
+                            {msg.permissionState && msg.permissionState !== 'pending' && (
+                              <PermissionOutcome state={msg.permissionState} />
                             )}
                             {msg.timestamp && (
                               <p className="text-[10px] text-on-surface/42 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -861,7 +900,16 @@ export const ChatExpandedSidebar = ({
               <textarea
                 value={inputValue}
                 onChange={e => { setInputValue(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                // isComposing guards IME input: while composing Japanese, Chinese
+                // or Korean text, Enter confirms the candidate word. Without this
+                // check that Enter also sent the message, so those users could
+                // not finish a word without firing a half-written message.
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
                 rows={1}
                 className="flex-1 bg-transparent border-none focus:ring-0 text-on-surface/90 placeholder-on-surface/20 text-sm resize-none overflow-y-auto leading-6 min-h-[24px] max-h-[160px] py-0 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 placeholder="Message Primnox…"
@@ -869,6 +917,7 @@ export const ChatExpandedSidebar = ({
 
               <button onClick={handleSend}
                 disabled={!inputValue.trim() && attachedFiles.length === 0}
+                aria-label="Send message"
                 className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 self-end
                   disabled:bg-on-surface/5 disabled:text-on-surface/42 disabled:cursor-not-allowed
                   enabled:bg-primary enabled:text-surface enabled:hover:bg-on-surface enabled:active:scale-90">
@@ -927,6 +976,7 @@ export const ChatExpandedSidebar = ({
                         <div className="flex items-center gap-1.5 pt-2 border-t border-on-surface/10">
                           <div className="flex-1 min-w-0">
                             <Select
+                              label="Model"
                               value={pickerCurrentModel()}
                               onChange={(v) => quickSetProviderAndModel(pickerProviderKey, v)}
                               options={(providerModelsCache[pickerProviderKey]?.models || []).map(m => ({ value: m, label: m }))}

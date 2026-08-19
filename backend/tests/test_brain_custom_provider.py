@@ -199,6 +199,36 @@ class TestThinkCustomProvider:
         monkeypatch.setattr(settings_manager, "load_settings", lambda: _settings(custom_base_url="", privacy_mirror_enabled=False))
         result = brain.think("hello")
         assert "no custom endpoint selected" in result["choices"][0]["message"]["content"].lower()
+        # Regression guard: this failure response used to have no "error" key,
+        # so brain.resolve_think_text() (the guard callers like Smart Paste rely
+        # on to avoid writing a failure message into the OS clipboard) couldn't
+        # tell it apart from a real completion — see test_smart_paste_resolve.py.
+        assert result.get("error")
+
+    def test_connection_error_sets_error_key(self, monkeypatch):
+        # Same clipboard-safety contract as the missing-URL case above: a
+        # custom endpoint that refuses the connection must also come back
+        # with an "error" key, not just a human-readable apology in choices[].
+        monkeypatch.setattr(settings_manager, "load_settings", lambda: _settings(privacy_mirror_enabled=False))
+
+        def fake_post(*a, **kw):
+            raise brain.requests.exceptions.ConnectionError("refused")
+
+        monkeypatch.setattr(brain.requests, "post", fake_post)
+        result = brain.think("hello")
+        assert result.get("error")
+        assert "couldn't reach the custom provider" in result["choices"][0]["message"]["content"].lower()
+
+    def test_timeout_sets_error_key(self, monkeypatch):
+        monkeypatch.setattr(settings_manager, "load_settings", lambda: _settings(privacy_mirror_enabled=False))
+
+        def fake_post(*a, **kw):
+            raise brain.requests.exceptions.Timeout("slow")
+
+        monkeypatch.setattr(brain.requests, "post", fake_post)
+        result = brain.think("hello")
+        assert result.get("error")
+        assert "timed out" in result["choices"][0]["message"]["content"].lower()
 
     def test_remote_custom_url_engages_privacy_mirror(self, monkeypatch):
         # A non-localhost custom URL must be treated as cloud — privacy_mirror's

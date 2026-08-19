@@ -368,8 +368,9 @@ def add_task(text, priority="normal", due_date=None):
     c.execute("INSERT INTO tasks (text, priority, due_date, completed, timestamp) VALUES (?, ?, ?, ?, ?)",
               (text, priority, due_date, 0, ts))
     conn.commit()
+    task_id = c.lastrowid
     conn.close()
-    return {"text": text, "priority": priority, "due_date": due_date, "completed": False, "timestamp": ts}
+    return {"id": task_id, "text": text, "priority": priority, "due_date": due_date, "completed": False, "timestamp": ts}
 
 def get_tasks(priority=None):
     conn = get_db()
