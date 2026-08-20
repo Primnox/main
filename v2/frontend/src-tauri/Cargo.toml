@@ -1,0 +1,39 @@
+[package]
+name = "primnox2"
+version = "2.0.0-alpha"
+description = "Primnox — a personal AI operating environment for your desktop"
+authors = ["Primnox"]
+license = "BUSL-1.1"
+repository = "https://github.com/primnox/main"
+edition = "2021"
+rust-version = "1.77"
+
+# The app logic lives in a library so it can be unit-tested with `cargo test`.
+# `main.rs` is a thin shim that calls into it.
+[lib]
+name = "primnox2_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# Deliberately smaller than V1's shell: the React side here never calls
+# `window.electron`, Tauri's `invoke()`, or any `@tauri-apps/*` JS plugin —
+# confirmed empty by grepping the whole v2/frontend/src tree for all three
+# before writing this file. V1's shell exists to reproduce an Electron IPC
+# surface (`electron_send`), an overlay "island" window, global-shortcut
+# smart-paste, and a tray menu — none of which V2's frontend was ever built
+# against, so none of it is ported. What is needed is the part every Tauri
+# desktop app needs regardless: a window, and a bundled backend process
+# started on launch and killed on quit.
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

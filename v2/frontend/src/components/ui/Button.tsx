@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Button as BaseButton } from '@base-ui-components/react/button';
 
 /* Buttons.
  *
@@ -11,6 +12,12 @@ import type { ReactNode } from 'react';
  * :focus-visible ring to every button globally, and a per-component ring would
  * be a second definition to keep in sync — which is how 203 of 206 controls
  * ended up with no visible focus at all last time.
+ *
+ * On Base UI's Button for one prop: `focusableWhenDisabled`. A natively
+ * disabled button drops out of the tab order entirely, so a keyboard or screen
+ * reader user cannot land on it to find out why it is unavailable — which is
+ * precisely the case where a reason exists and is worth hearing. Off by default,
+ * matching native; opt in where the disabled state carries an explanation.
  */
 export function Button({
   variant = 'quiet', size = 'md', className = '', children, ...rest
@@ -32,12 +39,12 @@ export function Button({
              uppercase tracking-[0.14em] text-error hover:bg-error/10`,
   };
   return (
-    <button type="button"
-      className={`px-interactive disabled:opacity-40 disabled:pointer-events-none
+    <BaseButton type="button"
+      className={`px-interactive disabled:opacity-40 data-[disabled]:opacity-40
                   ${variants[variant]} ${className}`}
       {...rest}>
       {children}
-    </button>
+    </BaseButton>
   );
 }
 
@@ -64,14 +71,14 @@ export function IconButton({
   [key: string]: any;
 }) {
   return (
-    <button type="button" aria-label={label} title={label}
+    <BaseButton type="button" aria-label={label} title={label}
       aria-pressed={pressed} aria-expanded={expanded}
-      className={`px-interactive p-1.5 rounded-lg disabled:opacity-40
+      className={`px-interactive p-1.5 rounded-lg disabled:opacity-40 data-[disabled]:opacity-40
                   ${active ? 'text-on-surface bg-on-surface/[0.07]'
                            : 'text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05]'}
                   ${className}`}
       {...rest}>
       {children}
-    </button>
+    </BaseButton>
   );
 }

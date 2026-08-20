@@ -50,16 +50,36 @@ def configure(path: str | Path) -> None:
     the scheduler starts, which is the one place production calls it.
     """
     global _db_path
-    stale = getattr(_local, "conn", None)
-    if stale is not None:
-        try:
-            stale.close()
-        except Exception:  # pragma: no cover - a dead handle is already gone
-            pass
-        _local.conn = None
+    close_connection()
 
     _db_path = Path(path)
     _db_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def close_connection() -> None:
+    """Close and drop the CALLING thread's cached connection, without
+    touching `_db_path` — unlike configure(), this doesn't repoint anything,
+    it just releases the OS-level handle.
+
+    Needed because Windows refuses to delete or rename a file that any open
+    handle in the process still references, even from a thread that is about
+    to exit. A scheduler worker's `_loop()` opens a connection on its very
+    first idle poll (`_claim()` always touches the DB, whether or not a job
+    is queued) and never explicitly closes it — found by actually exercising
+    vault.lock_vault() after a real `stop()`+`join()`, which still hit
+    WinError 32 because a worker thread's connection was assumed to vanish
+    with the thread. It does, eventually, via GC — just not on any schedule
+    lock_vault()'s immediate unlink() can rely on. Each worker calls this
+    itself right before its loop returns, so `join()` returning is actually
+    "every worker's connection is closed," not "will be, at some point."
+    """
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:  # pragma: no cover - a dead handle is already gone
+            pass
+        _local.conn = None
 
 
 def connect() -> sqlite3.Connection:

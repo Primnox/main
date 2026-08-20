@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import type { ReactNode } from 'react';
+import { Slider as BaseSlider } from '@base-ui-components/react/slider';
 
 /* A range and a number input over one value.
  *
@@ -13,9 +14,17 @@ import type { ReactNode } from 'react';
  * The number input is `inputMode="decimal"` and clamps on commit rather than on
  * every keystroke — clamping per keystroke makes an empty field snap to the
  * minimum the moment you clear it to type a new value.
+ *
+ * The range is Base UI's Slider rather than <input type="range">. What that
+ * buys, none of which the native element gives for free: Home/End and
+ * PageUp/PageDown (`largeStep`) as well as the arrows, and an accessible value
+ * derived from `format` — so a reader announces "40%" rather than a bare "40",
+ * which is the whole reason aria-valuetext had to be written by hand before.
+ * The number input stays a plain <input>; Base UI's slider does not include one
+ * and the pairing is deliberate.
  */
 export function Slider({
-  label, value, min, max, step = 1, onChange, hint, disabled, suffix, right,
+  label, value, min, max, step = 1, onChange, hint, disabled, suffix, right, format,
 }: {
   label: string;
   value: number;
@@ -27,24 +36,37 @@ export function Slider({
   disabled?: boolean;
   suffix?: string;
   right?: ReactNode;
+  format?: Intl.NumberFormatOptions;
 }) {
-  const id = useId();
+  const labelId = useId();
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
 
   return (
     <div className={`space-y-2 ${disabled ? 'opacity-60' : ''}`}>
       <div className="flex items-baseline gap-3">
-        <label htmlFor={id} className="text-[13px] leading-snug text-on-surface/85">
+        <span id={labelId} className="text-[13px] leading-snug text-on-surface/85">
           {label}
-        </label>
+        </span>
         {right && <div className="ml-auto shrink-0">{right}</div>}
       </div>
 
       <div className="flex items-center gap-3">
-        <input type="range" id={id} disabled={disabled}
-          min={min} max={max} step={step} value={value}
-          onChange={e => onChange(clamp(Number(e.target.value)))}
-          className="flex-1 min-w-0 accent-[var(--color-primary)] cursor-pointer disabled:cursor-not-allowed" />
+        <BaseSlider.Root
+          aria-labelledby={labelId}
+          value={value}
+          onValueChange={v => onChange(clamp(Number(v)))}
+          min={min} max={max} step={step}
+          disabled={disabled}
+          format={format}
+          className="flex-1 min-w-0">
+          <BaseSlider.Control className="flex w-full items-center py-2 cursor-pointer data-[disabled]:cursor-not-allowed">
+            <BaseSlider.Track className="h-px w-full rounded bg-on-surface/20">
+              <BaseSlider.Indicator className="h-px rounded bg-[var(--color-primary)]" />
+              <BaseSlider.Thumb className="size-3 rounded-full bg-[var(--color-primary)] outline-none
+                                           focus-visible:ring-2 focus-visible:ring-on-surface/40" />
+            </BaseSlider.Track>
+          </BaseSlider.Control>
+        </BaseSlider.Root>
 
         <div className="flex items-center gap-1.5 shrink-0">
           <input type="number" inputMode="decimal" disabled={disabled}

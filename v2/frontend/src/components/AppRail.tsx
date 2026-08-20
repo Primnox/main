@@ -5,9 +5,20 @@ import { ThemeCycle } from './ThemePicker';
 
 export type Section = 'chat' | 'knowledge' | 'memory' | 'settings';
 
+/* Knowledge is the raw graph viewer — communities, node counts, the
+ * extraction internals. It answers "is indexing working", which is a
+ * question for whoever is building this, not for someone using it to chat.
+ * Gated on `import.meta.env.DEV` rather than removed outright: the panel and
+ * its route are unchanged, still reachable while developing, just not a tab
+ * a real user ever sees. Vite inlines DEV as a literal at build time, so a
+ * production bundle drops the item (and, since nothing else references it,
+ * the whole panel it would have opened) rather than merely hiding it.
+ */
 const ITEMS: { id: Section; label: string; icon: any; hint: string }[] = [
   { id: 'chat', label: 'Chats', icon: MessageSquare, hint: 'Conversations' },
-  { id: 'knowledge', label: 'Knowledge', icon: Share2, hint: 'The indexed corpus and what you have saved' },
+  ...(import.meta.env.DEV
+    ? [{ id: 'knowledge' as const, label: 'Knowledge', icon: Share2, hint: 'The indexed corpus and what you have saved' }]
+    : []),
   { id: 'memory', label: 'Memory', icon: Brain, hint: 'What Primnox knows about you' },
   { id: 'settings', label: 'Settings', icon: SlidersHorizontal, hint: 'Theme, provider, tuning' },
 ];

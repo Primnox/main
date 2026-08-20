@@ -10,6 +10,10 @@ export function ChatRow({ c }: { c: any }) {
   const editing = a.editingId === c.id;
   const menuBtn = useRef<HTMLButtonElement>(null);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  // Two-step delete, same reason as the folder row: window.confirm() is
+  // silently swallowed in several embedded webviews — no dialog, no error,
+  // just a dead button. A second click inside the menu itself replaces it.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   if (editing) {
     return (
@@ -31,6 +35,10 @@ export function ChatRow({ c }: { c: any }) {
     setAnchor(new DOMRect(x, y, 0, 0));
     a.setMenu(c.id);
   };
+
+  // Every path that closes the menu goes through here, so the pending
+  // "delete?" state never survives into the next time it opens.
+  const closeMenu = () => { setAnchor(null); a.setMenu(null); setConfirmingDelete(false); };
 
   return (
     <div
@@ -65,7 +73,7 @@ export function ChatRow({ c }: { c: any }) {
       <button ref={menuBtn}
         onClick={() => {
           const open = a.menuId === c.id;
-          if (open) { setAnchor(null); a.setMenu(null); return; }
+          if (open) { closeMenu(); return; }
           const r = menuBtn.current!.getBoundingClientRect();
           openMenuAt(r.right, r.bottom);
         }}
@@ -75,7 +83,7 @@ export function ChatRow({ c }: { c: any }) {
       </button>
 
       {a.menuId === c.id && anchor && (
-        <RowMenu anchor={anchor} onClose={() => { setAnchor(null); a.setMenu(null); }}>
+        <RowMenu anchor={anchor} onClose={closeMenu}>
             <MenuItem icon={<Pencil size={12} />} onClick={() => a.beginRename(c.id)}>Rename</MenuItem>
             {!c.incognito && (
               <MenuItem icon={<Pin size={12} />} onClick={() => a.togglePin(c)}>
@@ -99,9 +107,15 @@ export function ChatRow({ c }: { c: any }) {
                 Archive
               </MenuItem>
             )}
-            <MenuItem icon={<Trash2 size={12} />} danger onClick={() => a.remove(c)}>
-              Delete permanently
-            </MenuItem>
+            {confirmingDelete ? (
+              <MenuItem icon={<Trash2 size={12} />} danger onClick={() => a.remove(c)}>
+                Confirm delete — its messages go with it
+              </MenuItem>
+            ) : (
+              <MenuItem icon={<Trash2 size={12} />} danger onClick={() => setConfirmingDelete(true)}>
+                Delete permanently
+              </MenuItem>
+            )}
         </RowMenu>
       )}
     </div>

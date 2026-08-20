@@ -291,11 +291,12 @@ export default function App() {
       await api.updateConversation(id, { archived: true }).catch(() => undefined);
       await afterRemoved(id);
     },
+    // Permanent, so it asks — but not with window.confirm(): the same dialog
+    // that silently swallowed folder deletion (see the note by
+    // confirmDeleteFolder) swallows this one too. ChatRow asks inline, with a
+    // second click on the menu item, before this ever runs.
     remove: async c => {
       setMenuId(null);
-      // Permanent, so it asks. Archive is the reversible one and does not.
-      if (!window.confirm(
-        `Delete "${c.title}" permanently?\n\nIts messages go with it. Files it produced are kept.`)) return;
       await api.closeConversation(c.id).catch(() => undefined);
       await afterRemoved(c.id);
     },

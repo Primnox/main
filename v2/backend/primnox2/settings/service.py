@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -42,6 +43,8 @@ ENV_KEYS = {
     "provider.force_echo": "PRIMNOX_PROVIDER",
     "sandbox.auto_approve": "PRIMNOX2_AUTO_APPROVE",
     "diagnostics.trace": "PRIMNOX2_TRACE",
+    "privacy.mirror_enabled": "PRIMNOX2_PRIVACY_MIRROR",
+    "model.thinking_enabled": "PRIMNOX2_THINKING",
 }
 
 # Values a setting is allowed to take, where the set is closed. Free text would
@@ -50,11 +53,29 @@ ENV_KEYS = {
 ALLOWED = {
     "provider.api_type": {"anthropic", "openai"},
     "sandbox.auto_approve": {"all", "safe", "off"},
+    # Defaults to "on" — see gateway._scrub_outbound()'s settings_service.get()
+    # call, whose default is "on" for the same reason: an absent setting must
+    # fail toward privacy, not away from it.
+    "privacy.mirror_enabled": {"on", "off"},
+    # Off by default, unlike privacy.mirror_enabled: enabling this changes the
+    # request itself (Anthropic's `thinking` parameter), not just what happens
+    # to it afterward, and a model that does not support it answers with a 400
+    # rather than ignoring the field. There is no safe universal default here —
+    # only the user knows whether the model they picked actually supports it.
+    "model.thinking_enabled": {"on", "off"},
 }
 
 SECRET_KEYS = {"provider.api_key"}
 
-ENV_FILE = Path(__file__).resolve().parents[3] / ".env"   # v2/.env
+# In dev, v2/.env. In a frozen build there is no dev tree to be relative to —
+# __file__ resolves inside PyInstaller's per-launch extraction temp dir, which
+# is both wrong (nothing three parents up from there) and wiped on every
+# restart, which matters here specifically because set_api_key() WRITES this
+# file — losing it on the next launch would mean the key silently vanishes.
+# Next to the installed executable instead, mirroring models/gateway.py's
+# _load_env_file() and privacy/mirror.py's _resolve_model_source().
+ENV_FILE = (Path(sys.executable).resolve().parent / ".env" if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parents[3] / ".env")
 
 
 # ── Store ────────────────────────────────────────────────────────────────────
@@ -185,6 +206,11 @@ def describe() -> dict:
         backend = supervisor.available_backend() or "none — execution refused"
     except Exception:
         backend = "unknown"
+    try:
+        from ..privacy import mirror
+        privacy_model = mirror.model_status()
+    except Exception:
+        privacy_model = "unavailable"
 
     return {
         "stored": stored,
@@ -197,5 +223,6 @@ def describe() -> dict:
             "sandbox": backend,
             "database": str(getattr(storage, "_db_path", "") or ""),
             "schema_version": storage.SCHEMA_VERSION,
+            "privacy_model": privacy_model,
         },
     }

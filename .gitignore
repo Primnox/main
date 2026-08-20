@@ -18,6 +18,9 @@ frontend/dist/
 frontend/dist-electron/
 *.map
 *.spec
+# V2's PyInstaller spec is hand-authored packaging source (hiddenimports,
+# bundled data files), not a regenerated build artifact — keep it tracked.
+!v2/backend/primnox2_backend.spec
 
 node_modules/
 frontend/node_modules/

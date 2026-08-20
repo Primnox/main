@@ -61,6 +61,14 @@ export type Turn = {
   status: TurnStatus;
   userText: string;
   assistantText: string;
+  /* The model's reasoning, when the provider sends it — Anthropic's extended
+     thinking (opt-in, since it's a real request change) or a reasoning
+     model's unprompted `reasoning_content`. Kept apart from `assistantText`
+     rather than prefixed onto it: it renders in its own collapsed block, so
+     mixing the two here would mean re-splitting them in every component that
+     reads this field instead of once, in the reducer, where the runtime
+     already told them apart. */
+  thinking: string;
   partial: boolean;
   error: TurnError | null;
   plan: string | null;
@@ -75,7 +83,7 @@ export type Turn = {
 };
 
 export const emptyTurn = (id: string, userText: string, createdAt: number): Turn => ({
-  id, status: 'queued', userText, assistantText: '', partial: false, error: null,
+  id, status: 'queued', userText, assistantText: '', thinking: '', partial: false, error: null,
   plan: null, toolCalls: [], executions: [], workspaces: [], assets: [],
   permissions: [], questions: [], createdAt,
 });
@@ -144,6 +152,11 @@ export function reduce(state: ConversationState, e: CrsEvent): ConversationState
     // Append-only. A token event never replaces text already delivered (§3.6.1).
     case 'token':
       return { ...s, turns: upsert(s.turns, id, t => ({ ...t, assistantText: t.assistantText + e.payload.text })) };
+
+    // Same append-only rule, separate field — see Turn.thinking's own comment
+    // for why this never touches assistantText.
+    case 'thinking':
+      return { ...s, turns: upsert(s.turns, id, t => ({ ...t, thinking: t.thinking + e.payload.text })) };
 
     case 'turn.completed':
       return {

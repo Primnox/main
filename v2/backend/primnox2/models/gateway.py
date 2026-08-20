@@ -16,10 +16,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Callable, Iterator, Literal
 
 Support = Literal["native", "emulated", "none"]
 
@@ -145,7 +146,8 @@ class EchoProvider:
     base_url = "local://echo"
     is_local = True
 
-    def stream(self, messages: list[dict], model: str = "echo") -> Iterator[str]:
+    def stream(self, messages: list[dict], model: str = "echo", usage: dict | None = None,
+               thinking: bool = False, on_thinking: Callable[[str], None] | None = None) -> Iterator[str]:
         last = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         reply = (
             f"You said: {last}\n\n"
@@ -177,7 +179,8 @@ class OpenAICompatProvider:
         return bool(re.match(r"https?://(127\.0\.0\.1|localhost|\[::1\])", self.base_url))
 
     def stream(self, messages: list[dict], model: str | None = None,
-               usage: dict | None = None) -> Iterator[str]:
+               usage: dict | None = None, thinking: bool = False,
+               on_thinking: Callable[[str], None] | None = None) -> Iterator[str]:
         import urllib.request
 
         body = json.dumps({
@@ -215,11 +218,21 @@ class OpenAICompatProvider:
                     usage["output_tokens"] = u.get("completion_tokens")
                     usage["model"] = chunk.get("model")
                 try:
-                    delta = chunk["choices"][0]["delta"].get("content")
+                    delta_obj = chunk["choices"][0]["delta"]
                 except (KeyError, IndexError):
                     continue
-                if delta:
-                    yield delta
+                # No request field turns this on — a reasoning model (DeepSeek-R1,
+                # QwQ, and most others behind an OpenAI-compatible endpoint) just
+                # includes it unprompted. `thinking`/`on_thinking` are accepted
+                # for symmetry with AnthropicProvider so the gateway can call
+                # either without branching on provider type, but this path
+                # never needs the caller to have asked first.
+                reasoning = delta_obj.get("reasoning_content") or delta_obj.get("reasoning")
+                if reasoning and on_thinking is not None:
+                    on_thinking(reasoning)
+                content = delta_obj.get("content")
+                if content:
+                    yield content
 
 
 def _absorb_usage(sink: dict, reported: dict) -> None:
@@ -264,19 +277,26 @@ class AnthropicProvider:
         return bool(re.match(r"https?://(127\.0\.0\.1|localhost|\[::1\])", self.base_url))
 
     def stream(self, messages: list[dict], model: str | None = None,
-               usage: dict | None = None) -> Iterator[str]:
+               usage: dict | None = None, thinking: bool = False,
+               on_thinking: Callable[[str], None] | None = None) -> Iterator[str]:
         import urllib.request
 
         # Anthropic takes the system prompt as a top-level field, not a message.
         system = " ".join(m["content"] for m in messages if m["role"] == "system")
         convo = [m for m in messages if m["role"] != "system"]
 
+        # Thinking's budget has to come out of max_tokens, not add to it — the
+        # API rejects a budget >= max_tokens outright. 4096 total, 1024 of it
+        # thinking, leaves 3072 for the actual reply; a smaller total budget
+        # here would starve one or the other.
+        max_tokens = 4096
         body = json.dumps({
             "model": model or self.model,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
             "stream": True,
             **({"system": system} if system else {}),
             "messages": convo,
+            **({"thinking": {"type": "enabled", "budget_tokens": 1024}} if thinking else {}),
         }).encode()
         req = urllib.request.Request(
             f"{self.base_url}/v1/messages",
@@ -311,7 +331,18 @@ class AnthropicProvider:
                         _absorb_usage(usage, event.get("usage", {}) or {})
 
                 if event.get("type") == "content_block_delta":
-                    text = event.get("delta", {}).get("text")
+                    delta = event.get("delta", {})
+                    # A thinking block streams as `thinking_delta` (payload
+                    # key `thinking`, not `text`) followed eventually by a
+                    # `signature_delta` — the signature is only needed to hand
+                    # the block back to the API on a later turn, which this
+                    # gateway does not do, so it's dropped rather than parsed.
+                    if delta.get("type") == "thinking_delta":
+                        piece = delta.get("thinking")
+                        if piece and on_thinking is not None:
+                            on_thinking(piece)
+                        continue
+                    text = delta.get("text")
                     if text:
                         yield text
 
@@ -326,8 +357,17 @@ def _load_env_file() -> None:
 
     Real environment variables win, so this can never silently override a key
     passed on the command line.
+
+    The dev-tree-relative path only resolves in a dev checkout — inside a
+    frozen build, `__file__` sits somewhere under PyInstaller's per-launch
+    extraction temp dir, which has no "three parents up to v2/" to find and
+    is wiped on every restart regardless. Next to the installed executable is
+    used instead when frozen, same reasoning (and the same fallback shape) as
+    privacy/mirror.py's _resolve_model_source() second candidate: writable,
+    and still there on the next launch.
     """
-    path = Path(__file__).resolve().parents[3] / ".env"
+    path = (Path(sys.executable).resolve().parent / ".env" if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parents[3] / ".env")
     if not path.is_file():
         return
     try:
@@ -432,13 +472,34 @@ def describe_active() -> dict:
 
 
 # ── The gate (§13.2) ─────────────────────────────────────────────────────────
-def stream_completion(messages: list[dict], usage: dict | None = None) -> Iterator[str]:
+def stream_completion(messages: list[dict], usage: dict | None = None,
+                       scrub_map: list | None = None,
+                       on_thinking: Callable[[str], None] | None = None) -> Iterator[str]:
     """Every outbound model call passes through here.
 
     Local providers skip scrubbing entirely — nothing leaves the device, so
-    there is nothing to pseudonymize. Cloud providers would have the Privacy
-    Mirror applied here, at this one boundary, rather than inside the model
-    code as V1 did.
+    there is nothing to pseudonymize. Cloud providers get the Privacy Mirror
+    applied here, at this one boundary — both directions of it: outbound
+    messages are pseudonymized before `provider.stream()` ever sees them, and
+    the reply is rehydrated before a single token leaves this function. That
+    is what makes this the one gate rather than half of one: a caller that
+    only saw the scrubbed request and rehydrated the response itself would be
+    a second place that could get out of sync with this one.
+
+    `scrub_map` is an output parameter, following the same convention as
+    `usage`: the caller (kernel/scheduler.py) passes a list in, and if the
+    turn's outbound payload got scrubbed, this function appends the session's
+    reveal map to it before returning — which is how the caller learns there
+    is something to show without this module needing to know about turns,
+    conversations, or the event bus.
+
+    `on_thinking` is a callback rather than a second output parameter like
+    `scrub_map`, because thinking arrives incrementally, mid-stream — the
+    caller needs each piece as it lands to flush it as its own event, not
+    the accumulated whole after this generator is exhausted. `stream_completion`
+    itself stays a plain `Iterator[str]` of reply text throughout; thinking is
+    always a side channel, never mixed into the yielded stream, so nothing
+    that reads this function's return value needs to know it exists.
     """
     provider, model = active_provider()
 
@@ -452,22 +513,76 @@ def stream_completion(messages: list[dict], usage: dict | None = None) -> Iterat
             "Add one in Settings — the model name is not the problem."
         )
 
+    sess = None
     if not provider.is_local:
-        # Placeholder for the Privacy Mirror boundary. Deliberately explicit:
-        # a subsystem reaching a provider without passing this point is
-        # non-conformant regardless of any other property (§13.2.3).
-        messages = _scrub_outbound(messages)
+        sess, messages = _scrub_outbound(messages)
+        if sess is not None and scrub_map is not None:
+            scrub_map.extend(sess.mapping)
+
+    # Only Anthropic's wire format needs to be TOLD to think — an
+    # unsupported model answers this with a 400 rather than ignoring it, so
+    # it is opt-in (see settings/service.py's ALLOWED entry for why there is
+    # no safe default). OpenAI-compatible reasoning models need no such flag;
+    # they include reasoning_content unprompted, so that provider reads
+    # `thinking` from `settings_service` too, but only to decide whether it's
+    # worth bothering — it never sends anything different because of it.
+    from ..settings import service as settings_service
+    thinking = settings_service.get("model.thinking_enabled", "off") == "on"
 
     # Not every provider reports usage (the echo provider has none to report),
     # so this is passed only where it is supported rather than made mandatory.
     try:
-        yield from provider.stream(messages, model, usage=usage)
+        stream = provider.stream(messages, model, usage=usage,
+                                  thinking=thinking, on_thinking=on_thinking)
     except TypeError:
-        yield from provider.stream(messages, model)
+        stream = provider.stream(messages, model)
+
+    if sess is None:
+        yield from stream
+        return
+
+    from ..privacy.mirror import StreamRehydrator
+    rehy = StreamRehydrator(sess)
+    for tok in stream:
+        out = rehy.feed(tok)
+        if out:
+            yield out
+    tail = rehy.flush()
+    if tail:
+        yield tail
 
 
-def _scrub_outbound(messages: list[dict]) -> list[dict]:
-    # V1's privacy_mirror.py ports in here unchanged; kept as an identity
-    # function rather than a fake so nothing claims protection it is not
-    # providing.
-    return messages
+def _scrub_outbound(messages: list[dict]) -> tuple["ScrubSession | None", list[dict]]:
+    """Pseudonymize everything about to leave the device through one
+    ScrubSession, so the cloud model sees consistent placeholders for repeated
+    values and the reply can be rehydrated unambiguously.
+
+    Returns (session, scrubbed_messages). `session` is None when the feature
+    is off or the scrub itself fails — the caller then sends `messages`
+    unchanged rather than blocking the turn on a privacy layer that isn't
+    working, mirroring V1's own "log and continue unscrubbed" choice at this
+    exact boundary.
+    """
+    from ..settings import service as settings_service
+    if settings_service.get("privacy.mirror_enabled", "on") != "on":
+        return None, messages
+
+    try:
+        from ..privacy.mirror import ScrubSession, ensure_model_ready
+        # Waits for a cold-start model load so the FIRST cloud message of a
+        # session is never sent unscrubbed. Normally instant once the model
+        # has loaded once — see ensure_model_ready()'s own docstring.
+        ensure_model_ready(timeout=45)
+        sess = ScrubSession()
+        scrubbed = []
+        for m in messages:
+            content = m.get("content")
+            if isinstance(content, str):
+                m = {**m, "content": sess.scrub(content)}
+            scrubbed.append(m)
+        return sess, scrubbed
+    except Exception as exc:
+        import logging
+        logging.getLogger("primnox2.privacy").warning(
+            f"Privacy Mirror scrub failed (sending unscrubbed): {exc}")
+        return None, messages

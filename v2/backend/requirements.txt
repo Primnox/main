@@ -1,0 +1,36 @@
+# V2's own dependency list, not V1's — narrower, since V2 does not have V1's
+# S3/GDrive backup providers, vision/OCR, or meeting-audio capture. Where a
+# package is shared with V1 (backend/requirements.txt), the same unpinned
+# style is used deliberately: both backends have run against the one shared
+# dev venv all along, so pinning here to whatever happens to be installed
+# would freeze a version nobody chose on purpose.
+
+fastapi
+uvicorn[standard]
+websockets
+python-multipart
+
+# Local encryption vault (storage/vault.py) — AES-256-GCM + OS keychain.
+cryptography
+keyring
+
+# Privacy Mirror (privacy/mirror.py) — regex fallback needs nothing extra;
+# the DeBERTa PII model needs the rest of this block.
+torch
+transformers>=4.40.0
+sentencepiece
+numpy
+
+# Knowledge graph extraction (`graphifyy` on PyPI; the module name is
+# `graphify`, a double letter apart from the package name — not a typo).
+graphifyy
+
+# Document generation and reading (skills/themed-documents, PDF/PPTX/XLSX
+# assets, chart rendering for slides).
+pypdf
+PyPDF2
+python-docx
+python-pptx
+openpyxl
+reportlab
+matplotlib

@@ -129,7 +129,7 @@ def scripted(monkeypatch):
     def install(*replies: str, chunk: int = 7, delay: float = 0.0):
         state = {"n": 0}
 
-        def fake_stream(messages, usage=None):
+        def fake_stream(messages, usage=None, scrub_map=None, on_thinking=None):
             reply = replies[min(state["n"], len(replies) - 1)]
             state["n"] += 1
             # Report plausible usage the way a real provider does, so the
@@ -153,6 +153,8 @@ def run_turn(conversation_id: str, text: str, *, asset_ids: tuple[str, ...] = ()
     """Create a turn and enqueue its reply, exactly as the HTTP layer does."""
     from primnox2.assets import service as assets
 
+    # scheduler.enqueue() self-heals a stopped worker pool (see its own
+    # comment) — no need to duplicate that check here.
     turn = turns.create_turn(conversation_id, text)
     for aid in asset_ids:
         assets.attach(turn["turn_id"], aid)

@@ -13,6 +13,7 @@ import { formatElapsed, useElapsed } from '../lib/useElapsed';
 import { ExecutionBlock } from './ExecutionBlock';
 import { PermissionBlock } from './PermissionBlock';
 import { PlanBlock } from './PlanBlock';
+import { ThinkingBlock } from './ThinkingBlock';
 import { ToolRow } from './ToolRow';
 
 /* What a turn says about itself while it is still running.
@@ -66,6 +67,7 @@ export function TurnBlock({ turn }: { turn: Turn }) {
         <div className="flex-1 min-w-0">
           {live && <LiveStatus turn={turn} />}
 
+          {turn.thinking && <ThinkingBlock thinking={turn.thinking} live={live} />}
           {turn.plan && <PlanBlock plan={turn.plan} />}
           {turn.permissions.map(p => <PermissionBlock key={p.id} p={p} />)}
           {turn.questions.map(q => <QuestionBlock key={q.id} q={q} />)}

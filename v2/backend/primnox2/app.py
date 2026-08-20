@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from . import paths
 from .assets import preview
@@ -36,7 +36,7 @@ from .settings import tunables
 from .sandbox import manager as sandbox
 from .sandbox import supervisor
 from .kernel.trace import recorder
-from .storage import db
+from .storage import db, vault
 from .tools import registry as tool_registry
 from .tools import runtime as tools          # noqa: F401 — registers builtin tools
 from .tools.permissions import broker
@@ -60,8 +60,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# CSRF defense for every state-changing HTTP route. CORS above governs
+# whether a browser lets a page READ a cross-origin response; it does
+# nothing to stop the page from SENDING the request in the first place, so
+# without this a page loaded from anywhere could POST /vault/setup or PATCH
+# /settings against this loopback server with no interaction beyond loading
+# it. /ws already checks Origin for exactly this reason (see its handler's
+# comment) — this is the same check for the HTTP side, which had never had
+# one.
+#
+# A real browser attaches Origin to every cross-origin request for these
+# methods regardless of whether it needed a preflight, which is what makes
+# checking it here sufficient — there is no user session here to bind a
+# CSRF token to, only the app's own known set of front-end origins.
+#
+# Unlike /ws, a MISSING Origin is let through rather than refused. A
+# websocket upgrade is always sent by a real browser with Origin attached, so
+# its absence is itself suspicious; an ordinary HTTP request has legitimate
+# origin-less callers this app must keep working — the test suite's
+# TestClient, and any local curl/script a developer points at their own
+# loopback port. Failing open on absence still blocks every real
+# cross-origin browser attack, which is the actual threat this defends
+# against.
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def _verify_origin(request: Request, call_next):
+    if request.method in _UNSAFE_METHODS:
+        origin = request.headers.get("origin")
+        if origin is not None and origin not in ALLOWED_ORIGINS:
+            return JSONResponse({"detail": "Origin not allowed"}, status_code=403)
+    return await call_next(request)
+
+
 _clients: set[WebSocket] = set()
 _loop: asyncio.AbstractEventLoop | None = None
+_push_sub_id: int | None = None
 
 
 @app.on_event("startup")
@@ -71,7 +106,26 @@ async def _startup() -> None:
     bus.bind_loop(_loop)
 
     paths.configure(APPDATA)
-    db.configure(APPDATA / "primnox.db")
+
+    # If the vault is enabled, decrypt primnox.db -> plaintext BEFORE
+    # storage.db ever opens it. This is the one point in the process where
+    # unlocking is provably safe: no other thread exists yet to hold a stale
+    # connection to whatever was (or wasn't) on disk before this ran.
+    db_path = APPDATA / "primnox.db"
+    if vault.is_enabled(db_path):
+        try:
+            vault.unlock_vault(db_path)
+            print("[boot] local vault unlocked")
+        except PermissionError as exc:
+            # No key in the keychain (e.g. a fresh machine) and no mnemonic
+            # was supplied — surface this loudly rather than silently booting
+            # against a stale or absent plaintext file.
+            raise RuntimeError(
+                f"Local vault is locked and could not be unlocked automatically: {exc}. "
+                "Unlock it with the stored mnemonic before starting the server."
+            ) from exc
+
+    db.configure(db_path)
     db.init()
 
     # Stored settings become environment variables here, immediately after the
@@ -92,7 +146,8 @@ async def _startup() -> None:
     if any(swept.values()):
         print(f"[boot] swept interrupted work: {swept}")
 
-    bus.subscribe(_push_to_clients)
+    global _push_sub_id
+    _push_sub_id = bus.subscribe(_push_to_clients)
     recorder.start()
     scheduler.scheduler.start()
 
@@ -100,9 +155,93 @@ async def _startup() -> None:
     # over a minute on a cold machine. Warming it on a background thread keeps
     # startup instant while still having isolation ready before the first
     # execution asks for it.
-    threading.Thread(target=_warm_sandbox, name="primnox2-sandbox-warm", daemon=True).start()
+    _spawn_sandbox_warm_once()
 
     print(f"[boot] Primnox V2 ({CRS_VERSION}) on 127.0.0.1:4109 · db={APPDATA / 'primnox.db'}")
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    """The mirror image of the vault-unlock in _startup(): re-encrypt
+    primnox.db and remove the plaintext, but only once nothing else can be
+    mid-write to it.
+
+    stop() alone is not that guarantee — it only stops workers from claiming
+    NEW jobs. join() waits (up to 10s) for whatever a worker already claimed
+    to actually finish, which is what vault.lock_vault()'s "nothing else can
+    be mid-write" requires. A job that is still running after 10s (a long
+    model call, most likely) means lock is skipped rather than risking a
+    torn write mid-encrypt — the plaintext is left as-is, exactly V1's own
+    documented fallback for a shutdown it cannot cleanly complete.
+    """
+    global _loop, _push_sub_id
+    scheduler.scheduler.stop()
+    clean = scheduler.scheduler.join(timeout=10.0)
+
+    # Undo the startup subscription and drop the loop reference regardless of
+    # whether the vault lock below runs — otherwise every new lifespan cycle
+    # (each `with TestClient(app):`, and any future production restart path)
+    # piles another subscriber onto the shared, module-level bus, and events
+    # emitted after this loop closes hand `_push_to_clients` a dead loop:
+    # `asyncio.run_coroutine_threadsafe` on a closed loop raises before the
+    # coroutine it built is ever scheduled, which is swallowed by
+    # `_fanout`'s per-subscriber catch and shows up only as a stray
+    # "coroutine was never awaited" warning with no test failure to point at.
+    if _push_sub_id is not None:
+        bus.unsubscribe(_push_sub_id)
+        _push_sub_id = None
+    _loop = None
+    _clients.clear()
+
+    if not clean:
+        print("[shutdown] a worker was still running after 10s — leaving the vault unlocked")
+        return
+
+    db_path = APPDATA / "primnox.db"
+    if vault.is_enabled(db_path):
+        # Windows refuses to delete a file that's still open anywhere in this
+        # process, even by the SAME thread — found by actually exercising
+        # this path: an async request handler (this one included; FastAPI
+        # runs `async def` routes on the event-loop thread, not a pool) opens
+        # its own thread-local connection via storage.db.connect(), and
+        # _secure_delete()'s unlink() raised WinError 32 against it. Calling
+        # configure() again on the SAME path is db.py's own documented way to
+        # drop the CALLING thread's cached connection; join() above already
+        # got the worker threads' connections out of the way.
+        db.configure(db_path)
+        vault.lock_vault(db_path)
+        print("[shutdown] local vault locked")
+
+
+_sandbox_warm_started = False
+_sandbox_warm_lock = threading.Lock()
+
+
+def _spawn_sandbox_warm_once() -> None:
+    """`_startup()` can legitimately run more than once per process — every
+    `with TestClient(app):` triggers a real ASGI startup/shutdown cycle, and
+    production itself could add a restart path later. `appcontainer.provision()`
+    caches its result in a marker FILE, which is correct across separate
+    process launches but does nothing to stop two THREADS in the SAME process
+    from both reading "not yet provisioned" and both starting their own
+    machine-global `icacls /T` walk over the whole Python venv at once.
+
+    Found by actually running many `_startup()` cycles back to back (13 in a
+    row, from a CSRF test opening that many `TestClient`s): multiple
+    `primnox2-sandbox-warm` threads piled up, all genuinely stuck inside the
+    SAME expensive icacls call simultaneously, each fighting the others for
+    disk I/O over the identical multi-thousand-file tree — turning an
+    "instant startup, ~80s the first time" cost into "however many overlapping
+    startups happened, each taking LONGER than 80s from the contention." A
+    module-level flag guarded by a lock is enough: warming is a one-shot
+    per-process concern, not a per-lifespan-cycle one.
+    """
+    global _sandbox_warm_started
+    with _sandbox_warm_lock:
+        if _sandbox_warm_started:
+            return
+        _sandbox_warm_started = True
+    threading.Thread(target=_warm_sandbox, name="primnox2-sandbox-warm", daemon=True).start()
 
 
 def _warm_sandbox() -> None:
@@ -675,6 +814,48 @@ async def write_settings(request: Request) -> dict:
         settings_service.set_api_key(body["api_key"])
         result["api_key_present"] = settings_service.has_api_key()
     return {**result, **settings_service.describe()}
+
+
+# ── Vault ────────────────────────────────────────────────────────────────────
+# Setup and disable both operate on a snapshot copy (setup_vault/disable_vault
+# never touch the live plaintext — see storage/vault.py's module docstring),
+# so unlike lock/unlock these are safe to call from a request handler while
+# the app is running.
+@app.get("/vault")
+async def vault_status() -> dict:
+    db_path = APPDATA / "primnox.db"
+    return {
+        "enabled": vault.is_enabled(db_path),
+        "locked": vault.is_locked(db_path),
+    }
+
+
+@app.post("/vault/setup")
+async def vault_setup(request: Request) -> dict:
+    db_path = APPDATA / "primnox.db"
+    if vault.is_enabled(db_path):
+        raise HTTPException(status_code=409, detail="Vault is already enabled")
+    body = await _json(request)
+    mnemonic = (body.get("mnemonic") or "").strip() or None
+    try:
+        phrase = vault.setup_vault(db_path, mnemonic)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    # Returned once. The caller MUST show this to the user now — neither the
+    # keychain entry nor primnox.db itself can reproduce it afterwards.
+    return {"mnemonic": phrase}
+
+
+@app.post("/vault/disable")
+async def vault_disable() -> dict:
+    db_path = APPDATA / "primnox.db"
+    if not vault.is_enabled(db_path):
+        raise HTTPException(status_code=409, detail="Vault is not enabled")
+    try:
+        vault.disable_vault(db_path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    return {"enabled": False}
 
 
 # ── Memory ───────────────────────────────────────────────────────────────────

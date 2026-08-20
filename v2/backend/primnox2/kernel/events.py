@@ -29,7 +29,7 @@ from ..storage import db
 # and forever. Adding a kind is a registration, never ad-hoc (§12.9).
 CONVERSATION_KINDS = {
     "turn.created", "turn.status", "turn.completed", "turn.failed", "turn.cancelled",
-    "token", "job.started", "job.progress", "job.completed",
+    "token", "thinking", "job.started", "job.progress", "job.completed",
     "tool.call", "tool.result", "permission.request", "permission.resolved",
     "asset.ready", "asset.failed", "workspace.created", "workspace.updated",
     "privacy.scrub", "memory.written",

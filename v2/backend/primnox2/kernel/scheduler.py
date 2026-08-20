@@ -37,6 +37,21 @@ ASSET_WAIT_S = 120
 
 def enqueue(turn_id: str | None, kind: str, payload: dict, *, idempotent: bool = False,
             cancellable: bool = True, priority: int = 0, max_attempts: int = 1) -> str:
+    # Self-healing rather than trusting some earlier call to have guaranteed
+    # workers are alive. They usually are, but app.py's shutdown hook makes
+    # `with TestClient(app):` a REAL stop() of this same process-global
+    # scheduler on __exit__ (added for vault locking) — something it never
+    # used to do. Any caller enqueueing after an unrelated test file's
+    # TestClient closes (an HTTP test, an asset ingest not routed through a
+    # chat turn — anything) hits an empty worker pool with nothing left to
+    # restart it, and the job just written sits in "queued" for the full
+    # wait timeout with no worker ever alive to claim it. Cheap to check, and
+    # start() is a no-op-shaped generation swap when workers are already
+    # running, so this costs nothing on the common path where nothing
+    # upstream touched it.
+    if not any(t.is_alive() for t in scheduler._threads):
+        scheduler.start()
+
     jid = new_id(JOB)
 
     # A job row stores its payload as a column, and for `chat.reply` that
@@ -73,14 +88,69 @@ class Scheduler:
         self._stop = threading.Event()
 
     def start(self) -> None:
+        # A FRESH Event every generation, never a clear()d one — this is what
+        # makes restart safe rather than merely possible. A cleared-and-reused
+        # Event is racy: `stop()` sets it to kill generation N, but a
+        # generation-N worker only checks it between jobs (up to a 0.5s poll
+        # wait), and if `start()` calls clear() before that worker wakes up
+        # and notices, the flag it eventually checks now reads "not stopped"
+        # — that worker never exits, and keeps calling _claim() forever as an
+        # untracked extra thread. Each thread is handed its OWN generation's
+        # Event as an argument, not a live reference to `self._stop` — so a
+        # later generation replacing `self._stop` cannot retroactively
+        # un-stop it.
+        #
+        # But that swap has its own failure mode if nothing signals the
+        # OUTGOING generation first: whoever called start() without calling
+        # stop() on the previous one (conftest.py's session fixture does
+        # exactly this — it starts the scheduler directly, once, and a test
+        # that separately opens `TestClient(app)` triggers app.py's lifespan
+        # hooks calling start() AGAIN on the same singleton) leaves that
+        # earlier generation's threads holding a flag object `self._stop` no
+        # longer points to. No future stop() can ever reach them — not a
+        # race, a guaranteed leak, reproduced directly by starting a
+        # scheduler, then cycling TestClient a few times, and dumping every
+        # live thread's stack: the original three sit in `_wake.wait()`
+        # forever. Signalling the CURRENT `self._stop` here, before it gets
+        # replaced, is what stop() would have done for them if anyone had
+        # called it — this makes start() implicitly "stop whatever generation
+        # is running, then start the next one" rather than "start another
+        # generation alongside whatever is already there."
+        self._stop.set()
+        _wake.set()
+
+        stop_flag = threading.Event()
+        self._stop = stop_flag
+        self._threads = [t for t in self._threads if t.is_alive()]
         for i in range(self.workers):
-            t = threading.Thread(target=self._loop, name=f"primnox2-worker-{i}", daemon=True)
+            t = threading.Thread(target=self._loop, args=(stop_flag,),
+                                 name=f"primnox2-worker-{i}", daemon=True)
             t.start()
             self._threads.append(t)
 
     def stop(self) -> None:
         self._stop.set()
         _wake.set()
+
+    def join(self, timeout: float | None = None) -> bool:
+        """Block until every worker thread has actually exited (not merely
+        been told to). `stop()` only sets a flag a worker checks between
+        jobs — a worker mid-`_run()` keeps its DB connection open until that
+        job finishes, and anything that needs no other thread holding one
+        (vault.lock_vault(), a schema migration) needs this, not stop() alone.
+
+        Returns False if `timeout` elapsed with a thread still alive, so a
+        caller with a hard deadline (e.g. shutdown) can decide whether to
+        proceed anyway rather than hang forever on a stuck job.
+        """
+        deadline = None if timeout is None else time.time() + timeout
+        clean = True
+        for t in self._threads:
+            remaining = None if deadline is None else max(0.0, deadline - time.time())
+            t.join(timeout=remaining)
+            if t.is_alive():
+                clean = False
+        return clean
 
     def _claim(self) -> dict | None:
         """Atomically take one queued job. Two workers must never claim the same
@@ -104,18 +174,30 @@ class Scheduler:
             )
             return dict(row)
 
-    def _loop(self) -> None:
-        while not self._stop.is_set():
-            job = self._claim()
-            if job is None:
-                _wake.wait(timeout=0.5)
-                _wake.clear()
-                continue
-            try:
-                self._run(job)
-            except Exception:
-                traceback.print_exc()
-                self._finish(job["id"], "failed", error=traceback.format_exc(limit=3))
+    def _loop(self, stop_flag: threading.Event) -> None:
+        try:
+            while not stop_flag.is_set():
+                job = self._claim()
+                if job is None:
+                    _wake.wait(timeout=0.5)
+                    _wake.clear()
+                    continue
+                try:
+                    self._run(job)
+                except Exception:
+                    traceback.print_exc()
+                    self._finish(job["id"], "failed", error=traceback.format_exc(limit=3))
+        finally:
+            # _claim() opens a connection on this thread on its very first
+            # poll, whether or not a job was ever queued — so by the time
+            # `stop()` breaks this loop, every worker holds one open. join()
+            # waiting for the thread to exit says nothing about that handle;
+            # closing it explicitly here is what makes "every worker has
+            # joined" also mean "every worker's DB connection is closed" —
+            # which storage.vault.lock_vault()'s file-delete needs to be true
+            # on Windows, where a still-open handle blocks the unlink outright
+            # rather than just risking a race.
+            db.close_connection()
 
     def _finish(self, job_id: str, status: str, *, error: str | None = None, result: dict | None = None) -> None:
         if ephemeral.has_job(job_id):
@@ -363,14 +445,40 @@ class Scheduler:
             buf.clear()
             bus.emit("token", {"text": text}, conversation_id=conversation_id, turn_id=turn_id)
 
+        # Batched the same way as the reply text, and for the same reason —
+        # one event per SSE chunk would put thousands of rows in the log for
+        # a single reasoning-heavy reply. A distinct kind ("thinking", not
+        # "token") rather than a marker inside the text: the frontend renders
+        # it in its own collapsed block, not inline with the answer, so it
+        # has to be separable without parsing.
+        thinking_buf: list[str] = []
+        thinking_last_flush = time.time()
+
+        def on_thinking(piece: str) -> None:
+            nonlocal thinking_last_flush
+            thinking_buf.append(piece)
+            if time.time() - thinking_last_flush > FLUSH_INTERVAL_S or len(thinking_buf) >= FLUSH_TOKENS:
+                flush_thinking()
+                thinking_last_flush = time.time()
+
+        def flush_thinking() -> None:
+            if not thinking_buf:
+                return
+            text = "".join(thinking_buf)
+            thinking_buf.clear()
+            bus.emit("thinking", {"text": text}, conversation_id=conversation_id, turn_id=turn_id)
+
         usage: dict = {}
+        scrub_map: list = []
         try:
-            for token in gateway.stream_completion(messages, usage=usage):
+            for token in gateway.stream_completion(messages, usage=usage, scrub_map=scrub_map,
+                                                    on_thinking=on_thinking):
                 # CRS §9.2 — a cancellation checkpoint on every iteration of
                 # the token loop. Without one, "stop" cannot take effect until
                 # the provider finishes on its own.
                 if self._cancelled(job["id"]):
                     flush()
+                    flush_thinking()
                     turns.finish_cancelled(turn_id, "".join(visible_total))
                     self._finish(job["id"], "cancelled")
                     return "", True
@@ -396,14 +504,21 @@ class Scheduler:
                 buf.append(tail)
                 visible_total.append(tail)
             flush()
+            flush_thinking()
             if totals is not None:
                 totals["model_calls"] += 1
                 for field in ("input_tokens", "output_tokens", "prompt_tokens_total",
                               "cache_creation_input_tokens", "cache_read_input_tokens"):
                     totals[field] = totals.get(field, 0) + (usage.get(field) or 0)
                 totals["model"] = usage.get("model") or totals.get("model")
+            if scrub_map:
+                # The on-device reveal: what left pseudonymized, and what it
+                # stood for. Never sent anywhere but this socket.
+                bus.emit("privacy.scrub", {"mapping": scrub_map},
+                         conversation_id=conversation_id, turn_id=turn_id)
         except Exception as exc:
             flush()
+            flush_thinking()
             code, message, retryable = _classify(exc)
             turns.fail(turn_id, code, message, retryable, partial_text="".join(visible_total))
             self._finish(job["id"], "failed", error=str(exc))
