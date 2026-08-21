@@ -33,6 +33,13 @@ CONVERSATION_KINDS = {
     "tool.call", "tool.result", "permission.request", "permission.resolved",
     "asset.ready", "asset.failed", "workspace.created", "workspace.updated",
     "privacy.scrub", "memory.written",
+    # Emitted by knowledge/service.py's build job on completion. It was never
+    # registered here, so every index build ran to completion and then died on
+    # the announcement — the graph was built, the job was marked completed, and
+    # the worker took a ValueError to the face on the next line. Exactly the
+    # silent-typo failure §3.6 exists to prevent, caught by a sandbox audit
+    # rather than by the suite, because nothing tested the build's LAST line.
+    "knowledge.indexed",
     # The Sandbox Manager speaks the same protocol as everything else, which is
     # what stops the frontend needing bespoke execution logic — it renders
     # these the way it already renders tokens.

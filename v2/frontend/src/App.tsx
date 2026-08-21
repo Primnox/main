@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle, ArrowUp, Check, ChevronRight, EyeOff, FileText, Folder, FolderPlus, Loader2, PanelLeftOpen, PanelRight, Paperclip, Pencil, Pin, Plus, Search, Share2, Square, Trash2, X } from 'lucide-react';
 import { CrsSocket, TERMINAL, api, emptyState, reduce, turnsFromHistory, type ConversationState, type CrsEvent } from './lib/crs';
-import { ChatsContext, ViewerContext, type ChatActions, type OpenAsset } from './lib/contexts';
+import { CanvasContext, ChatsContext, ViewerContext, type ChatActions, type OpenAsset } from './lib/contexts';
 import { groupByDay } from './lib/groupByDay';
 import { AppRail, type Section } from './components/AppRail';
 import { AssetViewer } from './components/AssetViewer';
+import { Canvas } from './components/Canvas';
 import { ChatRow } from './components/ChatRow';
 import { ContextRail } from './components/ContextRail';
 import { ContextSidebar } from './components/ContextSidebar';
@@ -13,15 +14,26 @@ import { Panel } from './components/ui';
 import { GraphPanel } from './components/GraphPanel';
 import { MemoryPanel } from './components/MemoryPanel';
 import { SettingsPanel } from './components/SettingsPanel';
+import { TrackRow } from './components/TrackRow';
 import { TurnBlock } from './components/TurnBlock';
 
-/* Primnox V2 shell.
+/* Primnox V2 shell — the Dead Reckoning world (direction seed f80a4f36).
  *
- * Layout is Claude's: nav rail, conversation list, transcript on a reading
- * measure, context panel on the right. Visual language is Primnox's own
- * (design-system/primnox/MASTER.md): Syne display, DM Sans body, 10px
- * uppercase JetBrains Mono labels, hairline rules and negative space rather
- * than cards and shadows, --color-* tokens only.
+ * This used to say "Layout is Claude's: nav rail, conversation list,
+ * transcript on a reading measure" — an honest description of the shell every
+ * app in this category ships, and the reason it was replaced.
+ *
+ * A session is now a plotted track. Every turn is a leg on one continuous
+ * reckoning rail, and the rail is the first column of the grid each leg is
+ * laid out on rather than a line drawn beside a list (see TrackRow). State is
+ * carried in the mark's FORM before its hue — solid for a confirmed fix,
+ * hollow and dashed while reckoning forward, struck on refusal — so the track
+ * survives greyscale and a colourblind reader, which WCAG 1.4.1 requires and
+ * PRODUCT.md commits to.
+ *
+ * Type is Atkinson Hyperlegible throughout, with JetBrains Mono reserved for
+ * things that are actually measurements. Colour is rationed to three signal
+ * inks and never used decoratively.
  *
  * Everything the UI shows about a turn comes from that turn's own events. The
  * word "global" appears nowhere near status on purpose. */
@@ -43,6 +55,18 @@ export default function App() {
 
   const [viewing, setViewing] = useState<{ id: string; name: string } | null>(null);
   const openAsset = useCallback<OpenAsset>(a => setViewing(a), []);
+
+  /* The open document, if any. A workspace id, never the document itself: the
+     canvas re-reads it so a revert or a new version shows without the shell
+     having to hold a stale copy. */
+  const [canvasId, setCanvasId] = useState<string | null>(() => {
+    /* A document is addressable. `?doc=<id>` opens straight to it, so a
+       position on the track can be handed to someone else, or to yourself
+       tomorrow, and land on the same thing. */
+    try { return new URLSearchParams(location.search).get('doc'); }
+    catch { return null; }
+  });
+  const openCanvas = useCallback((id: string) => setCanvasId(id), []);
 
   const [folders, setFolders] = useState<any[]>([]);
   // Remembered like the rail is. A folder that re-collapses on every reload
@@ -344,6 +368,7 @@ export default function App() {
   });
 
   return (
+    <CanvasContext.Provider value={openCanvas}>
     <ViewerContext.Provider value={openAsset}>
     <ChatsContext.Provider value={chatActions}>
     {viewing && <AssetViewer key={viewing.id} asset={viewing}
@@ -701,7 +726,7 @@ export default function App() {
               last reply would end up permanently hidden behind the input, and
               the matching scroll-padding keeps a keyboard-focused element from
               coming to rest under it (WCAG 2.2 Focus Not Obscured). */}
-          <div className="mx-auto w-full max-w-[46rem] px-8 pt-8 pb-48">
+          <div className="mx-auto w-full max-w-[72rem] px-6 pt-8 pb-48">
             {/* §11.2.3 — the loss is stated. An incognito conversation the
                 runtime has forgotten would otherwise render as one you simply
                 had not spoken in yet, which reads as your words going
@@ -738,7 +763,15 @@ export default function App() {
               </div>
             )}
 
-            {state.turns.map(turn => <TurnBlock key={turn.id} turn={turn} />)}
+            {/* The track. Every turn is a leg on one continuous rail, and the
+                rail is the grid's first column rather than decoration beside
+                it — see TrackRow. This replaces the centred transcript the
+                whole category ships. */}
+            {state.turns.map((turn, i) => (
+              <TrackRow key={turn.id} turn={turn} index={i}>
+                <TurnBlock turn={turn} />
+              </TrackRow>
+            ))}
             <div ref={endRef} />
           </div>
         </div>
@@ -861,8 +894,24 @@ export default function App() {
           panel did not exist and there was no control to summon it — the file
           list, the sandbox status and the stream cursor were simply
           unreachable at the width most people actually run this at. */}
+      {/* The canvas. Beside the track, never over it: the leg that produced a
+          document stays readable while you read the document, which is the
+          whole premise of a track you can retrace. It takes the panel slot
+          rather than opening a second one, because two stacked side panels at
+          this width would leave the plate below its reading measure. */}
       <AnimatePresence initial={false}>
-        {railOpen && section === 'chat' && (
+        {canvasId && section === 'chat' && (
+          <motion.div key="canvas"
+            initial={{ width: 0, opacity: 0 }} animate={{ width: 420, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="hidden shrink-0 overflow-hidden lg:block">
+            <Canvas key={canvasId} id={canvasId} onClose={() => setCanvasId(null)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {railOpen && section === 'chat' && !canvasId && (
           <motion.div key="rail"
             initial={{ width: 0, opacity: 0 }} animate={{ width: 288, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
@@ -896,6 +945,7 @@ export default function App() {
     </div>
     </ChatsContext.Provider>
     </ViewerContext.Provider>
+    </CanvasContext.Provider>
   );
 }
 

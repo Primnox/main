@@ -109,11 +109,13 @@ def run(
             ),
         )
     if backend == APPCONTAINER:
-        return _run_appcontainer(directory, runtime, manifest, on_stdout, on_stderr)
+        return _run_appcontainer(directory, runtime, manifest, on_stdout, on_stderr,
+                                 should_cancel)
     return _run_plain(directory, runtime, manifest, on_stdout, on_stderr, should_cancel)
 
 
-def _run_appcontainer(directory, runtime, manifest, on_stdout, on_stderr) -> ExecResult:
+def _run_appcontainer(directory, runtime, manifest, on_stdout, on_stderr,
+                      should_cancel=None) -> ExecResult:
     """Isolated execution.
 
     Output arrives at the end rather than line by line: the AppContainer path
@@ -126,7 +128,9 @@ def _run_appcontainer(directory, runtime, manifest, on_stdout, on_stderr) -> Exe
     code = (directory / SCRIPT_NAMES[runtime]).read_text(encoding="utf-8")
     try:
         raw = appcontainer.run(directory, runtime, code,
-                               timeout_s=manifest.timeout_s, memory_mb=manifest.memory_mb)
+                               timeout_s=manifest.timeout_s, memory_mb=manifest.memory_mb,
+                               disk_mb=manifest.disk_mb, cpu_cores=manifest.cpu_cores,
+                               should_cancel=should_cancel)
     except appcontainer.SandboxUnavailable as exc:
         return ExecResult(backend=APPCONTAINER, error=str(exc),
                           duration_ms=int((time.time() - started) * 1000))
@@ -146,6 +150,10 @@ def _run_appcontainer(directory, runtime, manifest, on_stdout, on_stderr) -> Exe
     return ExecResult(
         exit_code=raw.get("exit_code"), stdout=stdout, stderr=stderr,
         backend=APPCONTAINER, timed_out=bool(raw.get("timed_out")),
+        cancelled=bool(raw.get("cancelled")),
+        error=("execution exceeded its declared disk limit of "
+               f"{manifest.disk_mb}MB and was stopped"
+               if raw.get("disk_exceeded") else None),
         duration_ms=raw.get("duration_ms", int((time.time() - started) * 1000)),
     )
 

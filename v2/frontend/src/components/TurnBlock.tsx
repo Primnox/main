@@ -1,12 +1,14 @@
 import { useContext } from 'react';
 import { motion } from 'motion/react';
-import { AlertTriangle, Ban, FileText, Loader2, Package, RotateCw, Terminal } from 'lucide-react';
+import { AlertTriangle, Ban, Loader2, RotateCw, Terminal } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { TERMINAL, api, type Turn } from '../lib/crs';
-import { ViewerContext } from '../lib/contexts';
+import { CanvasContext, ViewerContext } from '../lib/contexts';
 import { MD } from '../lib/md';
 import { STATUS_COPY } from '../lib/status';
+import { Attachment } from './Attachment';
+import { Canvas } from './Canvas';
 import { CopyButton } from './CopyButton';
 import { QuestionBlock } from './QuestionBlock';
 import { formatElapsed, useElapsed } from '../lib/useElapsed';
@@ -47,6 +49,7 @@ function LiveStatus({ turn }: { turn: Turn }) {
 export function TurnBlock({ turn }: { turn: Turn }) {
   const live = !TERMINAL.includes(turn.status);
   const openAsset = useContext(ViewerContext);
+  const openCanvas = useContext(CanvasContext);
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }} className="mb-8">
@@ -74,30 +77,29 @@ export function TurnBlock({ turn }: { turn: Turn }) {
           {turn.toolCalls.map((c, i) => <ToolRow key={`${c.name}-${i}`} call={c} />)}
           {turn.executions.map(x => <ExecutionBlock key={x.id} execution={x} />)}
 
-          {turn.assets.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {turn.assets.map(a => (
-                <button key={a.id} onClick={() => openAsset({ id: a.id, name: a.name })}
-                  aria-label={`Open ${a.name}`}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-on-surface/[0.09] text-[11px] text-on-surface/60 hover:text-on-surface/90 hover:bg-on-surface/[0.05] transition-colors duration-200">
-                  <FileText size={11} className="opacity-60" />{a.name}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Files read the same way documents do: press the name, the file
+              opens where it is. They were chips that threw a full-screen
+              modal, so looking at an attachment meant covering the
+              conversation it belonged to. The modal is still one press away
+              for a deck or a PDF worth working through. */}
+          {turn.assets.map(a => (
+            <Attachment key={a.id} asset={a}
+              onExpand={() => openAsset({ id: a.id, name: a.name })} />
+          ))}
 
-          {turn.workspaces.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {turn.workspaces.map(w => (
-                <span key={w.id}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/25 bg-primary/[0.05] text-[11px] text-on-surface/70">
-                  <Package size={11} className="text-primary/70" />
-                  {w.title}
-                  <span className="font-mono text-[9px] text-on-surface/40">v{w.version}</span>
-                </span>
-              ))}
-            </div>
-          )}
+          {/* A document the model authored, rendered here, in the turn that
+              produced it. This was a <span>: the UI announced a workspace
+              existed and gave you no way to read it, which is the same as not
+              shipping the feature. Then it was a chip that opened a side
+              panel, which put the artifact somewhere other than where it was
+              made. A document is part of what the turn said, so it reads
+              inline; the expand control is there for when the wider measure
+              is genuinely wanted. */}
+          {turn.workspaces.map(w => (
+            <Canvas key={w.id} id={w.id} variant="inline"
+              title={w.title} version={w.version}
+              onExpand={() => openCanvas(w.id)} />
+          ))}
 
           {turn.assistantText && (
             <div className="group/reply text-sm leading-6">

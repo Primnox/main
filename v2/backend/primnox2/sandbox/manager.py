@@ -229,6 +229,11 @@ def _reason_for(r: supervisor.ExecResult) -> str:
     if r.timed_out:
         return "timeout"
     if r.error:
+        # Distinct from launch_failed on purpose: the execution launched and
+        # ran, it simply wrote past what its manifest declared. Reporting that
+        # as "launch_failed" tells the model to retry a launch that worked.
+        if "disk limit" in r.error:
+            return "disk_limit_exceeded"
         return "sandbox_unavailable" if "isolation backend" in r.error else "launch_failed"
     return "nonzero_exit"
 

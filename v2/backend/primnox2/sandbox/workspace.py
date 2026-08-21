@@ -1,6 +1,8 @@
 """Ephemeral execution directories.
 
-Every execution gets its own directory and nothing leaks between them:
+Every execution gets its own directory, and the container is granted access
+to THAT DIRECTORY ONLY — see `_grant()` below and `appcontainer.provision()`.
+The isolation is an ACL the OS enforces, not a naming convention:
 
     sandbox/exec_<id>/
         main.py | main.js | main.cmd
@@ -33,12 +35,36 @@ def sandbox_root() -> Path:
     return root
 
 
+def _grant(d: Path) -> Path:
+    """Give the container access to this directory alone.
+
+    The shared roots carry traverse-only, non-inheritable ACEs, so a new
+    directory under them starts with NO access for the container and has to
+    be granted explicitly. That is what keeps one execution out of another's
+    directory even though both run under the same AppContainer SID: a
+    sibling simply has no ACE for it.
+
+    Import is local because `appcontainer` imports `paths` and is
+    Windows-specific; keeping it out of module scope leaves this module
+    importable (and testable) anywhere.
+    """
+    try:
+        from . import appcontainer
+        appcontainer.grant_session_dir(d)
+    except Exception:
+        # A failed grant surfaces as the execution being unable to write its
+        # own workspace, which supervisor reports honestly. It must never
+        # take down directory creation itself.
+        pass
+    return d
+
+
 def ephemeral(execution_id: str) -> Path:
     """A fresh directory for one execution."""
     d = sandbox_root() / execution_id
     for sub in _SUBDIRS:
         (d / sub).mkdir(parents=True, exist_ok=True)
-    return d
+    return _grant(d)
 
 
 def project(workspace_id: str) -> Path:
@@ -46,7 +72,7 @@ def project(workspace_id: str) -> Path:
     d = paths.workspaces_dir() / workspace_id
     for sub in _SUBDIRS:
         (d / sub).mkdir(parents=True, exist_ok=True)
-    return d
+    return _grant(d)
 
 
 def resolve(execution_id: str, workspace_id: str | None) -> tuple[Path, bool]:

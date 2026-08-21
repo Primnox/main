@@ -48,7 +48,10 @@ from .. import paths
 
 APPCONTAINER_NAME = "PrimnoxSandboxV2"
 DISPLAY_NAME = "Primnox V2 Sandbox"
-MARKER_NAME = ".appcontainer_provisioned_v2"
+# v3: v2 machines carry an inheritable full-access ACE on the sandbox root
+# that let executions read and write each other's directories. Bumping the
+# name forces those machines through provision() again, which revokes it.
+MARKER_NAME = ".appcontainer_provisioned_v3"
 
 STDOUT_NAME = "__ac_stdout.txt"
 STDERR_NAME = "__ac_stderr.txt"
@@ -87,12 +90,20 @@ _CREATE_UNICODE_ENVIRONMENT = 0x00000400
 _CREATE_NO_WINDOW = 0x08000000
 
 _JobObjectExtendedLimitInformation = 9
+_JobObjectCpuRateControlInformation = 15
 _JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
 _JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+_JOB_OBJECT_CPU_RATE_CONTROL_ENABLE = 0x00000001
+_JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP = 0x00000004
 _WAIT_OBJECT_0 = 0x00000000
+_WAIT_TIMEOUT = 0x00000102
 
 MAX_ACTIVE_PROCESSES = 64
+
+# How often the wait loop wakes to check for cancellation and disk overrun.
+# Short enough that "stop" feels immediate, long enough not to spin a core.
+POLL_INTERVAL_S = 0.1
 
 
 class SandboxUnavailable(RuntimeError):
@@ -148,6 +159,16 @@ class _JobExtendedLimits(ctypes.Structure):
         ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
         ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t),
     ]
+
+
+class _JobCpuRateControl(ctypes.Structure):
+    """CPU rate control. The union's second member is only used for the
+    min/max-rate mode, which this does not use — a hard cap on a share of
+    total CPU is the one that matches `cpu_cores`."""
+    class _Rate(ctypes.Union):
+        _fields_ = [("CpuRate", wt.DWORD), ("Weight", wt.DWORD)]
+
+    _fields_ = [("ControlFlags", wt.DWORD), ("Rate", _Rate)]
 
 
 # ── Profile and SID ──────────────────────────────────────────────────────────
@@ -245,6 +266,28 @@ def _icacls_grant(path: Path, sid: str, *, read_only: bool) -> None:
                    capture_output=True, timeout=300)
 
 
+def grant_session_dir(path: Path) -> bool:
+    """Give the container full access to ONE execution directory.
+
+    Required because the sandbox root deliberately no longer carries an
+    inheritable full-access ACE — see `provision()`. Without a per-directory
+    grant the container cannot write its own workspace at all, so this must
+    run before every execution whose directory is new.
+
+    Returns False if the grant could not be applied, which callers must treat
+    as "do not run": an execution that cannot write its workspace fails in
+    confusing ways much later, and silently continuing would be the same
+    mistake the blanket root grant made.
+    """
+    if not _IS_WINDOWS:
+        return False
+    try:
+        _icacls_grant(path, sid_string(), read_only=False)
+        return True
+    except (OSError, subprocess.SubprocessError, SandboxUnavailable):
+        return False
+
+
 def _interpreter_dirs() -> list[Path]:
     """Directories the container must be able to read to start an interpreter.
 
@@ -290,11 +333,35 @@ def provision() -> dict:
         except OSError:
             pass
 
+    # TRAVERSE ONLY on the shared roots, and deliberately NOT inheritable.
+    #
+    # This used to be `read_only=False` — an (OI)(CI) full-access ACE on the
+    # whole sandbox root. Every execution directory created underneath then
+    # INHERITED it, and because every execution runs under the SAME
+    # AppContainer SID, that made the per-execution directories isolation
+    # theatre: measured directly, one execution listed its siblings, read
+    # another execution's file out of its workspace, and wrote a new file
+    # into it. workspace.py's "nothing leaks between them" was false.
+    #
+    # `(X)` is traverse/execute: enough to walk THROUGH the root to reach a
+    # directory the container has been granted explicitly, and not enough to
+    # enumerate the root or touch anything else in it. Grants for the
+    # individual execution directories are issued per execution by
+    # `grant_session_dir()`, so a sibling directory carries no ACE for this
+    # SID at all and is denied on open, not merely hidden from listing.
     sandbox_root = paths.root() / "sandbox"
     sandbox_root.mkdir(parents=True, exist_ok=True)
+    workspaces_root = paths.workspaces_dir()
     try:
-        _icacls_grant(sandbox_root, sid, read_only=False)
-        _icacls_grant(paths.workspaces_dir(), sid, read_only=False)
+        for shared_root in (sandbox_root, workspaces_root):
+            # Revoke first: a machine provisioned by an earlier version still
+            # carries the old inheritable full-access ACE, and /grant ADDS an
+            # ACE rather than replacing what is already there. Without this
+            # the upgrade would leave the exact hole it is meant to close.
+            subprocess.run(["icacls", str(shared_root), "/remove:g", f"*{sid}"],
+                           capture_output=True, timeout=120)
+            subprocess.run(["icacls", str(shared_root), "/grant", f"*{sid}:(X)"],
+                           capture_output=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as exc:
         return {"ok": False, "error": f"could not grant workspace access: {exc}"}
 
@@ -418,7 +485,8 @@ def _environment_block(env: dict) -> ctypes.Array:
 
 # ── Launch ───────────────────────────────────────────────────────────────────
 def run(session_dir: Path, runtime: str, code: str, *, timeout_s: float,
-        memory_mb: int = 1024) -> dict:
+        memory_mb: int = 1024, disk_mb: int | None = None, cpu_cores: int | None = None,
+        should_cancel=None) -> dict:
     """Launch inside the AppContainer and wait. Returns a plain result dict."""
     if not _IS_WINDOWS:
         raise SandboxUnavailable("AppContainer is Windows-only")
@@ -477,6 +545,23 @@ def run(session_dir: Path, runtime: str, code: str, *, timeout_s: float,
         _k32.SetInformationJobObject(job, _JobObjectExtendedLimitInformation,
                                      ctypes.byref(limits), ctypes.sizeof(limits))
 
+        # CPU. `cpu_cores` was previously accepted by the manifest, validated,
+        # stored with the execution record, and then never applied to
+        # anything — a sandboxed script saw (and could saturate) every core on
+        # the machine. A hard cap expressed as a share of TOTAL CPU is the
+        # closest true reading of "this may use N cores": on a 16-core box,
+        # cpu_cores=1 becomes a 1/16 hard cap.
+        if cpu_cores:
+            total = os.cpu_count() or 1
+            share = max(1, min(100, round(cpu_cores / total * 100)))
+            rate = _JobCpuRateControl()
+            rate.ControlFlags = (_JOB_OBJECT_CPU_RATE_CONTROL_ENABLE
+                                 | _JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP)
+            # The API takes hundredths of a percent.
+            rate.Rate.CpuRate = share * 100
+            _k32.SetInformationJobObject(job, _JobObjectCpuRateControlInformation,
+                                         ctypes.byref(rate), ctypes.sizeof(rate))
+
     env_block = _environment_block(_environment(session_dir))
     cmd_buf = ctypes.create_unicode_buffer(command)
     started = time.time()
@@ -500,20 +585,87 @@ def run(session_dir: Path, runtime: str, code: str, *, timeout_s: float,
     if job:
         _k32.AssignProcessToJobObject(job, pi.hProcess)
 
+    # Poll rather than one blocking WaitForSingleObject(timeout).
+    #
+    # The single blocking wait could only ever end two ways: the process
+    # finished, or the full timeout elapsed. That made two things impossible
+    # that the layers above believe they have:
+    #
+    #   cancellation  supervisor.run() accepts `should_cancel` and CRS §9.2
+    #                 promises stop takes effect mid-run, but the flag was
+    #                 only ever forwarded to the UNSANDBOXED path. Measured:
+    #                 cancel requested 3s into a 45s execution, the call
+    #                 returned after the full 45s. With the sandbox as the
+    #                 default backend, "Stop" did nothing for the entire
+    #                 default 300s timeout.
+    #   disk          `disk_mb` was validated and recorded and then never
+    #                 enforced by anything; a manifest declaring 16MB wrote
+    #                 40MB without complaint.
+    #
+    # Waking every POLL_INTERVAL_S makes both checkable. Disk is measured on
+    # a slower cadence than cancellation because it walks the tree.
     timed_out = False
+    cancelled = False
+    disk_exceeded = False
     exit_code = None
+    disk_limit_bytes = disk_mb * 1024 * 1024 if disk_mb else None
+    deadline = started + timeout_s
+    next_disk_check = 0.0
     try:
-        wait = _k32.WaitForSingleObject(pi.hProcess, int(timeout_s * 1000))
-        if wait != _WAIT_OBJECT_0:
-            timed_out = True
+        while True:
+            wait = _k32.WaitForSingleObject(pi.hProcess, int(POLL_INTERVAL_S * 1000))
+            if wait == _WAIT_OBJECT_0:
+                code_out = wt.DWORD()
+                _k32.GetExitCodeProcess(pi.hProcess, ctypes.byref(code_out))
+                exit_code = code_out.value
+                break
+
+            now = time.time()
+            if now > deadline:
+                timed_out = True
+                break
+            if should_cancel is not None:
+                try:
+                    if should_cancel():
+                        cancelled = True
+                        break
+                except Exception:
+                    # A failing cancellation probe must not strand the
+                    # execution — treat it as "not cancelled" and keep going.
+                    pass
+            if disk_limit_bytes is not None and now >= next_disk_check:
+                next_disk_check = now + 1.0
+                try:
+                    from .workspace import disk_usage_bytes
+                    if disk_usage_bytes(session_dir) > disk_limit_bytes:
+                        disk_exceeded = True
+                        break
+                except OSError:
+                    pass
+
+        if timed_out or cancelled or disk_exceeded:
             if job:
                 _k32.TerminateJobObject(job, 1)
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(pi.dwProcessId)],
                            capture_output=True)
-        else:
-            code_out = wt.DWORD()
-            _k32.GetExitCodeProcess(pi.hProcess, ctypes.byref(code_out))
-            exit_code = code_out.value
+
+        # A final check after exit, because polling alone cannot catch a
+        # BURST: measured, a script wrote 40MB against a 16MB limit in 0.1s
+        # and was long finished before the first disk poll came round. There
+        # is no true quota to lean on here — Windows disk quotas are
+        # per-volume, and FSRM is a Server role — so enforcement is
+        # deliberately two-part: kill sustained growth mid-run, and fail the
+        # execution afterwards if it ended over its limit. The second half is
+        # what stops "too fast to catch" from meaning "not enforced at all":
+        # the run is reported failed and its output is not presented as a
+        # successful result.
+        if disk_limit_bytes is not None and not disk_exceeded:
+            try:
+                from .workspace import disk_usage_bytes
+                if disk_usage_bytes(session_dir) > disk_limit_bytes:
+                    disk_exceeded = True
+            except OSError:
+                pass
     finally:
         if job:
             _k32.CloseHandle(job)
@@ -532,5 +684,7 @@ def run(session_dir: Path, runtime: str, code: str, *, timeout_s: float,
         "stdout": _read(STDOUT_NAME),
         "stderr": _read(STDERR_NAME),
         "timed_out": timed_out,
+        "cancelled": cancelled,
+        "disk_exceeded": disk_exceeded,
         "duration_ms": int((time.time() - started) * 1000),
     }

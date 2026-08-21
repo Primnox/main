@@ -20,8 +20,8 @@
   --green: #34d399;
   /* The site's own font token names. Kept so CSS lifted from primnox.github.io
      works verbatim; --font-display / --font-sans / --font-mono alias these. */
-  --display: 'Syne', system-ui, sans-serif;
-  --body: 'DM Sans', system-ui, sans-serif;
+  --display: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --body: 'Atkinson Hyperlegible', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
   --hover: rgba(255,255,255,0.018);
   --surface: rgba(255,255,255,0.04);
@@ -183,7 +183,7 @@
 [data-theme="phosphor"] {
   --bg: #040a06;
   --text: #d4e8d6;
-  --muted: rgba(212,232,214,0.5);
+  --muted: rgba(212,232,214,0.55);
   --border: rgba(212,232,214,0.1);
   --primary: #4ade80;
   --accent: #d9f99d;
@@ -194,7 +194,7 @@
   --ring: rgba(180,255,200,0.12);
   --nav-bg: rgba(4,10,6,0.87);
   --scroll: rgba(212,232,214,0.13);
-  --cursor-ring: rgba(212,232,214,0.5);
+  --cursor-ring: rgba(212,232,214,0.55);
   --sel-fg: #040a06;
   --you: rgba(212,232,214,0.54);
   --shadow-op: 0.5;
@@ -279,7 +279,7 @@
 [data-theme="sand"] {
   --bg: #ece5d8;
   --text: #241d13;
-  --muted: rgba(36,29,19,0.58);
+  --muted: rgba(36,29,19,0.66);
   --border: rgba(36,29,19,0.13);
   --primary: #1c6b47;
   --accent: #b0451a;
@@ -311,7 +311,7 @@
 [data-theme="mono"] {
   --bg: #f2f1ee;
   --text: #121212;
-  --muted: rgba(18,18,18,0.58);
+  --muted: rgba(18,18,18,0.62);
   --border: rgba(18,18,18,0.13);
   --primary: #121212;
   --accent: #3f3f3f;
@@ -415,4 +415,112 @@
   --color-on-error:             #2b0000;
   --color-error-container:      #93000a;
   --color-on-error-container:   #ffdad6;
+}
+
+/* ─── DEAD RECKONING ──────────────────────────────────────────────────────────
+   The world this app is built in (direction seed f80a4f36).
+
+   A navigator does not know where the ship is. They know where it was at the
+   last confirmed fix, and everything since is reckoning: heading and speed and
+   elapsed time, carried forward, honestly uncertain. That is also what a long
+   session with a model is, and it is why the arrangement below is not the
+   assistant shell every one of these apps ships.
+
+   Three ideas the tokens have to carry:
+
+     the rail     Every turn is a tick on one continuous track down the left
+                  edge. The track is structural, not a list widget with a line
+                  drawn beside it: the frame IS the grid, so nothing floats
+                  next to it and nothing overlaps it.
+     the plate    The open turn blooms onto a working plate - a lighter, matte
+                  field with a real reading measure. Earlier turns stay
+                  hairline stubs on the rail, recoverable, never destroyed.
+     the fix      A confirmed position. Certainty degrades with distance from
+                  it, and the interface says so in FORM as well as hue, so the
+                  state survives a colourblind reader and a greyscale
+                  screenshot alike (WCAG 2.1 AA is the recorded standard).
+
+   Everything derives from the per-theme --bg/--text/--primary/--accent above,
+   so the world holds in all ten palettes rather than only in the default.
+   ──────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Rail geometry. The rail is a fixed column the layout is built on. */
+  --dr-rail-w:        3.25rem;
+  --dr-rail-w-wide:   4.5rem;
+  --dr-tick-h:        1px;
+  --dr-plate-measure: 60ch;      /* lands at ~69ch against the 14px prose size */
+
+  /* Materials. The working surface is the theme's ground; the plate sits a
+     step off it. Deliberately a step, not a card: no radius jump, no shadow,
+     no border on three sides. A plate is a lighter region of the same table. */
+  --dr-surface:   var(--bg);
+  --dr-plate:     color-mix(in srgb, var(--text) 4.5%, var(--bg));
+  --dr-plate-lip: color-mix(in srgb, var(--text) 9%,   var(--bg));
+
+  /* Hairlines. One weight, two intensities: the track, and everything else. */
+  --dr-rule:      color-mix(in srgb, var(--text) 13%, transparent);
+  --dr-rule-firm: color-mix(in srgb, var(--text) 26%, transparent);
+
+  /* The track itself and the ticks along it. */
+  --dr-track:      color-mix(in srgb, var(--text) 17%, transparent);
+  --dr-tick:       color-mix(in srgb, var(--text) 34%, transparent);
+  --dr-tick-open:  var(--text);
+
+  /* Signal inks, rationed. Nothing else on the surface is allowed colour.
+     Each one is paired with a form rule in the components, never used alone:
+       fix        solid, full-height       a confirmed position
+       reckoning  dashed                   carried forward, unconfirmed
+       refusal    struck through           the runtime declined to proceed
+     `fix` follows the theme's own primary so the world survives a palette
+     change; the other two stay semantic across every theme for the same
+     reason --color-error does. */
+  --dr-fix:        var(--primary);
+  --dr-reckoning:  var(--accent);
+  --dr-refusal:    var(--color-error);
+
+  /* Dash grammar for the uncertainty run. Used on borders and SVG strokes so
+     one rule governs both. */
+  --dr-dash:       4px 4px;
+
+  /* Motion. One authored moment: a tick landing on the rail settles with a
+     single damped overshoot, the way a needle does. Everything else is
+     instant. Exponential ease-out from an already-visible default. */
+  --dr-settle:     600ms cubic-bezier(0.16, 1, 0.3, 1);
+  --dr-instant:    120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The browser surfaces the craft floor asks for: the parts not drawn by hand
+   still have to carry the world, or the page reads as assembled. */
+:root {
+  color-scheme: dark;
+  accent-color: var(--dr-fix);
+}
+[data-theme="paper"], [data-theme="clinical"], [data-theme="sand"], [data-theme="mono"] {
+  color-scheme: light;
+}
+::selection {
+  background: color-mix(in srgb, var(--dr-fix) 30%, transparent);
+  color: var(--text);
+}
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: var(--dr-track) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--dr-track);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background-clip: content-box; background-color: var(--dr-tick); }
+
+/* Tabular figures wherever a number is a measurement. A timestamp that
+   reflows its own columns as it ticks is a number you cannot read at a
+   glance, and this surface is mostly numbers you read at a glance. */
+.dr-measure, time, [data-measure] {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }

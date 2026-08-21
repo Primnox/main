@@ -49,8 +49,16 @@ def enqueue(turn_id: str | None, kind: str, payload: dict, *, idempotent: bool =
     # start() is a no-op-shaped generation swap when workers are already
     # running, so this costs nothing on the common path where nothing
     # upstream touched it.
+    #
+    # Double-checked under scheduler._lock: enqueue() can be called from any
+    # request-handling thread, so two callers can both observe a stopped pool
+    # at once. Taking the lock only on the (rare) restart path, then
+    # re-checking inside it, means the common case pays no lock at all while
+    # still making the actual restart atomic — see Scheduler._lock's comment.
     if not any(t.is_alive() for t in scheduler._threads):
-        scheduler.start()
+        with scheduler._lock:
+            if not any(t.is_alive() for t in scheduler._threads):
+                scheduler._start_locked()
 
     jid = new_id(JOB)
 
@@ -86,8 +94,23 @@ class Scheduler:
         self.workers = workers
         self._threads: list[threading.Thread] = []
         self._stop = threading.Event()
+        # Guards the generation swap below. Needed because `enqueue()` now
+        # self-heals a stopped pool from whatever thread happens to be
+        # enqueueing (any request-handling thread, concurrently) — before
+        # that, start() was only ever called from single-threaded contexts
+        # (the ASGI lifespan, or the test session fixture once). Two threads
+        # racing through the unlocked version below can each create their
+        # own generation and reassign `self._stop`/`self._threads` out from
+        # under each other — same orphaned-generation failure the comment in
+        # start() already documents for sequential double-starts, just not
+        # guarded against for concurrent ones.
+        self._lock = threading.Lock()
 
     def start(self) -> None:
+        with self._lock:
+            self._start_locked()
+
+    def _start_locked(self) -> None:
         # A FRESH Event every generation, never a clear()d one — this is what
         # makes restart safe rather than merely possible. A cleared-and-reused
         # Event is racy: `stop()` sets it to kill generation N, but a

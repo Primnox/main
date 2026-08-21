@@ -40,6 +40,33 @@ from dataclasses import dataclass, field, replace
 # boundary, not an integrity one, and callers should know which they have.
 REGISTRY_READS_ENFORCED = False
 
+# Resource limits, same standard: measured, not assumed.
+#
+#   timeout_s    enforced. Wall-clock, kills the whole job object.
+#   memory_mb    enforced. Job object JobMemoryLimit; the allocation raises
+#                MemoryError inside the script rather than swapping the box.
+#   cpu_cores    enforced as a HARD CAP on a share of total CPU
+#                (cpu_cores/os.cpu_count()), via job object CPU rate control.
+#                Note it does NOT change what os.cpu_count() reports inside
+#                the sandbox — the script still sees every core, it just
+#                cannot consume more than its share. Measured at ~7.9x less
+#                work done under cpu_cores=1 than uncapped on a 16-core box.
+#   disk_mb      enforced BEST-EFFORT, in two parts: a poll kills an execution
+#                whose directory grows past the limit mid-run, and a check
+#                after exit fails one that ended over it. There is no true
+#                quota underneath — Windows disk quotas are per-volume and
+#                FSRM is a Server role — so a burst that completes between
+#                polls is caught after the fact rather than prevented. The
+#                execution is failed and its output is not presented as a
+#                success, which is the part that matters.
+#   processes    enforced. Job object ActiveProcessLimit caps a fork bomb.
+#
+# Cross-execution isolation is an ACL, not a convention: the shared sandbox
+# root carries traverse-only, non-inheritable access, and each execution
+# directory is granted to the container individually. Sibling directories
+# carry no ACE for it and are denied on open — not merely hidden.
+
+
 # Filesystem decisions
 ALLOW, ASK, DENY = "allow", "ask", "deny"
 

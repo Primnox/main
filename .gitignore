@@ -97,3 +97,29 @@ graphify-out/
 # Rendered slide/document artifacts produced while checking output by eye.
 /scratch-decks/
 *.pptx.tmp
+
+# Dropped-in skill packages, same reasoning as backend/skills/claude_skills
+# above: these are third-party packs installed per-machine (design, animation,
+# imagegen, taste), 7.7MB across ~380 files, each under its own author's
+# licence, and this repo is public. Vendoring someone else's skill pack is a
+# licensing question nobody asked, and they are reinstallable by name.
+#
+# `.claude/skills/testing` is the exception and stays tracked: it was written
+# for THIS repo, it encodes the L0-L4 suite and the real harness commands, and
+# it is worthless anywhere else.
+.agents/skills/
+.claude/skills/*
+!.claude/skills/testing/
+# Local hook wiring, machine-specific absolute paths.
+.claude/settings.json
+# Another copy of the same third-party skill pack, installed for a different
+# harness. Same licensing reasoning as above.
+.github/skills/
+.github/agents/impeccable-*.agent.md
+.github/hooks/impeccable.json
+.codex/
+
+# Impeccable's working state: a served decision round, its answer log, and the
+# hook's cache. Session scratch, not product truth. The direction it produced
+# lives in the contract comment in v2/frontend/index.html, which IS tracked.
+.impeccable/

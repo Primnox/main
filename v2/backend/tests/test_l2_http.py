@@ -168,6 +168,28 @@ def test_uploading_and_reading_back_an_asset(client):
     assert down.content == payload, "download did not return the bytes uploaded"
 
 
+def test_inline_download_strips_control_chars_from_a_hostile_filename(client):
+    """original_name is whatever the uploaded file was called — fully
+    attacker-controlled. The inline-download path builds its own
+    Content-Disposition header by hand rather than going through Starlette's
+    own (already-safe, percent-encoding) `filename=` parameter, so a name
+    with an embedded CR/LF must not reach that header raw — a real uvicorn
+    server rejects a raw CRLF in a header value outright (confirmed
+    separately), which turned an odd filename into a crashed request rather
+    than an XSS/response-splitting exploit, but it should not crash either."""
+    evil_name = 'evil.pdf\r\nX-Injected: pwned\r\nSet-Cookie: hacked=1'
+    up = client.post("/assets", files={"file": (evil_name, io.BytesIO(b"data"), "text/plain")})
+    assert up.status_code == 200, up.text[:300]
+    asset_id = up.json()["id"]
+
+    down = client.get(f"/assets/{asset_id}/download", params={"inline": "true"})
+    assert down.status_code == 200
+    disposition = down.headers["content-disposition"]
+    assert "\r" not in disposition and "\n" not in disposition
+    assert "X-Injected" not in down.headers
+    assert "hacked" not in down.headers.get("set-cookie", "")
+
+
 def test_identical_uploads_deduplicate(client):
     """Content addressing (§2.6): the same bytes are one asset."""
     payload = b"identical content for dedup"

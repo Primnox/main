@@ -573,6 +573,13 @@ export function turnsFromHistory(rows: any[]): Turn[] {
     assets: (r.assets ?? []).map((a: any) => ({
       id: a.id, name: a.name, kind: a.kind,
     })),
+    // Durable for the same reason, and missed for years because nothing
+    // rendered them: a document the model authored is a row in
+    // `turn_workspaces`, so it survives a reload and the canvas comes back
+    // with the turn that made it.
+    workspaces: (r.workspaces ?? []).map((w: any) => ({
+      id: w.id, title: w.title, kind: w.kind, version: w.version,
+    })),
     // A question this turn is still parked on. The `permission.request` event
     // that announced it is behind our cursor after a reload, so the history
     // read carries it instead — otherwise the turn shows "waiting for you"

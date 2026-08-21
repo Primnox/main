@@ -61,6 +61,30 @@ export default {
         'on-error': themed('--color-on-error'),
         'error-container': themed('--color-error-container'),
         'on-error-container': themed('--color-on-error-container'),
+
+        /* Dead Reckoning world (seed f80a4f36). The chart-table materials and
+           the three rationed signal inks. Every one of these resolves per
+           theme, so the world holds in all ten palettes. */
+        'dr-plate': themed('--dr-plate'),
+        'dr-plate-lip': themed('--dr-plate-lip'),
+        'dr-rule': themed('--dr-rule'),
+        'dr-rule-firm': themed('--dr-rule-firm'),
+        'dr-track': themed('--dr-track'),
+        'dr-tick': themed('--dr-tick'),
+        'dr-tick-open': themed('--dr-tick-open'),
+        'dr-fix': themed('--dr-fix'),
+        'dr-reckoning': themed('--dr-reckoning'),
+        'dr-refusal': themed('--dr-refusal'),
+      },
+      width: {
+        rail: 'var(--dr-rail-w)',
+        'rail-wide': 'var(--dr-rail-w-wide)',
+      },
+      maxWidth: {
+        plate: 'var(--dr-plate-measure)',
+      },
+      transitionTimingFunction: {
+        settle: 'cubic-bezier(0.16, 1, 0.3, 1)',
       },
       fontFamily: {
         sans: 'var(--font-sans)',

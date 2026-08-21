@@ -258,6 +258,32 @@ def test_lock_then_unlock_roundtrips(tmp_db):
     assert not vault.is_locked(tmp_db)
 
 
+def test_is_locked_false_when_plaintext_survives_an_unclean_shutdown(tmp_db):
+    """A process killed hard (crash, OOM, power loss) never runs lock_vault(),
+    so the plaintext db is left on disk right next to a .vault snapshot that
+    only reflects the last CLEAN lock. is_locked() is what app.py's startup
+    gates the destructive unlock_vault() call on (CRS boot path) — it must
+    read False here, or the boot path would decrypt the stale .vault snapshot
+    over the top of the newer plaintext, silently destroying every write made
+    since the last clean shutdown. is_enabled() alone can't tell these two
+    states apart, which is exactly the bug this guards against."""
+    phrase = vault.setup_vault(tmp_db)
+    vault.lock_vault(tmp_db)
+    assert vault.is_locked(tmp_db)
+
+    # Simulate the crash: unlock normally (as a real boot would), then keep
+    # writing — a live app never re-locks until its next clean shutdown.
+    vault.unlock_vault(tmp_db, phrase)
+    tmp_db.write_bytes(tmp_db.read_bytes() + b"data written after the last clean lock")
+    newer_plaintext = tmp_db.read_bytes()
+
+    # No lock_vault() call here — this IS the crash. The .vault file on disk
+    # is still the OLDER snapshot from before the append above.
+    assert vault.is_enabled(tmp_db)          # .vault file still present
+    assert not vault.is_locked(tmp_db)       # but plaintext is ALSO present
+    assert tmp_db.read_bytes() == newer_plaintext  # and it must be left alone
+
+
 def test_unlock_with_wrong_mnemonic_is_refused(tmp_db):
     vault.setup_vault(tmp_db)
     vault.lock_vault(tmp_db)

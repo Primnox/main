@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import threading
 from pathlib import Path
 
@@ -107,12 +108,24 @@ async def _startup() -> None:
 
     paths.configure(APPDATA)
 
-    # If the vault is enabled, decrypt primnox.db -> plaintext BEFORE
-    # storage.db ever opens it. This is the one point in the process where
-    # unlocking is provably safe: no other thread exists yet to hold a stale
-    # connection to whatever was (or wasn't) on disk before this ran.
+    # If the vault is LOCKED (.vault exists, no plaintext present), decrypt
+    # primnox.db -> plaintext BEFORE storage.db ever opens it — the one point
+    # in the process where unlocking is provably safe for CONNECTIONS: no
+    # other thread exists yet to hold a stale one.
+    #
+    # That says nothing about the DATA, though, and gating on is_enabled()
+    # (merely "does .vault exist") instead of is_locked() ("...AND no
+    # plaintext present") conflated the two: a process killed hard (crash,
+    # OOM, power loss) skips lock_vault() entirely, leaving a fully current
+    # plaintext db + WAL on disk next to a .vault snapshot that only reflects
+    # whatever the last CLEAN shutdown wrote. unlock_vault() decrypts that
+    # stale snapshot and overwrites db_path unconditionally — on is_enabled()
+    # that fires even though a newer plaintext already exists, silently
+    # destroying every write made since the last clean lock. Gating on
+    # is_locked() instead means "plaintext already on disk" is left alone —
+    # strictly safer, since it's the most current copy either way.
     db_path = APPDATA / "primnox.db"
-    if vault.is_enabled(db_path):
+    if vault.is_locked(db_path):
         try:
             vault.unlock_vault(db_path)
             print("[boot] local vault unlocked")
@@ -124,6 +137,9 @@ async def _startup() -> None:
                 f"Local vault is locked and could not be unlocked automatically: {exc}. "
                 "Unlock it with the stored mnemonic before starting the server."
             ) from exc
+    elif vault.is_enabled(db_path):
+        print("[boot] local vault: plaintext already present (prior run did not "
+              "shut down cleanly) — booting against it rather than the older .vault snapshot")
 
     db.configure(db_path)
     db.init()
@@ -470,6 +486,18 @@ async def history(conversation_id: str) -> dict:
         if files:
             row["assets"] = [{"id": a["id"], "name": a["original_name"],
                               "kind": a["kind"]} for a in files]
+
+        # Documents the turn authored, for exactly the reason the files above
+        # are carried: `turn_workspaces` is durable state, and leaving it out
+        # of the state read meant a reopened conversation lost every document
+        # the model wrote. `workspaces.for_turn()` already existed and nothing
+        # called it, so the canvas simply vanished on reload while the rows
+        # sat in the database the whole time.
+        docs = workspaces.for_turn(row["turn_id"])
+        if docs:
+            row["workspaces"] = [{"id": w["id"], "title": w["title"],
+                                  "kind": w["kind"], "version": w["current_version"]}
+                                 for w in docs]
     return {"turns": rows, "head": bus.head(),
             "incognito": turns.is_incognito(conversation_id)}
 
@@ -663,7 +691,19 @@ async def download_asset(asset_id: str, inline: bool = False):
 
     media_type = asset.get("mime") or "application/octet-stream"
     if inline:
-        name = (asset["original_name"] or "file").replace('"', "")
+        # original_name is whatever the uploaded file was called — fully
+        # attacker-controlled. Stripping `"` alone isn't enough: a filename
+        # with an embedded CR/LF reaches uvicorn's header serializer raw
+        # (Starlette's own `filename=` param below takes the non-inline
+        # path, which percent-encodes via urllib.parse.quote() and is
+        # already safe — this manual header is the one path that wasn't).
+        # uvicorn does reject a raw CRLF in a header value outright rather
+        # than emit it (confirmed directly: `RuntimeError: Invalid HTTP
+        # header value`), so this was never an actual response-splitting
+        # exploit — but it was an unhandled crash on that one request for
+        # any file uploaded with such a name. Stripping C0 controls and DEL
+        # turns that into "renders with a slightly mangled name" instead.
+        name = re.sub(r'[\x00-\x1f\x7f]', "", (asset["original_name"] or "file")).replace('"', "")
         return FileResponse(path, media_type=media_type, headers={
             "Content-Disposition": f'inline; filename="{name}"'})
     return FileResponse(path, media_type=media_type,

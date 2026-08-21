@@ -369,11 +369,21 @@ def _sqlite(path: Path) -> dict:
             "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
         sheets = []
         for table in names:
-            cursor = conn.execute(f'SELECT * FROM "{table}" LIMIT {MAX_ROWS_PER_SHEET}')
+            # `table` comes straight from sqlite_master — i.e. from whatever
+            # file the user (or a document they were sent) uploaded, not from
+            # our own schema. SQLite has no placeholder syntax for
+            # identifiers, only values, so the only safe way to interpolate
+            # one is to quote-and-escape it ourselves: a table named
+            # `x"; ATTACH DATABASE '...' AS y; --` would otherwise break out
+            # of the quoted identifier and run as SQL against this
+            # connection. Doubling embedded `"` is the SQL-standard escape
+            # for a quoted identifier.
+            quoted = table.replace('"', '""')
+            cursor = conn.execute(f'SELECT * FROM "{quoted}" LIMIT {MAX_ROWS_PER_SHEET}')
             header = [d[0] for d in cursor.description][:MAX_COLS]
             rows = [["" if v is None else str(v) for v in row[:MAX_COLS]]
                     for row in cursor.fetchall()]
-            total = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            total = conn.execute(f'SELECT COUNT(*) FROM "{quoted}"').fetchone()[0]
             sheets.append({"name": table, "header": header, "rows": rows,
                            "total_rows": total, "truncated": total > len(rows)})
     finally:

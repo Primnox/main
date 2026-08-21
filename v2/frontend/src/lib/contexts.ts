@@ -28,3 +28,10 @@ export type ChatActions = {
 };
 export const ChatsContext = createContext<ChatActions | null>(null);
 
+
+/* Opening a document works the same way, and for the same reason: a workspace
+   is mentioned on a turn and in the context rail, at two different depths.
+   Before this existed both places rendered a dead chip - the document was
+   announced and then unreachable. */
+export type OpenCanvas = (workspaceId: string) => void;
+export const CanvasContext = createContext<OpenCanvas>(() => {});
