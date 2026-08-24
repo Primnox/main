@@ -5,6 +5,7 @@ import { CrsSocket, TERMINAL, api, emptyState, reduce, turnsFromHistory, type Co
 import { CanvasContext, ChatsContext, ViewerContext, type ChatActions, type OpenAsset } from './lib/contexts';
 import { groupByDay } from './lib/groupByDay';
 import { AppRail, type Section } from './components/AppRail';
+import { TitleBar } from './components/TitleBar';
 import { AssetViewer } from './components/AssetViewer';
 import { Canvas } from './components/Canvas';
 import { ChatRow } from './components/ChatRow';
@@ -418,7 +419,18 @@ export default function App() {
         the foot of the rail left the shell at scrollTop 50, shifting the entire
         app up and hiding the sidebar header, permanently, for the rest of the
         session. `clip` clips identically without ever becoming scrollable. */}
-    <div className="flex h-screen w-full bg-surface text-on-surface font-sans overflow-clip">
+    {/* A column, because the frameless Tauri window needs chrome above the
+        app. `decorations: false` in tauri.conf.json removes the OS title bar
+        and Tauri puts nothing back, so without this the packaged window
+        cannot be moved, minimised or closed. See TitleBar. */}
+    <div className="flex flex-col h-screen w-full bg-surface text-on-surface font-sans overflow-clip">
+      <TitleBar />
+
+      {/* `min-h-0` is load-bearing: a flex child defaults to min-height:auto,
+          which refuses to shrink below its content, so the row would grow past
+          the viewport and push the scrollable panes off the bottom instead of
+          scrolling inside them. */}
+      <div className="flex flex-1 min-h-0 w-full overflow-clip">
 
       <AppRail
         section={section}
@@ -1056,6 +1068,7 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
     </div>
     </ChatsContext.Provider>
     </ViewerContext.Provider>
