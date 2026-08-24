@@ -150,6 +150,17 @@ REGISTRY: dict[str, Tunable] = {t.key: t for t in [
        "never appears at all."),
 
     # ── Tools ────────────────────────────────────────────────────────────
+    _t("models.temperature", 0.0, float, 0.0, 2.0,
+       "Sampling temperature sent to OpenAI-compatible providers.",
+       "Nothing was sent before, so the provider's own default applied — about "
+       "0.8 on Ollama. A tool call is structured output: there is one correct "
+       "token sequence, and temperature is an instruction to wander off it. "
+       "Measured on qwen2.5:0.5b, 5 runs per cell across three desktop "
+       "requests: the provider default picked the right tool 8 times in 15, "
+       "0.0 managed 10, and 0.2 and 0.5 both managed 8. The effect is real but "
+       "modest, and it is not the whole story — one of the three requests "
+       "failed at every temperature tried, which is a prompting problem rather "
+       "than a sampling one. Raise it if replies feel flat."),
     _t("tools.max_steps", 8, int, 1, 100,
        "Tool calls the model may chain inside one turn.",
        "Each step is a full model round-trip. Too low and a multi-step task "
@@ -178,6 +189,29 @@ REGISTRY: dict[str, Tunable] = {t.key: t for t in [
        "handshake, and a timeout is indistinguishable from the provider "
        "offering nothing. A local daemon that is not running refuses at once "
        "and never waits, so raising this costs local setups nothing."),
+
+    # ── Routing & resilience (ported from OmniRoute) ─────────────────────
+    _t("models.failover_attempts", 3, int, 1, 10,
+       "How many providers one turn may try before it gives up.",
+       "A latency budget, not a reliability dial: every extra attempt can cost "
+       "a full connect timeout before the user sees a token. 1 disables "
+       "failover entirely and restores single-provider behaviour."),
+    _t("models.breaker_threshold", 2, int, 1, 10,
+       "Consecutive failures before a provider is skipped without being called.",
+       "1 trips on a single flake and can bench a working provider for the "
+       "whole cooldown; high values pay that provider's timeout on every turn "
+       "while it is down. Rejected credentials and exhausted quota ignore this "
+       "and trip at 1 — neither is a flake."),
+    _t("models.breaker_cooldown_s", 30.0, float, 1.0, 3600.0,
+       "First cooldown after a provider trips. Doubles on each further trip.",
+       "Short cooldowns notice a recovery quickly but keep paying the failure's "
+       "timeout to find out. The doubling is what stops a genuinely dead "
+       "endpoint from being probed every 30 seconds all day."),
+    _t("models.breaker_cooldown_max_s", 900.0, float, 5.0, 86_400.0,
+       "Ceiling on the doubled cooldown.",
+       "Raise it and a provider that recovers may sit benched long after it is "
+       "healthy; lower it and a dead one is retried more often. Restarting "
+       "Primnox clears every breaker regardless."),
 ]}
 
 _lock = threading.RLock()

@@ -126,6 +126,7 @@ def build(
     turn_id: str | None = None,
     budget: int | None = None,
     system_prompt: str | None = None,
+    extra_system: str | None = None,
     history_limit: int | None = None,
 ) -> ContextBundle:
     """Assemble everything the model will see for this turn."""
@@ -133,6 +134,15 @@ def build(
     spent = 0
 
     system_text = system_prompt or _default_system()
+    # Everything the caller will actually put in front of the model, costed
+    # here rather than bolted on afterwards. The tool grammar (~2,530 tokens)
+    # and any inlined skill bodies (up to `skills.inline_budget_chars`, ~9,100
+    # tokens) used to be inserted into `bundle.messages` by the scheduler after
+    # this function had already returned, so `budget_for_model()` under-counted
+    # every request by up to ~11,600 tokens — and the retrieval and history
+    # below were sized against a budget that had already been spent.
+    if extra_system:
+        system_text = system_text + "\n\n" + extra_system
     system_cost = estimate_tokens(system_text)
 
     # The current prompt is not optional. It is reserved before history so a

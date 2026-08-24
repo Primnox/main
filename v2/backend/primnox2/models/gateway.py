@@ -13,7 +13,9 @@ call tools natively.
 """
 from __future__ import annotations
 
+import itertools
 import json
+import logging
 import os
 import re
 import sys
@@ -22,7 +24,64 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Literal
 
+from . import failures, health, routing
+
+log = logging.getLogger("primnox2.routing.gateway")
+
+
+def _temperature() -> float:
+    """The configured sampling temperature.
+
+    Imported late, like the other settings reads in this module, because the
+    settings package pulls the model catalogue back in.
+    """
+    from ..settings import tunables
+    return float(tunables.get("models.temperature"))
+
 Support = Literal["native", "emulated", "none"]
+
+# Loopback in its three spellings. ONE definition, because "is this local"
+# decides both whether the payload is scrubbed and whether the failover chain
+# may leave the machine — two answers that must never be able to disagree
+# about the same URL. It was duplicated in both provider classes before the
+# chain existed, when only the first of those two questions was being asked.
+_LOCAL_RE = re.compile(r"https?://(127\.0\.0\.1|localhost|\[::1\])")
+
+
+def is_local_url(base_url: str) -> bool:
+    return bool(_LOCAL_RE.match(base_url or ""))
+
+
+# A localhost ADDRESS is not a localhost DESTINATION. OmniRoute, LiteLLM and
+# every other gateway of that shape listen on 127.0.0.1 and forward to a cloud
+# provider a millisecond later — so the URL heuristic above, used alone, would
+# answer "local" and skip the Privacy Mirror for a prompt that is about to
+# leave the machine. The catalogue's `kind` is the authority when it is known;
+# the heuristic is the fallback for an endpoint nobody has classified.
+ON_DEVICE_KINDS = frozenset({"ollama", "local"})
+OFF_DEVICE_KINDS = frozenset({"cloud", "gateway"})
+
+
+def on_device_for(kind: str, base_url: str) -> bool:
+    if kind in ON_DEVICE_KINDS:
+        return True
+    if kind in OFF_DEVICE_KINDS:
+        return False
+    return is_local_url(base_url)
+
+
+# ...and a SECOND question, which is not the same one. "Off-device" decides
+# whether the payload is scrubbed; "needs a key" decides whether calling it
+# without one is pointless. A gateway is off-device and needs no credential —
+# OmniRoute answers on its free tier with nothing configured at all — so
+# deriving one answer from the other would make the flagship case unusable
+# without pasting in a fake key. Only a direct cloud endpoint needs one.
+def requires_key_for(kind: str, base_url: str) -> bool:
+    if kind == "cloud":
+        return True
+    if kind in ON_DEVICE_KINDS or kind == "gateway":
+        return False
+    return not is_local_url(base_url)
 
 # Sent on every outbound provider request.
 #
@@ -145,6 +204,7 @@ class EchoProvider:
     name = "echo"
     base_url = "local://echo"
     is_local = True
+    requires_key = False
 
     def stream(self, messages: list[dict], model: str = "echo", usage: dict | None = None,
                thinking: bool = False, on_thinking: Callable[[str], None] | None = None) -> Iterator[str]:
@@ -169,14 +229,27 @@ class OpenAICompatProvider:
 
     name = "openai-compat"
 
-    def __init__(self, base_url: str, api_key: str, model: str) -> None:
+    def __init__(self, base_url: str, api_key: str, model: str,
+                 on_device: bool | None = None, needs_key: bool | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+        # None means "nobody said" — fall back to the URL heuristic. Set
+        # explicitly for a gateway, whose address lies about its destination.
+        self._on_device = on_device
+        self._needs_key = needs_key
 
     @property
     def is_local(self) -> bool:
-        return bool(re.match(r"https?://(127\.0\.0\.1|localhost|\[::1\])", self.base_url))
+        if self._on_device is not None:
+            return self._on_device
+        return is_local_url(self.base_url)
+
+    @property
+    def requires_key(self) -> bool:
+        if self._needs_key is not None:
+            return self._needs_key
+        return not self.is_local
 
     def stream(self, messages: list[dict], model: str | None = None,
                usage: dict | None = None, thinking: bool = False,
@@ -187,6 +260,15 @@ class OpenAICompatProvider:
             "model": model or self.model,
             "messages": messages,
             "stream": True,
+            # Sent explicitly rather than left to the provider. Omitting it
+            # inherits whatever the server prefers -- ~0.8 on Ollama -- and
+            # every turn here offers tools, which are structured output that a
+            # high temperature actively degrades. See models.temperature.
+            #
+            # Only on this path: the Anthropic route below enables thinking,
+            # and that API requires temperature 1, so pinning it there would
+            # trade a real capability for a knob Claude does not need.
+            "temperature": _temperature(),
             # Most OpenAI-compatible servers honour this and send a final
             # usage-only chunk; the ones that don't simply omit it.
             "stream_options": {"include_usage": True},
@@ -267,14 +349,27 @@ class AnthropicProvider:
 
     name = "anthropic"
 
-    def __init__(self, base_url: str, api_key: str, model: str) -> None:
+    def __init__(self, base_url: str, api_key: str, model: str,
+                 on_device: bool | None = None, needs_key: bool | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+        # None means "nobody said" — fall back to the URL heuristic. Set
+        # explicitly for a gateway, whose address lies about its destination.
+        self._on_device = on_device
+        self._needs_key = needs_key
 
     @property
     def is_local(self) -> bool:
-        return bool(re.match(r"https?://(127\.0\.0\.1|localhost|\[::1\])", self.base_url))
+        if self._on_device is not None:
+            return self._on_device
+        return is_local_url(self.base_url)
+
+    @property
+    def requires_key(self) -> bool:
+        if self._needs_key is not None:
+            return self._needs_key
+        return not self.is_local
 
     def stream(self, messages: list[dict], model: str | None = None,
                usage: dict | None = None, thinking: bool = False,
@@ -434,9 +529,14 @@ def active_provider():
     key = os.getenv("PRIMNOX_API_KEY", "").strip()
     model = os.getenv("PRIMNOX_MODEL", "").strip()
     api_type = os.getenv("PRIMNOX_API_TYPE", "openai").strip()
+    # Written by settings.models.activate() alongside the URL. Without it the
+    # environment round-trip would lose the one fact the URL cannot express:
+    # that this localhost port is a gateway to the cloud, not a model on it.
+    kind = os.getenv("PRIMNOX_PROVIDER_KIND", "").strip()
     if base and model:
         cls = AnthropicProvider if api_type == "anthropic" else OpenAICompatProvider
-        return cls(base, key, model), model
+        return cls(base, key, model, on_device_for(kind, base),
+                   requires_key_for(kind, base)), model
 
     settings = _v1_settings()
     active = settings.get("active_model", "")
@@ -447,7 +547,10 @@ def active_provider():
                         if p.get("id") == wanted), None)
         if profile and profile.get("base_url") and profile.get("model"):
             cls = AnthropicProvider if profile.get("api_type") == "anthropic" else OpenAICompatProvider
-            return cls(profile["base_url"], profile.get("api_key", ""), profile["model"]), profile["model"]
+            kind = str(profile.get("kind") or "")
+            return cls(profile["base_url"], profile.get("api_key", ""), profile["model"],
+                       on_device_for(kind, profile["base_url"]),
+                       requires_key_for(kind, profile["base_url"])), profile["model"]
 
     if active in _BUILTIN:
         url, key_field, model_field, kind = _BUILTIN[active]
@@ -472,9 +575,35 @@ def describe_active() -> dict:
 
 
 # ── The gate (§13.2) ─────────────────────────────────────────────────────────
+def _failover_attempts() -> int:
+    try:
+        from ..settings import tunables
+        return int(tunables.get("models.failover_attempts"))
+    except Exception as exc:                                  # noqa: BLE001
+        log.debug("tunables unavailable (%s); failover disabled for this call", exc)
+        return 1        # no settings store yet — behave like the old single gate
+
+
+def _open_stream(provider, messages, model, usage, thinking, on_thinking):
+    """Call a provider's stream(), tolerating the older three-argument shape.
+
+    NOTHING HAS BEEN EXECUTED when this returns. A generator function does not
+    run its body until the first `next()`, which is precisely why failover has
+    to be driven off the first token rather than off this call.
+    """
+    try:
+        return provider.stream(messages, model, usage=usage,
+                               thinking=thinking, on_thinking=on_thinking)
+    except TypeError:
+        log.debug("%s.stream() has the legacy signature; calling it positionally",
+                  type(provider).__name__)
+        return provider.stream(messages, model)
+
+
 def stream_completion(messages: list[dict], usage: dict | None = None,
                        scrub_map: list | None = None,
-                       on_thinking: Callable[[str], None] | None = None) -> Iterator[str]:
+                       on_thinking: Callable[[str], None] | None = None,
+                       route: list | None = None) -> Iterator[str]:
     """Every outbound model call passes through here.
 
     Local providers skip scrubbing entirely — nothing leaves the device, so
@@ -500,25 +629,20 @@ def stream_completion(messages: list[dict], usage: dict | None = None,
     itself stays a plain `Iterator[str]` of reply text throughout; thinking is
     always a side channel, never mixed into the yielded stream, so nothing
     that reads this function's return value needs to know it exists.
+
+    `route` is a third output parameter in the same style: one entry per
+    provider this turn touched, in order, each saying what happened to it.
+    Uninteresting on the happy path; the whole story when a turn failed over,
+    which is otherwise invisible to everything downstream.
+
+    FAILOVER COMMITS ON THE FIRST TOKEN. A provider that dies before yielding
+    anything can be replaced silently — nothing downstream has seen a byte, so
+    nothing has to be taken back. A provider that dies after yielding cannot:
+    restarting on another model would splice two half-answers into one reply,
+    and neither the user nor the transcript could tell where the seam was. So
+    the first token is the point of no return, and a failure after it is
+    raised, not routed around.
     """
-    provider, model = active_provider()
-
-    # Catch a missing key here rather than letting the provider answer 403.
-    # A remote endpoint's refusal is indistinguishable from a wrong model, a
-    # revoked key, or a proxy problem — so the one case we can identify
-    # ourselves should be named precisely instead of guessed at afterwards.
-    if not provider.is_local and not getattr(provider, "api_key", ""):
-        raise RuntimeError(
-            f"No API key is configured for {getattr(provider, 'base_url', 'this provider')}. "
-            "Add one in Settings — the model name is not the problem."
-        )
-
-    sess = None
-    if not provider.is_local:
-        sess, messages = _scrub_outbound(messages)
-        if sess is not None and scrub_map is not None:
-            scrub_map.extend(sess.mapping)
-
     # Only Anthropic's wire format needs to be TOLD to think — an
     # unsupported model answers this with a 400 rather than ignoring it, so
     # it is opt-in (see settings/service.py's ALLOWED entry for why there is
@@ -529,21 +653,175 @@ def stream_completion(messages: list[dict], usage: dict | None = None,
     from ..settings import service as settings_service
     thinking = settings_service.get("model.thinking_enabled", "off") == "on"
 
-    # Not every provider reports usage (the echo provider has none to report),
-    # so this is passed only where it is supported rather than made mandatory.
-    try:
-        stream = provider.stream(messages, model, usage=usage,
-                                  thinking=thinking, on_thinking=on_thinking)
-    except TypeError:
-        stream = provider.stream(messages, model)
+    policy = failures.FailoverPolicy(max_attempts=_failover_attempts())
+    lockout = health.Lockout.resolve()
+    attempts: list[dict] = []
+    sess = None
+    outbound = messages
+    scrubbed_for_cloud = False
+    tried = 0
+    first_failure: failures.Failure | None = None
+    first_exception: BaseException | None = None
+    turn_started = time.time()
 
+    def note(**entry) -> None:
+        attempts.append(entry)
+        if route is not None:
+            route.append(entry)
+
+    log.debug("turn starting: %d message(s), thinking=%s, budget=%d attempt(s)",
+              len(messages), thinking, policy.max_attempts)
+
+    for cand in routing.chain(policy.max_attempts):
+        if tried >= policy.max_attempts:
+            log.warning("attempt budget of %d exhausted; %s and anything after it "
+                        "will not be tried", policy.max_attempts, cand.label)
+            note(provider=cand.label, model=cand.model, status="skipped",
+                 reason="attempt_budget_exhausted")
+            break
+
+        # Catch a missing key here rather than letting the provider answer 403.
+        # A remote endpoint's refusal is indistinguishable from a wrong model, a
+        # revoked key, or a proxy problem — so the one case we can identify
+        # ourselves should be named precisely instead of guessed at afterwards.
+        if cand.requires_key and not cand.api_key:
+            log.error("%s (%s) has no API key configured", cand.label, cand.model)
+            note(provider=cand.label, model=cand.model, status="skipped", reason="no_key")
+            if first_exception is None:
+                first_exception = RuntimeError(
+                    f"No API key is configured for "
+                    f"{getattr(cand.provider, 'base_url', 'this provider')}. "
+                    "Add one in Settings — the model name is not the problem.")
+            continue
+
+        # An open breaker costs nothing to consult and saves a full connect
+        # timeout, so it is checked before the attempt is counted: being
+        # skipped is not an attempt, and must not consume the turn's budget.
+        if health.is_open(cand.key):
+            note(provider=cand.label, model=cand.model, status="skipped",
+                 reason="circuit_open", opens_in_s=round(health.opens_in_s(cand.key), 1))
+            continue
+
+        # Scrubbed once for the whole chain, not once per attempt: every cloud
+        # candidate gets the same placeholders, so whichever one answers can be
+        # rehydrated from the same session — and a retry does not pay for the
+        # scrub again. A local candidate reached from a cloud head is handed
+        # the scrubbed payload too; pseudonymized text is never the wrong thing
+        # to send somewhere that was already allowed to see the real thing.
+        if not cand.is_local and not scrubbed_for_cloud:
+            sess, outbound = _scrub_outbound(messages)
+            scrubbed_for_cloud = True
+            log.debug("outbound payload %s for the cloud leg of this chain",
+                      "scrubbed" if sess is not None else "NOT scrubbed (mirror off or failed)")
+
+        tried += 1
+        started = time.time()
+        log.info("attempt %d/%d -> %s (%s)%s",
+                 tried, policy.max_attempts, cand.label, cand.model,
+                 " [failover]" if attempts else "")
+        try:
+            stream = _open_stream(cand.provider, outbound, cand.model,
+                                  usage, thinking, on_thinking)
+            # The generator body has not run yet. THIS is where the request is
+            # actually made, and therefore where a dead provider announces
+            # itself — while failover is still free.
+            first = next(stream)
+        except StopIteration:
+            # A clean, empty reply. Not a failure — some models legitimately
+            # answer nothing — but there is nothing to yield and nothing to
+            # rehydrate either.
+            elapsed = (time.time() - started) * 1000
+            health.record_success(cand.key, elapsed)
+            log.info("%s answered empty in %dms", cand.label, round(elapsed))
+            note(provider=cand.label, model=cand.model, status="ok", empty=True,
+                 ms=round(elapsed))
+            _commit_scrub_map(sess, scrub_map)
+            return
+        except (KeyboardInterrupt, SystemExit, GeneratorExit):
+            # Cancellation, not failure. Recording it against the provider
+            # would bench a healthy endpoint because the user pressed stop.
+            log.info("%s cancelled by the caller after %dms",
+                     cand.label, round((time.time() - started) * 1000))
+            raise
+        except BaseException as exc:                          # noqa: BLE001
+            elapsed = (time.time() - started) * 1000
+            failure = failures.from_exception(exc, cand.label, cand.model)
+            health.record_failure(cand.key, failure, lockout)
+            note(provider=cand.label, model=cand.model, status="failed",
+                 reason=failure.type, retryable=failure.retryable,
+                 error=failure.message[:300], ms=round(elapsed))
+            if first_failure is None:
+                first_failure, first_exception = failure, exc
+
+            if not failures.should_failover(failure, policy):
+                log.error("%s failed with %s and the chain stops here: %s",
+                          cand.label, failure.summary, failure.message[:300])
+                raise
+            log.warning("%s failed with %s after %dms; trying the next provider",
+                        cand.label, failure.summary, round(elapsed))
+            continue
+
+        elapsed = (time.time() - started) * 1000
+        health.record_success(cand.key, elapsed)
+        note(provider=cand.label, model=cand.model, status="ok",
+             ms=round(elapsed), failed_over=bool(attempts))
+        if attempts[:-1]:
+            log.warning("FAILED OVER to %s (%s) — first token in %dms, %d earlier "
+                        "candidate(s) did not answer",
+                        cand.label, cand.model, round(elapsed), len(attempts) - 1)
+        else:
+            log.info("%s answered, first token in %dms", cand.label, round(elapsed))
+        _commit_scrub_map(sess, scrub_map)
+        yield from _emit(first, stream, sess)
+        log.debug("turn complete in %.1fs via %s",
+                  time.time() - turn_started, cand.label)
+        return
+
+    # Nothing answered. The FIRST failure is raised rather than the last: it is
+    # the one about the provider the user actually chose, and "your Groq key is
+    # rejected" is a more useful thing to read than a connection error from the
+    # third fallback they have never heard of.
+    log.error("no provider answered this turn: %s",
+              "; ".join(f"{a['provider']}={a['status']}"
+                        f"{'(' + a['reason'] + ')' if a.get('reason') else ''}"
+                        for a in attempts) or "no candidates at all")
+    if first_exception is None:
+        raise RuntimeError(
+            "No provider is configured. Add one in Settings — Primnox has "
+            "nothing to send this turn to.")
+    if len(attempts) <= 1:
+        raise first_exception
+    label = first_failure.provider if first_failure else "the active provider"
+    raise RuntimeError(
+        f"All {len(attempts)} providers failed this turn. "
+        f"{label}: {first_exception}"
+    ) from first_exception
+
+
+def _commit_scrub_map(sess, scrub_map: list | None) -> None:
+    """Publish the reveal map only once a provider has actually committed.
+
+    Extending it per attempt would show the user a privacy reveal for a request
+    that was abandoned before it produced a single token.
+    """
+    if sess is not None and scrub_map is not None:
+        scrub_map.extend(sess.mapping)
+        log.debug("published a reveal map of %d entry(ies)", len(sess.mapping))
+
+
+def _emit(first: str, rest: Iterator[str], sess) -> Iterator[str]:
+    """Yield the committed stream, rehydrating if the payload was scrubbed."""
     if sess is None:
-        yield from stream
+        yield first
+        yield from rest
         return
 
     from ..privacy.mirror import StreamRehydrator
     rehy = StreamRehydrator(sess)
-    for tok in stream:
+    # itertools.chain, not `(first, *rest)` — unpacking would drain the entire
+    # reply into a tuple before the first token was yielded, turning a
+    # streaming gate into a buffering one.
+    for tok in itertools.chain((first,), rest):
         out = rehy.feed(tok)
         if out:
             yield out

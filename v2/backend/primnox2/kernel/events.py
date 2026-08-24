@@ -48,6 +48,17 @@ CONVERSATION_KINDS = {
     # Planner mode (ARCH §5.5): the model's plan is a first-class event, not
     # prose to be scraped out of the token stream.
     "plan.proposed",
+    # A question the model asked because it did not know something. Emitted by
+    # tools/permissions.py `ask` and rendered by the frontend as a
+    # QuestionBlock. It was never registered here, so every use of the
+    # `ask_user` tool raised ValueError out of the broker — the tool could not
+    # work at all. Same class of silent-typo failure §3.6 exists to prevent.
+    "question.asked", "question.resolved",
+    # Computer Use (primnox2/computer/). Unlike the sandbox, these describe
+    # actions taken OUTSIDE Primnox, in applications it does not own and
+    # cannot roll back. They are emitted before an action is attempted as
+    # well as after, so the action that hangs is still the one you can see.
+    "computer.session.started", "computer.action", "computer.session.ended",
 }
 SYSTEM_KINDS = {"sync.complete", "sync.required"}
 AMBIENT_KINDS = {

@@ -10,6 +10,7 @@ five concurrent model streams.
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import threading
 import time
@@ -21,6 +22,10 @@ from ..models import gateway
 from ..skills import loader as skills
 from ..storage import db
 from .events import bus
+
+# Shares the routing tree so one logger name turns on the whole story of
+# where a turn went: primnox2.routing at DEBUG covers gateway, health and this.
+_routing_log = logging.getLogger("primnox2.routing.scheduler")
 
 now_ms = lambda: int(time.time() * 1000)
 
@@ -302,20 +307,28 @@ class Scheduler:
             return
 
         incognito = turns.is_incognito(conversation_id)
-        bundle = context.build(conversation_id, payload["text"], turn_id=turn_id)
-        messages = list(bundle.messages)
-        messages.insert(1, {"role": "system",
-                            "content": tools.system_prompt(incognito=incognito)})
 
         # Skills that this request looks like it needs, inlined now rather than
         # fetched by the model. The model *can* fetch one — `read_skill` is a
         # tool — but a round trip on the local 7B costs ~8s and carries the
         # tool-loop risk, and a turn that says "make me a deck" does not need
         # to be asked whether it meant it.
-        for skill in skills.select(payload["text"]):
-            messages.insert(2, {"role": "system", "content": skill.body})
+        chosen_skills = skills.select(payload["text"])
+        for skill in chosen_skills:
             bus.emit("job.progress", {"job_id": job["id"], "skill": skill.name},
                      conversation_id=conversation_id, turn_id=turn_id)
+
+        # Handed to `build` rather than inserted afterwards. These two blocks
+        # are the largest fixed cost of a turn, and inserting them post-build
+        # meant retrieval and history were sized against a budget that had
+        # already been spent — see the note in context.build.
+        preamble = "\n\n".join(
+            [tools.system_prompt(incognito=incognito,
+                                 conversation_id=conversation_id)]
+            + [s.body for s in chosen_skills])
+        bundle = context.build(conversation_id, payload["text"],
+                               turn_id=turn_id, extra_system=preamble)
+        messages = list(bundle.messages)
 
         if cancelled():
             turns.finish_cancelled(turn_id, "")
@@ -493,9 +506,14 @@ class Scheduler:
 
         usage: dict = {}
         scrub_map: list = []
+        # One entry per provider this turn touched. Passed in even though the
+        # happy path has exactly one, because the case worth debugging is the
+        # one where the answer came from somewhere other than the model the
+        # user thinks they are talking to.
+        route: list = []
         try:
             for token in gateway.stream_completion(messages, usage=usage, scrub_map=scrub_map,
-                                                    on_thinking=on_thinking):
+                                                    on_thinking=on_thinking, route=route):
                 # CRS §9.2 — a cancellation checkpoint on every iteration of
                 # the token loop. Without one, "stop" cannot take effect until
                 # the provider finishes on its own.
@@ -534,6 +552,14 @@ class Scheduler:
                               "cache_creation_input_tokens", "cache_read_input_tokens"):
                     totals[field] = totals.get(field, 0) + (usage.get(field) or 0)
                 totals["model"] = usage.get("model") or totals.get("model")
+            if len(route) > 1:
+                # Only when something actually failed over. Logging the route
+                # on every successful turn would bury the turns that did.
+                _routing_log.warning(
+                    "turn %s was served by %s after %d other candidate(s): %s",
+                    turn_id, route[-1].get("provider"), len(route) - 1,
+                    " | ".join(f"{r.get('provider')}={r.get('status')}"
+                               f"/{r.get('reason') or r.get('ms', '')}" for r in route))
             if scrub_map:
                 # The on-device reveal: what left pseudonymized, and what it
                 # stood for. Never sent anywhere but this socket.

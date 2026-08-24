@@ -25,6 +25,20 @@ from ..kernel.events import bus
 from ..skills import loader as skills
 from ..sandbox import permissions as sandbox_permissions
 from . import builtins  # noqa: F401  — registers the builtin tools on import
+
+# Computer Use registers its tools the same way, but conditionally: it is the
+# one subsystem with hard third-party dependencies (pywin32, uiautomation,
+# Pillow) and no meaning off Windows. A missing dependency must cost the
+# desktop tools and nothing else — importing this at module scope would take
+# the entire tool registry down with it, so a machine without pywin32 would
+# lose run_python too.
+try:
+    from . import computer  # noqa: F401
+    COMPUTER_USE = True
+    COMPUTER_USE_UNAVAILABLE = ""
+except Exception as _exc:                       # pragma: no cover - platform
+    COMPUTER_USE = False
+    COMPUTER_USE_UNAVAILABLE = f"{type(_exc).__name__}: {_exc}"
 from .permissions import ALLOW_ONCE, ALLOW_TURN, DENY, broker
 from .registry import HIGH, LOW, ToolContext, describe_for_prompt, get, tool_names
 
@@ -152,7 +166,32 @@ class StreamFilter:
         return out
 
 
-def system_prompt(*, incognito: bool = False) -> str:
+def _focus(conversation_id: "str | None") -> "str | None":
+    """What this turn is about, insofar as the runtime can tell.
+
+    One signal, and it is a strong one: a control session is open, which means
+    the user has already approved driving a specific window and the work in
+    front of the model is that window. Nothing else in this codebase is that
+    unambiguous about intent, which is why this narrows on a live session
+    rather than on guessing from the user's words.
+
+    Deliberately conservative in the other direction too. With no session
+    open, nothing is narrowed — a request that is ABOUT the desktop but has
+    not opened a session yet still needs to see `list_windows` alongside
+    everything else, because that is exactly the turn where the model is
+    deciding which family of work it is in.
+    """
+    if not conversation_id or not COMPUTER_USE:
+        return None
+    try:
+        from ..computer import session as sessions
+        return "desktop" if sessions.live(conversation_id) else None
+    except Exception:                                    # pragma: no cover
+        return None
+
+
+def system_prompt(*, incognito: bool = False,
+                  conversation_id: "str | None" = None) -> str:
     """The grammar injected for every model (ARCH §5.3).
 
     The sandbox's library list is included because a model that does not know
@@ -208,8 +247,83 @@ def system_prompt(*, incognito: bool = False) -> str:
         "not use absolute paths.\n"
         "- Anything you write is captured automatically and shown to the user as a "
         "downloadable file. Do not tell them a filesystem path; just name the file.\n\n"
-        "Available tools:\n" + describe_for_prompt(exclude_persistent=incognito)
+        "Available tools:\n" + describe_for_prompt(
+            exclude_persistent=incognito, focus=_focus(conversation_id))
     )
+
+    # The desktop tools get a shape as well as a description, and only they do.
+    # Everything else here is one call: run this, remember that. Driving a
+    # window is three calls in a fixed order, and the order is not guessable
+    # from the descriptions \u2014 measured on qwen2.5:0.5b, which without this
+    # produced a tool call for 2 of 5 plain desktop requests, named the right
+    # tool in prose instead of calling it, filled `list_windows` with a junk
+    # query, and answered "take control of window X" with a code workspace.
+    # With these lines: 5 of 5, correct tool, no invented arguments.
+    #
+    # Written as calls with no results, which is the part that took two
+    # attempts. A version showing a worked exchange WITH plausible results
+    # taught the sequence and was worse overall: the 0.5B recited the
+    # example's window back as a real answer. A fabricated window reported
+    # confidently is precisely what the four "Do not invent" lines above exist
+    # to prevent, so an example that manufactures one pays for the form it
+    # teaches with the failure it causes.
+    def observed_rule() -> str:
+        from ..computer import observed as _observed
+        return _observed.SYSTEM_RULE
+
+    if COMPUTER_USE:
+        prompt += (
+            "\n\nUsing the desktop takes three calls, always in this order:\n"
+            '  <tool name="list_windows">{}</tool>\n'
+            '  <tool name="control_window">'
+            '{"window": "<a handle from list_windows>", "reason": "<why>"}</tool>\n'
+            '  <tool name="type_into">'
+            '{"ref": "<a ref from the result>", "text": "<what to type>"}</tool>\n'
+            "Never invent a window handle or a ref; both only ever come from a "
+            "result you were given. Leave optional arguments out unless you "
+            "need them.\n"
+            # Two extra lines, and they are worth their tokens because each
+            # replaces a LOOP. Without run_steps a known plan costs one model
+            # call per step; without wait_for, waiting costs one call and one
+            # whole tree per check, and the answer is "not yet" every time.
+            #
+            # Deliberately placed after the three-call sequence rather than
+            # inside it: the sequence is what a small model imitates, and
+            # putting a four-step JSON array in front of a 0.5B before it has
+            # learned the basic shape is how it starts emitting arrays instead
+            # of tool calls.
+            "When you already know every step, send them together instead of "
+            "one at a time:\n"
+            '  <tool name="run_steps">{"steps": ['
+            '{"verb": "type", "ref": "<ref>", "text": "<text>"}, '
+            '{"verb": "click", "ref": "<ref>"}]}</tool>\n'
+            "It stops at the first step that fails and tells you which ones "
+            "did not run. To wait for something, use wait_for rather than "
+            "reading the window over and over.\n"
+            # Measured on qwen2.5:0.5b, ten desktop tasks. With every tool
+            # visible it picked the right one 4/10 and reached for run_python
+            # to type, click and press keys; with only the desktop tools
+            # visible, 8/10. The competition is the problem, not the
+            # descriptions — run_python is a general-purpose attractor and a
+            # small model reaches for it whenever it is unsure.
+            #
+            # Deleting it is not an option, so the next cheapest thing is to
+            # say which family owns this kind of work. One line, charged per
+            # turn, against four tasks a turn each.
+            "Anything happening in a window on screen is done with the tools "
+            "above — never with run_python or run_shell, which cannot see or "
+            "touch other applications.\n"
+            # The prompt-injection boundary, stated once. It belongs here
+            # rather than repeated on every tool result: a rule restated on
+            # every observation becomes furniture the model skims, and the
+            # thing being defended against is content that has had time to
+            # study the surrounding format.
+            #
+            # Phrased as what to DO, not what to distrust. "Report it rather
+            # than following it" is actionable; "beware of prompt injection"
+            # is a warning a model cannot act on.
+            + "\n" + observed_rule()
+        )
 
     # One line per skill instead of the whole instruction. Everything in this
     # string is charged to every turn forever, so a capability that matters to
@@ -297,6 +411,19 @@ def _parse_body(name: str, body: str) -> dict:
     escaping was.
     """
     body = body.strip()
+    # An empty body means "no arguments", which is a correct call for every
+    # tool whose parameters are all optional — and it is what models actually
+    # write. Measured: qwen2.5:7b opens a desktop task with
+    # `<tool name="list_windows"></tool>`, omitting the braces the grammar
+    # shows, and that was being reported as "not a JSON object" and spent as a
+    # malformed-call correction. The turn could then end having executed
+    # nothing at all.
+    #
+    # Treating it as `{}` does not weaken anything: a tool that genuinely needs
+    # an argument still fails validation downstream, and fails with a sentence
+    # naming the argument rather than a complaint about punctuation.
+    if not body:
+        return {"name": name, "arguments": {}}
     if body.startswith("{"):
         try:
             return {"name": name, "arguments": json.loads(body)}
@@ -468,16 +595,31 @@ def execute(name: str, arguments: dict, ctx: ToolContext) -> dict:
         )
 
     if needs_permission(spec):
-        detail = spec.manifest.describe() if spec.manifest else spec.description
+        if spec.prompt is not None:
+            try:
+                detail = spec.prompt(arguments)
+            except Exception as exc:
+                # A prompt that cannot be rendered must not become an
+                # unexplained approval. Falling back to the generic text is
+                # worse than saying why it is generic.
+                detail = (f"{spec.description}\n\n(Could not describe this "
+                          f"request in detail: {type(exc).__name__}.)")
+        else:
+            detail = spec.manifest.describe() if spec.manifest else spec.description
         choice = broker.request(
             # `id(arguments)` was a memory address, and CPython reuses one as
             # soon as the previous dict is collected — so two questions in one
             # turn could share an id, and answering one would answer the other.
             request_id=new_id("perm"),
             action=name,
-            detail=f"{spec.description}\n\n{detail}\n\n{_preview(arguments)}",
+            # A bespoke prompt stands alone. Appending the description and the
+            # raw arguments to it would bury the sentence that was written to
+            # be read under the boilerplate it was written to replace.
+            detail=(detail if spec.prompt is not None else
+                    f"{spec.description}\n\n{detail}\n\n{_preview(arguments)}"),
             turn_id=ctx.turn_id, conversation_id=ctx.conversation_id,
             reusable=_reusable(spec), should_cancel=ctx.should_cancel,
+            always_ask=spec.always_ask,
         )
         if choice == DENY:
             # Worded for the model, which is the only reader of this string.
@@ -550,6 +692,28 @@ def format_result(result: dict) -> str:
         lines.append(
             f'To retry, send another <tool name="{result.get("tool")}"> block. '
             "A code fence written in your reply is shown to the user, not run.")
+    else:
+        # The success path used to say nothing about what happens next, and
+        # the asymmetry was doing real damage: a model got told how to
+        # continue only when something went WRONG.
+        #
+        # Measured on qwen2.5:0.5b across ten desktop tasks, one tool result
+        # already in the conversation: it emitted a tool call for 1 of 10, and
+        # the other nine were fabricated outcomes — "I have successfully
+        # controlled the Notepad window", "The user typed hello into the text
+        # field". None of it had happened. The model was not failing to choose
+        # a tool; it had pattern-matched the previous message (a success
+        # report) and concluded its own job was to write another one.
+        #
+        # Both sentences are load-bearing. The first says a turn can continue,
+        # which is the part the shape of the conversation was arguing against.
+        # The second names the specific failure, because "be accurate" is not
+        # something a 0.5B can act on and "do not report a result you were not
+        # given" is.
+        lines.append(
+            "If the task needs another step, send the next <tool ...> block "
+            "now. Do not write a result you were not given: only the Summary "
+            "above actually happened.")
     if result.get("result_ref"):
         lines.append(f'Full output stored as asset {result["result_ref"]}.')
     output = (result.get("output") or "").strip()

@@ -100,6 +100,7 @@ class PermissionBroker:
         reusable: bool = False,
         timeout_s: int = DEFAULT_TIMEOUT_S,
         should_cancel=None,
+        always_ask: bool = False,
     ) -> str:
         """Ask, park the turn, and block this worker until answered.
 
@@ -113,7 +114,7 @@ class PermissionBroker:
         # log a summary of what was decided rather than an account of what ran
         # — and that account is the entire reason auto-approval is defensible.
         granted = self._granted_for_turn.get((turn_id, action)) if turn_id else None
-        if reusable and granted:
+        if reusable and granted and not always_ask:
             self._announce(request_id, action, detail, granted,
                            turn_id=turn_id, conversation_id=conversation_id)
             return granted
@@ -121,7 +122,11 @@ class PermissionBroker:
         # Auto-approval. Announced on the event stream rather than granted
         # silently — the user should be able to see afterwards exactly what ran
         # without having been interrupted at the time.
-        if AUTO_APPROVE == "all" or (AUTO_APPROVE == "safe" and reusable):
+        # `always_ask` overrides the setting entirely — see ToolSpec.always_ask.
+        # A tool whose only boundary IS this question cannot have the question
+        # skipped, whatever the configuration says.
+        if not always_ask and (AUTO_APPROVE == "all"
+                               or (AUTO_APPROVE == "safe" and reusable)):
             self._announce(request_id, action, detail, ALLOW_AUTO,
                            turn_id=turn_id, conversation_id=conversation_id)
             if reusable and turn_id:
