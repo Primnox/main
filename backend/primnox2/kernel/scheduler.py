@@ -20,6 +20,7 @@ from ..chat import ephemeral, turns
 from ..ids import JOB, new_id
 from ..models import gateway
 from ..skills import loader as skills
+from ..tools import observations
 from ..storage import db
 from .events import bus
 
@@ -356,6 +357,11 @@ class Scheduler:
         # would otherwise move the ceiling under a loop that is already running.
         max_steps = tools.max_tool_steps()
 
+        # One ledger per turn. It holds counters and the decisions already
+        # taken, never the message list — so it cannot edit what has been
+        # sent even by accident.
+        ledger = observations.Ledger()
+
         for step in range(max_steps + 1):
             # Each model call in a turn writes its own prose, and joining them
             # with nothing between runs one into the next. Measured live: a
@@ -416,7 +422,28 @@ class Scheduler:
                 return
 
             messages.append({"role": "assistant", "content": reply})
-            messages.append({"role": "user", "content": tools.format_result(result)})
+            # The ledger decides ONCE, here, whether this result is sent whole
+            # or as a compact observation, and the decision is never revisited.
+            #
+            # That constraint is the design. Both the local KV cache and a
+            # provider's cache key on an exact prefix, so going back to shrink
+            # an earlier result would invalidate everything after it — paying a
+            # cache write every step to collect no reads, which costs more than
+            # the compaction saves. Deciding at append time is what lets the
+            # two coexist.
+            #
+            # Measured: a turn costs 350, 848, 2,283 and 7,032 billed tokens at
+            # one, two, four and eight steps. The excess over linear is
+            # entirely earlier results being re-sent, and this is what stops
+            # that growing.
+            messages.append({
+                "role": "user",
+                "content": ledger.record(tools.format_result(result), result),
+            })
+
+        if ledger.compacted:
+            _routing_log.debug("turn %s compacted %s", turn_id,
+                               ", ".join(ledger.compacted))
 
         final = "".join(visible_total).strip()
         if not final:

@@ -338,6 +338,46 @@ def _absorb_usage(sink: dict, reported: dict) -> None:
         + (sink.get("cache_read_input_tokens") or 0)
     )
 
+# Anthropic's minimum cacheable prefix. Below this the API ignores the marker,
+# so sending it is pointless rather than harmful — but checking first keeps the
+# request honest about what it is asking for.
+MIN_CACHEABLE_TOKENS = 1024
+
+
+def _cacheable_system(system: str):
+    """The system prompt, marked so the provider can cache it between calls.
+
+    This is the single largest saving available to a tool-using turn, and it
+    was being left entirely on the table. The prefix — grammar, rules, the
+    tool catalogue, memory, the skills index — is ~2,800 tokens and is
+    IDENTICAL on every iteration of the tool loop by construction: the
+    scheduler builds it once before the loop and the loop only ever appends.
+    Measured, an eight-step turn is billed ~36,500 tokens, of which about
+    22,300 is that unchanged prefix re-sent seven more times at full price.
+
+    A local model already avoids this for free — llama.cpp and Ollama reuse
+    the KV cache on an exact prefix match, which is exactly what an
+    append-only message list gives them. A hosted one does not unless asked,
+    and Anthropic's way of being asked is a `cache_control` marker on the last
+    block that should be cached. Reads then cost about a tenth of an ordinary
+    input token.
+
+    The accounting for this already existed — `_merge_usage` sums
+    `cache_creation_input_tokens` and `cache_read_input_tokens` and has a
+    comment explaining that `input_tokens` alone under-reports when caching is
+    in play. Something was written to measure a saving nothing was requesting.
+
+    Returned as a plain string below the threshold, which is also the shape
+    every provider that is not Anthropic understands.
+    """
+    from ..context.service import estimate_tokens
+
+    if estimate_tokens(system) < MIN_CACHEABLE_TOKENS:
+        return system
+    return [{"type": "text", "text": system,
+             "cache_control": {"type": "ephemeral"}}]
+
+
 
 class AnthropicProvider:
     """Anthropic's messages API — a different wire format, same contract.
@@ -389,7 +429,7 @@ class AnthropicProvider:
             "model": model or self.model,
             "max_tokens": max_tokens,
             "stream": True,
-            **({"system": system} if system else {}),
+            **({"system": _cacheable_system(system)} if system else {}),
             "messages": convo,
             **({"thinking": {"type": "enabled", "budget_tokens": 1024}} if thinking else {}),
         }).encode()
