@@ -61,16 +61,53 @@ export default {
         'on-error': themed('--color-on-error'),
         'error-container': themed('--color-error-container'),
         'on-error-container': themed('--color-on-error-container'),
+
+        /* Dead Reckoning world (seed f80a4f36). The chart-table materials and
+           the three rationed signal inks. Every one of these resolves per
+           theme, so the world holds in all ten palettes. */
+        'dr-plate': themed('--dr-plate'),
+        'dr-plate-lip': themed('--dr-plate-lip'),
+        'dr-rule': themed('--dr-rule'),
+        'dr-rule-firm': themed('--dr-rule-firm'),
+        'dr-track': themed('--dr-track'),
+        'dr-tick': themed('--dr-tick'),
+        'dr-tick-open': themed('--dr-tick-open'),
+        'dr-fix': themed('--dr-fix'),
+        'dr-reckoning': themed('--dr-reckoning'),
+        'dr-refusal': themed('--dr-refusal'),
+      },
+      width: {
+        rail: 'var(--dr-rail-w)',
+        'rail-wide': 'var(--dr-rail-w-wide)',
+      },
+      maxWidth: {
+        plate: 'var(--dr-plate-measure)',
+      },
+      transitionTimingFunction: {
+        settle: 'cubic-bezier(0.16, 1, 0.3, 1)',
       },
       fontFamily: {
         sans: 'var(--font-sans)',
         mono: 'var(--font-mono)',
         display: 'var(--font-display)',
+        /* The documented exception to mono dominance: long-form reading.
+           A 900-word guide set in a terminal face is archetype compliance
+           bought with the thing the guide exists to do. */
+        prose: 'var(--body-prose)',
       },
+      /* Ninety degrees, enforced rather than requested.
+         The archetype's one non-negotiable is the absolute rejection of
+         border-radius, and a token nobody is obliged to use does not enforce
+         anything: 300-odd `rounded-lg` and `rounded-full` calls across the
+         components would have kept their curves out of habit. Overriding the
+         SCALE means every one of them resolves to a right angle, including
+         the ones written next week by someone who never read this file. */
       borderRadius: {
+        none: '0', sm: '0', DEFAULT: '0', md: '0', lg: '0',
+        xl: '0', '2xl': '0', '3xl': '0', full: '0',
         panel: 'var(--radius-panel)',
         control: 'var(--radius-control)',
-        pill: '999px',
+        pill: '0',
       },
       boxShadow: {
         panel: 'var(--shadow-panel)',

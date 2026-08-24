@@ -41,10 +41,10 @@ that isn't real or a fix that didn't work.
 
 These commands are verified against this repo. Run them from `C:\project`.
 
-**Backend — 599 tests, pytest.** The venv lives at `backend/venv` (not `v2/backend/venv`):
+**Backend — 599 tests, pytest.** The venv lives at `backend/venv` (not `backend/venv`):
 
 ```bash
-C:/project/backend/venv/Scripts/python.exe -m pytest v2/backend/tests -q
+C:/project/backend/venv/Scripts/python.exe -m pytest backend/tests -q
 ```
 
 The suite is layered, and the layer names are meaningful — target them directly
@@ -65,7 +65,7 @@ you stop at the first failure instead of reading 40 cascading ones.
 **Frontend — typecheck only:**
 
 ```bash
-npm --prefix v2/frontend run typecheck
+npm --prefix frontend run typecheck
 ```
 
 **There is no frontend unit-test runner, no Vitest, no Playwright, no visual
@@ -99,9 +99,9 @@ Match on the paths in the diff. When several rows match, the union applies.
 
 | Changed path | Domains to consider |
 |---|---|
-| `v2/frontend/src/components/**` | UI (1), Visual (2), Frontend Logic (3), Accessibility (11) |
-| `v2/frontend/src/lib/**`, hooks, state | Frontend Logic (3), Reliability (6) |
-| `v2/backend/primnox2/app.py`, routes | Backend/API (4), Security (7), Observability (13) |
+| `frontend/src/components/**` | UI (1), Visual (2), Frontend Logic (3), Accessibility (11) |
+| `frontend/src/lib/**`, hooks, state | Frontend Logic (3), Reliability (6) |
+| `backend/primnox2/app.py`, routes | Backend/API (4), Security (7), Observability (13) |
 | `kernel/scheduler.py`, `kernel/events.py` | Backend (4), Performance (5), Reliability (6), Observability (13) |
 | `storage/db.py`, `storage/vault.py` | Data Integrity (15), Security (7), Reliability (6), Privacy (16) |
 | `models/gateway.py` | AI Systems (8), Performance (5), Backend (4) |

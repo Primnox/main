@@ -9,7 +9,7 @@ harness — 599 tests across five layers. Extend it; don't build beside it.
 From `C:\project`:
 
 ```bash
-C:/project/backend/venv/Scripts/python.exe -m pytest v2/backend/tests -q
+C:/project/backend/venv/Scripts/python.exe -m pytest backend/tests -q
 ```
 
 Packages are installed only in `backend/venv`. A bare `python` or `pytest` on PATH
@@ -19,7 +19,7 @@ misreading it wastes a whole triage cycle.
 Useful narrowing:
 
 ```bash
-C:/project/backend/venv/Scripts/python.exe -m pytest v2/backend/tests/test_l4_chaos.py -x -q
+C:/project/backend/venv/Scripts/python.exe -m pytest backend/tests/test_l4_chaos.py -x -q
 ```
 
 `-x` stops at the first failure. When one fixture breaks, forty tests fail

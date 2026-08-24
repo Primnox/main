@@ -127,19 +127,29 @@ graphify-out/
 # Orchestrator run artefacts: worker output awaiting merge review.
 scripts/orchestrator/runs/
 
-# V2 build artefacts. The rules above say `backend/dist/` and friends, which
-# are anchored at the repo root and so never matched `v2/backend/...` — this
-# tree held 1.5 GB of PyInstaller output, 293 MB of build intermediates and
-# 373 MB of downloaded models, all of it untracked and one `git add -A` away
-# from the history.
-v2/backend/build/
-v2/backend/dist/
-v2/backend/models/
-v2/frontend/dist/
-v2/frontend/dist-electron/
+# Build artefacts. These rules are anchored at the repository root and
+# now match, because the backend and frontend live there. While the tree
+# was split they did NOT — `backend/dist/` never matched `v2/backend/dist/`,
+# and 1.5 GB of PyInstaller output, 293 MB of build intermediates and
+# 373 MB of downloaded models sat untracked, one `git add -A` from the
+# history. Kept spelled out rather than folded into the rules above so
+# that reason survives.
+backend/build/
+backend/dist/
+backend/models/
+backend/crucible/
+frontend/dist/
+frontend/dist-electron/
+frontend/.vite/
+frontend/.impeccable/
 
-# Project MCP servers. This file is machine-specific — it names an absolute
-# interpreter path that exists on one box — and it configures a desktop
-# automation server with a promptless permission mode. Neither belongs in a
-# clone somebody else made.
+# Project MCP servers. Machine-specific: it names an absolute interpreter
+# path that exists on one box, and configures a desktop automation server
+# with a promptless permission mode.
 .mcp.json
+
+# The real environment file. It was ignored at v2/.env by a rule anchored on
+# that directory, and moving the tree to the root took it out from under that
+# rule — `git add -A` staged it, carrying a commented-out live API key. The
+# rule is anchored here now so the same move cannot expose it again.
+/.env

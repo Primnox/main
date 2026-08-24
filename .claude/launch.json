@@ -4,25 +4,28 @@
     {
       "name": "primnox-v2-backend",
       "runtimeExecutable": "C:/project/backend/venv/Scripts/python.exe",
-      "runtimeArgs": ["v2/backend/run.py"],
+      "runtimeArgs": [
+        "backend/run.py"
+      ],
       "port": 4109
     },
     {
       "name": "primnox-v2-backend-echo",
       "runtimeExecutable": "C:/project/backend/venv/Scripts/python.exe",
-      "runtimeArgs": ["v2/backend/run_echo.py"],
+      "runtimeArgs": [
+        "backend/run_echo.py"
+      ],
       "port": 4109
-    },
-    {
-      "name": "primnox-frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
-      "port": 5173
     },
     {
       "name": "primnox-v2-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "v2/frontend", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev"
+      ],
       "port": 5273
     }
   ]

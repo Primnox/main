@@ -1,101 +1,36 @@
-# ————— API + SERVER ——————————————————————
-groq
+# V2's own dependency list, not V1's — narrower, since V2 does not have V1's
+# S3/GDrive backup providers, vision/OCR, or meeting-audio capture. Where a
+# package is shared with V1 (backend/requirements.txt), the same unpinned
+# style is used deliberately: both backends have run against the one shared
+# dev venv all along, so pinning here to whatever happens to be installed
+# would freeze a version nobody chose on purpose.
+
 fastapi
 uvicorn[standard]
 websockets
 python-multipart
-httpx
 
-# ————— ENV + CONFIG ——————————————————————
-python-dotenv
-pathlib2
-psutil
-requests
-
-# ————— SECURITY + STORAGE ————————————————
+# Local encryption vault (storage/vault.py) — AES-256-GCM + OS keychain.
 cryptography
 keyring
-pywin32; sys_platform == 'win32'
-winsdk; sys_platform == 'win32'
-pycaw; sys_platform == 'win32'
 
-# ————— PRIVACY / PII ─────────────────────
-transformers>=4.40.0
-sentencepiece                     # tokenizer for deberta-v3
-protobuf
-
-# ————— AUDIO + VOICE —————————————————————
-pyaudiowpatch; sys_platform == 'win32'
-sounddevice
-numpy
-resemblyzer
+# Privacy Mirror (privacy/mirror.py) — regex fallback needs nothing extra;
+# the DeBERTa PII model needs the rest of this block.
 torch
-torchaudio
-pydub
+transformers>=4.40.0
+sentencepiece
+numpy
 
-# ————— SCREEN + VISION ———————————————————
-# xdotool required on Linux (apt install xdotool)
-uiautomation; sys_platform == 'win32'
-# macOS counterpart to uiautomation: ApplicationServices provides the
-# Accessibility (AX) element walk, Quartz the window-region capture, Cocoa the
-# frontmost-app lookup. Requires Accessibility + Screen Recording permission.
-pyobjc-framework-Cocoa; sys_platform == 'darwin'
-pyobjc-framework-ApplicationServices; sys_platform == 'darwin'
-pyobjc-framework-Quartz; sys_platform == 'darwin'
-Pillow
-mss
-opencv-python
-pygetwindow; sys_platform == 'win32'
-ultralytics
-easyocr
+# Knowledge graph extraction (`graphifyy` on PyPI; the module name is
+# `graphify`, a double letter apart from the package name — not a typo).
+graphifyy
 
-# ————— MEMORY + DATA —————————————————————
-scipy
-scikit-learn
-
-# ————— CALENDAR SKILL ————————————————————
-icalendar
-recurring-ical-events
-
-# ————— SKILLS ————————————————————————————
+# Document generation and reading (skills/themed-documents, PDF/PPTX/XLSX
+# assets, chart rendering for slides).
 pypdf
-reportlab
-pdf2image
+PyPDF2
 python-docx
-docx2pdf; sys_platform == 'win32'
-openpyxl
-pandas
-xlrd
 python-pptx
-pyzbar
-piexif
-ffmpeg-python
-SpeechRecognition
-tabulate
-rarfile
-py7zr
-pygments
-black
-isort
-comtypes; sys_platform == 'win32'
-edge-tts
-pygame                            # audio playback in voice.py (imported at module level)
-pyttsx3
-pyperclip
-keyboard
-pyautogui
-duckduckgo-search
-rapidfuzz
-pyyaml                            # SKILL.md frontmatter parsing (adapted_skill.py)
-markitdown                        # how the official pptx/xlsx skills read existing files
-
-# ————— WEB REACH (fetch_webpage / fetch_youtube_transcript / fetch_rss_feed) —
-youtube-transcript-api
-feedparser
-
-# ————— BACKUP ────────────────────────────────────────────────────────────────
-mnemonic                          # BIP-39 wordlist + checksum utilities
-boto3                             # S3 / Backblaze B2 / Cloudflare R2 / Wasabi
-google-api-python-client          # Google Drive
-google-auth-oauthlib              # Google OAuth flow
-dropbox                           # Dropbox SDK
+openpyxl
+reportlab
+matplotlib

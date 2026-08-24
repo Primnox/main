@@ -199,3 +199,47 @@
   src: url('/fonts/syne-800-normal-latin.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+
+/* ── Atkinson Hyperlegible ────────────────────────────────────────────────────
+   The working face of the Dead Reckoning world (seed f80a4f36).
+
+   Chosen for the same reason a navigator's chart is lettered the way it is:
+   a figure that can be misread is a figure that cannot be trusted. Atkinson
+   was drawn by the Braille Institute to pull apart the characters that
+   collapse into each other at small sizes and low contrast - I l 1, 0 O, a e,
+   the mirrored b d p q - which is the whole job on a surface whose numbers
+   are timestamps, token counts and coordinates.
+
+   It also discharges a recorded product commitment rather than a taste
+   preference: PRODUCT.md fixes WCAG 2.1 AA as the standard, and legibility at
+   the small end is where that standard actually gets won or lost.
+
+   The faces it replaces were Syne (display) and DM Sans (body). Both are on
+   the list of faces a model reaches for when it has stopped looking, and
+   neither had a reason here that no other face could satisfy. Their
+   @font-face blocks stay above, unreferenced and therefore never fetched, so
+   a revert is one token away.
+
+   SIL Open Font License 1.1. Subset: latin.
+   ──────────────────────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/atkinson-400-normal-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/atkinson-400-italic-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/atkinson-700-normal-latin.woff2') format('woff2');
+}

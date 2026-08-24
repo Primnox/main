@@ -7,7 +7,7 @@ marked done on the strength of intent.
 **190 tests, ~15 seconds, all passing.**
 
 ```bash
-cd v2/backend && python -m pytest tests/ -q
+cd backend && python -m pytest tests/ -q
 ```
 
 ---

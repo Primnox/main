@@ -36,9 +36,11 @@
     /* Was `bg-black`, which ignored the theme entirely and left light themes
        rendering white text on black. */
     @apply bg-surface text-on-surface;
-    background-image: radial-gradient(var(--dot-matrix) 1px, transparent 1px);
-    background-size: 24px 24px;
-    /* The site cross-fades rather than snapping when the theme changes. */
+    /* The 24px dot matrix that used to tile here belonged to the previous
+       visual world. This world already carries a substrate — scanlines and
+       grain, further down — and stacking a third decorative texture under
+       them was an oversight of the port, not a decision: two of them fight,
+       and the dot grid is the one that says nothing about a terminal. */
     transition: background-color 0.35s, color 0.35s;
   }
 
@@ -103,11 +105,6 @@
   }
 }
 
-.dot-matrix {
-  background-image: radial-gradient(currentColor 1px, transparent 1px);
-  background-size: 4px 4px;
-}
-
 /* ─── PRIMNOX DESIGN LANGUAGE ─────────────────────────────────────────────────
    Ported from primnox.github.io so the app reads as the same product as the
    site. Values are the site's, not approximations: Syne 800 uppercase at
@@ -162,8 +159,8 @@
   text-transform: uppercase;
   color: var(--primary);
   border: 1px solid var(--p-line);
-  border-radius: 100px;
-  padding: 4px 13px;
+  border-radius: 0;
+  padding: 4px 11px;
   display: inline-block;
   white-space: nowrap;
 }
@@ -176,8 +173,8 @@
   text-transform: uppercase;
   color: var(--bg);
   background: var(--text);
-  padding: 14px 26px;
-  border-radius: 100px;
+  padding: 13px 26px;
+  border-radius: 0;
   transition: opacity 0.2s;
   white-space: nowrap;
   display: inline-block;
@@ -192,33 +189,13 @@
   color: var(--text);
   border: 1px solid var(--border);
   background: transparent;
-  padding: 13px 25px;
-  border-radius: 100px;
+  padding: 12px 25px;
+  border-radius: 0;
   transition: border-color 0.2s, background 0.2s;
   white-space: nowrap;
   display: inline-block;
 }
 .px-btn-ghost:hover { border-color: var(--p-line); background: var(--p-faint); }
-
-/* Range input. The thumb used to be injected by the Slider component as a
-   per-instance <style> block keyed on a useId() selector — a duplicate copy in
-   the DOM for every mounted slider, even though the declarations never varied.
-   They are static, so they live here once. The track *fill* stays inline on the
-   element: it is a gradient computed from the current value. */
-.px-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: var(--primary);
-  cursor: pointer;
-  margin-top: -6px;
-}
-.px-slider::-webkit-slider-runnable-track {
-  height: 1px;
-  border-radius: 0;
-}
 
 /* Hairline list row — the site's .feat-row. Replaces card grids: an index
    column, the content, and a trailing affordance. */
@@ -274,7 +251,7 @@
   flex-direction: column;
   align-items: center;
   padding: 4px 9px;
-  border-radius: 6px;
+  border-radius: 0;
   border: 1px solid;
   text-align: center;
   flex-shrink: 0;
@@ -316,9 +293,103 @@
   -webkit-backdrop-filter: blur(40px) saturate(180%);
 }
 
+/* ─── WORDMARK ───────────────────────────────────────────────────────────────
+   The brand mark is a 7px dot plus the wide-tracked uppercase wordmark — the
+   site's nav-logo, carried through V1 and V2. The dot is always drawn, so the
+   collapsed rail shows the mark rather than a truncated word; the wordmark
+   slides out from behind it on expand, which is what makes the open state read
+   as the dot leading the name.
+
+   The transition is declared ONLY inside `prefers-reduced-motion: no-preference`.
+   That is not politeness, it is correctness: measured in this app, a
+   transitioned property driven by :hover / :focus-within does not commit at
+   all once the global reduced-motion rule flattens its duration — the rail's
+   width and its labels both silently stopped changing. Declaring no transition
+   under `reduce` means the swap simply happens, instantly and reliably, which
+   is what someone who asked for reduced motion wants anyway.
+   ──────────────────────────────────────────────────────────────────────────── */
+/* `transition: none` in the base is load-bearing, not tidiness. The global
+   reduced-motion block sets `transition-duration: 0.01ms !important` on `*`,
+   and CSS's default `transition-property` is `all` — so every element is
+   transitioning every property whether it asked to or not. Measured three
+   times in this app (the rail's width, its labels, and this wordmark): a
+   matching, higher-specificity rule fires, the element matches the selector,
+   and the value still never commits. Opting the property out is what makes the
+   change take. */
+.px-wordmark { opacity: 0; transition: none; }
+
+.group:hover .px-wordmark,
+.group:focus-within .px-wordmark { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .px-wordmark {
+    transform: translateX(-10px);
+    transition: opacity 220ms ease,
+                transform 340ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .group:hover .px-wordmark,
+  .group:focus-within .px-wordmark { transform: translateX(0); }
+}
+
+/* Rail item labels. Same rules as the wordmark above: opacity rather than
+   display so the text stays in the accessibility tree at every width, and the
+   transition declared only under `no-preference` so the swap still commits when
+   the OS asks for reduced motion.
+
+   Opacity and not the nav's overflow alone, because clipping cut each label
+   mid-word — at 64px the icon and gap leave 13px, so "Knowledge" rendered as a
+   stray "Kn" against the edge and read as broken rather than as collapsed. */
+.px-rail-label { opacity: 0; transition: none; }   /* see .px-wordmark above */
+.group:hover .px-rail-label,
+.group:focus-within .px-rail-label { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .px-rail-label {
+    transition: opacity 180ms ease 40ms;
+  }
+}
+
+/* ─── GLASS ──────────────────────────────────────────────────────────────────
+   Actual glassmorphism, as distinct from `.glass-panel` above.
+
+   `.glass-panel` fills with --nav-bg, which is rgba(7,7,7,0.85) — 85% OPAQUE.
+   Nothing shows through that, so no matter what sits behind it, it reads as a
+   solid dark card with a blur nobody can see. It is a nav-bar background, and
+   for a nav bar that is the right choice: the whole point there is to hide what
+   scrolls under it.
+
+   This is the other thing. ~12% fill, so the backdrop genuinely comes through;
+   blur in the 10–20px range where the diffusion is still legible as diffusion
+   rather than as flat grey; a hairline top highlight for the lit edge.
+
+   Everything is color-mixed from --text, so it inverts with the palette: a
+   literal rgba(255,255,255,…) would assume a dark ground and vanish on the four
+   light themes. */
+.px-glass {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: var(--radius-panel);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow:
+    0 8px 32px rgb(0 0 0 / var(--shadow-op)),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+/* No backdrop-filter support (older WebKit, some embedded webviews): fall back
+   to an opaque-enough fill, because a 12% wash with nothing blurring behind it
+   is unreadable rather than merely less pretty. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .px-glass { background: color-mix(in srgb, var(--text) 8%, var(--bg)); }
+}
+
+/* A compartment, not a card. Flat field and a hairline: the gradient that
+   used to run across this was elevation faked with light, and the archetype
+   rejects gradients outright. What bounds a zone here is a rule. */
 .px-panel {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--text) 5%, var(--bg)), color-mix(in srgb, var(--text) 2%, var(--bg)));
-  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  background: color-mix(in srgb, var(--text) 3.5%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-panel);
 }
@@ -332,12 +403,107 @@
   box-shadow: var(--shadow-focus);
 }
 
+/* Reduced motion means FEWER and GENTLER animations, not zero.
+   `transition-duration: 0.01ms` on everything was the blunt version of this
+   rule: it also removed hover feedback, focus rings easing in, and the fade
+   that tells you a panel changed - so the interface stopped confirming that
+   it had heard you at all, which helps nobody.
+
+   What actually causes trouble is MOVEMENT and SIZE. Restricting the
+   transition property list keeps colour and opacity feedback while dropping
+   transforms, layout and the artifact reveal to instant. Animations (the
+   spinner, marquees) still collapse, with .px-spin carved out below because
+   a progress indicator that stops turning reads as a hang. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-property: opacity, color, background-color, border-color,
+                         text-decoration-color, fill, stroke,
+                         box-shadow, backdrop-filter !important;
+    transition-duration: 120ms !important;
+  }
+}
+
+/* ─── ESSENTIAL MOTION ───────────────────────────────────────────────────────
+   The blanket rule above is the standard reduced-motion reset, and it is too
+   blunt by exactly one case: a loading indicator.
+
+   `animation-iteration-count: 1` with a 0.01ms duration does not slow a spinner
+   down, it freezes it after a single instant rotation. So on any machine with
+   Reduce Motion enabled, every spinner in this app has been a static circle —
+   and a static spinner does not read as "reduced motion", it reads as HUNG.
+   The one moment the interface most needs to show it is alive is the one moment
+   this rule guaranteed it could not.
+
+   `prefers-reduced-motion` means "do not use gratuitous motion". A progress
+   indicator is not gratuitous; it is the only signal that work is happening.
+   WCAG's own carve-out is for motion essential to the information being
+   conveyed, and this is that.
+
+   So it keeps spinning under `reduce`, just calmer: 2.4s instead of 1s, which
+   is a slow sweep rather than a whirl. The class beats the `*` reset on
+   specificity (0,1,0 against 0,0,0), which is why both can carry !important.
+   ──────────────────────────────────────────────────────────────────────────── */
+@keyframes px-spin { to { transform: rotate(360deg); } }
+
+.px-spin {
+  animation: px-spin 1s linear infinite;
+  transform-origin: 50% 50%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .px-spin {
+    animation: px-spin 2.4s linear infinite !important;
+  }
+}
+
+/* ─── Mission Control motion ───────────────────────────────────────────────
+   Two states worth animating on the routing map, and nothing else. Both say
+   something a static style cannot, which is the only reason either exists:
+
+   .px-breathe  the node currently serving a turn. A slow swell reads as
+                "working" where a static highlight reads as "selected", and
+                those are different claims about the same node.
+   .px-sleep    a local model that is installed but not resident. Greying it
+                out would say "broken"; a long, shallow fade says "idle, and
+                will wake when asked", which is what unloaded actually means.
+
+   Both are genuinely decorative under `reduce` — nothing is lost by stopping
+   them, unlike the spinner above, so they simply stop.
+   ──────────────────────────────────────────────────────────────────────── */
+@keyframes px-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 22%, transparent); }
+  50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 0%, transparent); }
+}
+
+@keyframes px-sleep {
+  0%, 100% { opacity: 0.42; }
+  50%      { opacity: 0.62; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .px-breathe { animation: px-breathe 2.6s ease-in-out infinite; }
+  .px-sleep   { animation: px-sleep 3.4s ease-in-out infinite; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .px-sleep { opacity: 0.55; }
+}
+
+/* Card tilt toward the pointer. Decoration rather than state, and carried
+   here only because the brief asked for it by name — kept to 2 degrees and a
+   180ms settle so it registers as material rather than as a toy, and dropped
+   entirely under `reduce` where a moving card is exactly what was opted out
+   of. The transform is driven by --px-tilt-x/y set inline by the component. */
+@media (prefers-reduced-motion: no-preference) {
+  .px-tilt {
+    transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform: perspective(700px)
+               rotateX(calc(var(--px-tilt-y, 0) * 2deg))
+               rotateY(calc(var(--px-tilt-x, 0) * 2deg));
+    transform-style: preserve-3d;
   }
 }
 
@@ -347,9 +513,13 @@
   -webkit-backdrop-filter: blur(60px) saturate(200%);
 }
 
+/* The orb was a soft radial bloom behind the shell — decoration by light,
+   which is what this world replaced with structure. Kept square and near
+   invisible rather than deleted outright: several views position against it,
+   and a square at 3% is a faint field rather than a glowing circle. */
 .orb {
   position: absolute;
-  border-radius: 50%;
+  border-radius: 0;
   z-index: 0;
   pointer-events: none;
 }
@@ -394,7 +564,7 @@
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: var(--scroll);
-  border-radius: 10px;
+  border-radius: 0;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: var(--ring);
@@ -449,3 +619,107 @@
   white-space: pre-wrap !important;
 }
 
+
+/* Settings tab panels. Switching tabs replaced the whole pane instantly, so
+   the content teleported and the eye had to re-find where it was. A short
+   fade is enough to say "this is new content", and it is opacity only, so it
+   costs nothing and survives the reduced-motion allowlist above. No movement:
+   the panel is not arriving from anywhere, it is simply a different panel. */
+@keyframes settings-panel-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── SUBSTRATE ───────────────────────────────────────────────────────────────
+   The archetype asks for simulated hardware limitation, and the trap is
+   building a screensaver: a scanline you notice is a scanline that has stopped
+   being a substrate and started being an effect. Both layers below sit under
+   the content, are pointer-transparent, and are tuned to the threshold where
+   they register as material rather than as decoration.
+
+   Both are off under `prefers-reduced-motion` only insofar as they never move
+   — they are static textures, not animations, so there is nothing to disable.
+   ──────────────────────────────────────────────────────────────────────────── */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Electron beam sweep. 3px period: at 2px it moires against text baselines on
+   a 1x display, which is a shimmer rather than a scanline. */
+body::before {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0 2px,
+    var(--scan-ink) 2px 3px
+  );
+  opacity: 0.55;
+}
+
+/* Mechanical grain. An SVG feTurbulence rather than a tiled PNG: it costs no
+   request, scales to any DPI, and cannot band the way a small repeated bitmap
+   does across a large dark field. */
+body::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  opacity: var(--grain-op);
+  mix-blend-mode: overlay;
+}
+
+/* Content sits above the substrate. Without this the two fixed layers cover
+   the app rather than underlying it. */
+#root { position: relative; z-index: 1; }
+
+/* ─── The documented exception to mono dominance ─────────────────────────────
+   Everything in this interface is monospace: labels, controls, telemetry,
+   tables, navigation. Long-form READING is not, and pretending otherwise is
+   archetype compliance bought with the thing the text exists to do — a
+   900-word guide or a model's reply set in a terminal face is measurably
+   slower to read and this app is mostly reading.
+
+   Applied deliberately and by name, never inherited: if a surface wants out
+   of the terminal face it has to say so.
+   ──────────────────────────────────────────────────────────────────────────── */
+.px-prose {
+  font-family: var(--body-prose);
+  letter-spacing: 0;
+}
+
+/* ─── Structural framing ─────────────────────────────────────────────────────
+   ASCII brackets as real typography rather than characters typed into the
+   content. Generated, so a label stays one string in the JSX and screen
+   readers do not read "left square bracket" before every heading. */
+.px-bracket::before { content: '[ '; color: var(--primary); }
+.px-bracket::after  { content: ' ]'; color: var(--primary); }
+
+/* Crosshair at a grid intersection. Decorative and aria-hidden by position. */
+.px-crosshair {
+  position: relative;
+}
+.px-crosshair::before {
+  content: '+';
+  position: absolute;
+  top: -7px;
+  left: -5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--text) 30%, transparent);
+  pointer-events: none;
+}
+
+/* Hairline grid. `gap: 1px` over a contrasting parent is the archetype's own
+   engineering directive: mathematically exact 1px rules with no border
+   arithmetic and no doubled edges where two cells meet. */
+.px-grid-hairline {
+  display: grid;
+  gap: 1px;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+}
+.px-grid-hairline > * {
+  background: var(--bg);
+}

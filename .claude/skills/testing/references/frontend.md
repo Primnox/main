@@ -5,11 +5,11 @@ and 11 (Accessibility) — 80 of the 300 capabilities.
 
 ## Start here: there is no test runner
 
-`v2/frontend/package.json` has three scripts — `dev`, `build`, `typecheck` — and no
+`frontend/package.json` has three scripts — `dev`, `build`, `typecheck` — and no
 test dependency. No Vitest, no Jest, no Playwright, no visual-regression tooling.
 
 ```bash
-npm --prefix v2/frontend run typecheck
+npm --prefix frontend run typecheck
 ```
 
 That is the entire automated frontend gate. It catches type errors and nothing else.

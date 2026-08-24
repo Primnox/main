@@ -6,7 +6,7 @@ and mean the same thing every time.
 The **How** column names the actual tool. Tags used throughout:
 
 - `browser` — Browser pane tools (`read_page`, `computer`, `read_console_messages`, …)
-- `pytest` — the backend suite at `v2/backend/tests`
+- `pytest` — the backend suite at `backend/tests`
 - `shell` — a command
 - `read` — static reading of source; no runtime needed
 - `⚠ no harness` — nothing automated exists; needs manual work or new tooling. Say so rather than faking a pass.
@@ -152,7 +152,7 @@ Budgets live in `test_perf_budgets.py`. `turn_accepted` (50ms) is the load-beari
 | 103 | Random I/O | Time scattered reads on a large DB |
 | 104 | Network latency | `read_network_requests` timings |
 | 105 | DNS timing | Only relevant for cloud providers; check first-call penalty |
-| 106 | Bundle size | `npm --prefix v2/frontend run build`; inspect `dist` sizes |
+| 106 | Bundle size | `npm --prefix frontend run build`; inspect `dist` sizes |
 | 107 | Asset loading | `read_network_requests` — waterfall, blocking resources |
 | 108 | Garbage collection | Watch for GC pauses during streaming |
 | 109 | Thread utilization | Assert worker threads aren't starving the event loop |
@@ -161,7 +161,7 @@ Budgets live in `test_perf_budgets.py`. `turn_accepted` (50ms) is the load-beari
 | 112 | Thermal behavior | ⚠ no harness — sustained-load observation |
 | 113 | Background processes | Assert no orphans after quit (see 122) |
 | 114 | Render bottlenecks | Profile long tasks in the browser |
-| 115 | Performance regression | `pytest v2/backend/tests/test_perf_budgets.py` — the gate |
+| 115 | Performance regression | `pytest backend/tests/test_perf_budgets.py` — the gate |
 
 ## 6. Reliability & Chaos (116–140)
 
@@ -342,7 +342,7 @@ reliable than a screenshot for everything except contrast.
 
 ## 12. Installer & Updates (246–255)
 
-Tauri build — `v2/frontend/src-tauri`, `.github/workflows/build-windows.yml`.
+Tauri build — `frontend/src-tauri`, `.github/workflows/build-windows.yml`.
 
 | # | Capability | How |
 |---|---|---|

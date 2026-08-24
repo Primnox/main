@@ -82,10 +82,10 @@ in browser history, proxy logs, and referrer headers.
 ## Dependencies (144)
 
 ```bash
-npm --prefix v2/frontend audit
+npm --prefix frontend audit
 ```
 
-For Python, check `v2/backend/requirements.txt` against current advisories. Report
+For Python, check `backend/requirements.txt` against current advisories. Report
 severity *and* whether the vulnerable path is actually reachable from this app — a
 critical CVE in a code path Primnox never calls is a lower priority than a moderate
 one in the request path, and saying so is more useful than forwarding a raw audit.

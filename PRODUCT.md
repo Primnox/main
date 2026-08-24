@@ -100,11 +100,11 @@ inside the product.
 ## Evidence on Hand
 
 - Normative specs: `docs/CONVERSATION_RUNTIME_SPEC.md`, `docs/ARCHITECTURE_V2.md`.
-- Verification suite: `v2/backend/tests/` (611 passing at time of writing),
+- Verification suite: `backend/tests/` (611 passing at time of writing),
   layered L0 contracts through L4 chaos, plus perf budgets.
 - Measured sandbox boundary results (filesystem, network, credentials,
   clipboard, process handles, named pipes, resource limits, cross-execution
-  isolation) recorded in `v2/backend/tests/test_sandbox_isolation.py`.
+  isolation) recorded in `backend/tests/test_sandbox_isolation.py`.
 - Real shipping installer pipeline: `.github/workflows/build-windows.yml`.
 
 No customer testimonials, usage numbers, benchmarks, press, or pricing exist.

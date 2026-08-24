@@ -1,9 +1,13 @@
 """
 Pre-download + fp16-pack the Privacy Mirror PII model into backend/models/pii/
-so it can be bundled into the PyInstaller build (primnox_backend.spec) — no
+so it can be bundled into the PyInstaller build (primnox2_backend.spec) — no
 runtime download, no startup leak window.
 
 Run once before building:   python fetch_pii_model.py
+
+Identical to V1's backend/fetch_pii_model.py (same model, same packing), only
+the destination moved under backend to match
+primnox2.privacy.mirror._resolve_model_source()'s bundled-path candidate.
 
 The weights are stored on disk as fp16 (~370 MB instead of ~760 MB). They're
 upcast back to fp32 in RAM at load time (transformers' default), so CPU inference
@@ -56,7 +60,7 @@ def main() -> None:
     print(f"Downloaded fp32 ({_dir_mb():.0f} MB). Packing weights to fp16…")
 
     # Load, halve, re-save (safetensors only). config.json gains torch_dtype=float16,
-    # but privacy_mirror loads with the default dtype (None) so RAM stays fp32 → CPU ok.
+    # but privacy/mirror.py loads with the default dtype (None) so RAM stays fp32 → CPU ok.
     from transformers import AutoModelForTokenClassification
 
     model = AutoModelForTokenClassification.from_pretrained(str(DEST))

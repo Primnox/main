@@ -47,7 +47,7 @@ More testable, and several of these are real Windows-specific risks for this app
 
 ## Installer and updates (246–255)
 
-The Tauri build lives at `v2/frontend/src-tauri`, built by
+The Tauri build lives at `frontend/src-tauri`, built by
 `.github/workflows/build-windows.yml`.
 
 These need a clean machine or VM to test properly. From a dev box you can verify the

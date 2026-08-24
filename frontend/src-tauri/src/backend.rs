@@ -1,15 +1,19 @@
 //! Python backend lifecycle.
 //!
-//! Ports `startBackend` / `freeBackendPort` from `public/electron.cjs`. The
-//! backend is a PyInstaller bundle shipped as a resource; in dev it is already
-//! running (started by `start.sh` / `start.bat`) and must not be spawned twice.
+//! Ported from V1's `src-tauri/src/backend.rs`, whose port-reclaiming and
+//! process-tree-killing logic is unchanged — only the port and the bundled
+//! executable's name differ, because V2's backend is a separate PyInstaller
+//! build (`backend/primnox2_backend.spec`) from V1's. In dev the backend is
+//! already running (started separately via `python backend/run.py`) and
+//! must not be spawned twice.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::Mutex;
 
-/// Port the Python backend binds. Kept in sync with `src/config.ts`.
-pub const BACKEND_PORT: u16 = 4009;
+/// Port the Python backend binds. Kept in sync with `src/lib/crs.ts`'s `API`
+/// and `WS` constants.
+pub const BACKEND_PORT: u16 = 4109;
 
 /// Handle to the spawned backend, so it can be killed on quit.
 pub static BACKEND_CHILD: Mutex<Option<Child>> = Mutex::new(None);
@@ -17,27 +21,26 @@ pub static BACKEND_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 /// Executable name for the current platform.
 pub fn backend_exe_name() -> &'static str {
     if cfg!(target_os = "windows") {
-        "primnox_backend.exe"
+        "primnox2_backend.exe"
     } else {
-        "primnox_backend"
+        "primnox2_backend"
     }
 }
 
 /// Path to the bundled backend inside the app's resource directory.
 pub fn backend_path(resource_dir: &Path) -> PathBuf {
     resource_dir
-        .join("primnox_backend")
+        .join("primnox2_backend")
         .join(backend_exe_name())
 }
 
 /// Would we kill this process to reclaim the backend port?
 ///
-/// Mirrors the Electron guard: only reclaim the port from our own backend or a
-/// bare Python interpreter (dev mode), never from an unrelated process that
-/// happens to hold 4009.
+/// Only reclaim the port from our own backend or a bare Python interpreter
+/// (dev mode), never from an unrelated process that happens to hold 4109.
 pub fn is_our_backend_process(image_name: &str) -> bool {
     let name = image_name.trim().to_ascii_lowercase();
-    name.contains("primnox_backend") || name.starts_with("python")
+    name.contains("primnox2_backend") || name.starts_with("python")
 }
 
 /// Extract listening PIDs for `port` from Windows `netstat -ano -p tcp` output.
@@ -156,8 +159,8 @@ mod tests {
 
     #[test]
     fn recognises_our_own_backend() {
-        assert!(is_our_backend_process("primnox_backend.exe"));
-        assert!(is_our_backend_process("PRIMNOX_BACKEND.EXE"));
+        assert!(is_our_backend_process("primnox2_backend.exe"));
+        assert!(is_our_backend_process("PRIMNOX2_BACKEND.EXE"));
         assert!(is_our_backend_process("python.exe"));
         assert!(is_our_backend_process("python3.11"));
     }
@@ -168,7 +171,7 @@ mod tests {
         assert!(!is_our_backend_process("postgres.exe"));
         assert!(!is_our_backend_process(""));
         // A process merely *containing* "python" late in the name is still ours
-        // only if it starts with it — matches the Electron guard.
+        // only if it starts with it — matches V1's guard.
         assert!(!is_our_backend_process("mypython.exe"));
     }
 
@@ -176,11 +179,11 @@ mod tests {
     fn parses_listening_pids() {
         let out = "\
   Proto  Local Address          Foreign Address        State           PID
-  TCP    0.0.0.0:4009           0.0.0.0:0              LISTENING       1234
-  TCP    127.0.0.1:4009         127.0.0.1:5555         ESTABLISHED     9999
+  TCP    0.0.0.0:4109           0.0.0.0:0              LISTENING       1234
+  TCP    127.0.0.1:4109         127.0.0.1:5555         ESTABLISHED     9999
   TCP    0.0.0.0:80             0.0.0.0:0              LISTENING       4321
 ";
-        assert_eq!(parse_netstat_pids(out, 4009), vec![1234]);
+        assert_eq!(parse_netstat_pids(out, 4109), vec![1234]);
         assert_eq!(parse_netstat_pids(out, 80), vec![4321]);
         assert!(parse_netstat_pids(out, 9999).is_empty());
     }
@@ -188,17 +191,17 @@ mod tests {
     #[test]
     fn skips_pid_zero_and_dedupes() {
         let out = "\
-  TCP    0.0.0.0:4009    0.0.0.0:0    LISTENING       0
-  TCP    [::]:4009       [::]:0       LISTENING       777
-  TCP    0.0.0.0:4009    0.0.0.0:0    LISTENING       777
+  TCP    0.0.0.0:4109    0.0.0.0:0    LISTENING       0
+  TCP    [::]:4109       [::]:0       LISTENING       777
+  TCP    0.0.0.0:4109    0.0.0.0:0    LISTENING       777
 ";
-        assert_eq!(parse_netstat_pids(out, 4009), vec![777]);
+        assert_eq!(parse_netstat_pids(out, 4109), vec![777]);
     }
 
     #[test]
     fn backend_path_is_nested_under_resources() {
         let p = backend_path(Path::new("/opt/app/resources"));
         assert!(p.ends_with(backend_exe_name()));
-        assert!(p.to_string_lossy().contains("primnox_backend"));
+        assert!(p.to_string_lossy().contains("primnox2_backend"));
     }
 }

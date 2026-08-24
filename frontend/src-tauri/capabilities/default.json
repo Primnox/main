@@ -1,15 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the Primnox main window and the Dynamic Island overlay.",
-  "windows": ["main", "island"],
+  "description": "Permissions for the Primnox main window.",
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:event:default",
-    "core:window:allow-start-dragging",
-    "shell:default",
-    "process:default",
-    "clipboard-manager:allow-read-text",
-    "clipboard-manager:allow-write-text"
+    "core:window:allow-start-dragging"
   ]
 }

@@ -1,260 +1,323 @@
-"""Tests for the memory write/read path: topic/provenance tagging,
-provenance-aware staleness decay, and the zero-token access-count scoring.
+"""Permanent memory, and the retrieval the runtime performs on its own.
+
+The retrieval tests matter more than the CRUD ones. `graph_query` existed as a
+tool for a whole build without anything calling it, which meant the knowledge
+graph was only ever consulted if the model happened to think of it — and the
+local 7B does not. These assert the runtime does the looking.
 """
-from datetime import datetime, timedelta
+from __future__ import annotations
+
+import pathlib
 
 import pytest
+from fastapi.testclient import TestClient
 
-import memory
+from primnox2.app import app
+from primnox2.chat import turns
+from primnox2.context import service as context
+from primnox2.knowledge import importer, live
+from primnox2.memory import service as memory
+from primnox2.storage import db
+
+REPO = pathlib.Path(__file__).resolve().parents[1] / "primnox2"
 
 
 @pytest.fixture
-def db(tmp_path, monkeypatch):
-    """Point memory.py at a throwaway DB so tests never touch the real one."""
-    monkeypatch.setattr(memory, "DB_PATH", tmp_path / "test_memory.db")
-    memory.init_db()
-    return memory
+def clean_memory():
+    with db.tx() as c:
+        c.execute("DELETE FROM memories")
+    yield
+    with db.tx() as c:
+        c.execute("DELETE FROM memories")
 
 
-class TestAddMemory:
-    def test_defaults_to_explicit_provenance(self, db):
-        db.add_memory("user likes dark mode")
-        [mem] = db.list_memories()
-        assert mem["provenance"] == "explicit"
-        assert mem["topic"] is None
-        assert mem["access_count"] == 0
-
-    def test_invalid_provenance_falls_back_to_explicit(self, db):
-        db.add_memory("some fact", provenance="made_up_value")
-        [mem] = db.list_memories()
-        assert mem["provenance"] == "explicit"
-
-    def test_stores_topic(self, db):
-        db.add_memory("fixed the build", category="session", topic="project:primnox", provenance="inferred_screen")
-        [mem] = db.list_memories()
-        assert mem["topic"] == "project:primnox"
-        assert mem["provenance"] == "inferred_screen"
-
-    def test_dedup_still_scoped_per_category(self, db):
-        db.add_memory("prefers dark mode", category="personal")
-        added = db.add_memory("prefers dark mode", category="personal")
-        assert added is False
-        assert len(db.list_memories()) == 1
-
-    def test_dedup_does_not_cross_categories(self, db):
-        db.add_memory("prefers dark mode", category="personal")
-        added = db.add_memory("prefers dark mode", category="work")
-        assert added is True
-        assert len(db.list_memories()) == 2
-
-    def test_key_collision_retries_instead_of_crashing(self, db, monkeypatch):
-        """Regression test: found via concurrency stress testing that
-        add_memory()'s key (sha256 of text+timestamp) could collide when two
-        threads wrote near-identical text at the same microsecond — raising
-        UNIQUE constraint failed and, worse, leaving the cached connection
-        mid-transaction. Fixed by salting the key with random.random() and
-        retrying on collision. This forces a first-attempt collision
-        deterministically (frozen clock + a fixed random draw matching a
-        pre-existing row) and confirms the retry recovers cleanly."""
-        import hashlib
-
-        class _FrozenDatetime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return datetime(2026, 1, 1, 0, 0, 0)
-
-        fixed_ts = "2026-01-01T00:00:00"
-        colliding_random = 0.5
-        pre_existing_key = hashlib.sha256(f"new text{fixed_ts}{colliding_random}".encode()).hexdigest()
-
-        conn = db.get_db()
-        conn.execute(
-            "INSERT INTO memories (key, text, category, timestamp, stale, topic, provenance, access_count) "
-            "VALUES (?, ?, ?, ?, 0, NULL, 'explicit', 0)",
-            (pre_existing_key, "an unrelated existing row", "work", fixed_ts),
-        )
-        conn.commit()
-
-        monkeypatch.setattr(db, "datetime", _FrozenDatetime)
-        random_draws = iter([colliding_random, 0.999])  # 1st collides, 2nd is fresh
-        monkeypatch.setattr(db.random, "random", lambda: next(random_draws))
-
-        added = db.add_memory("new text", category="work")
-
-        assert added is True
-        texts = {m["text"] for m in db.list_memories(category="work")}
-        assert texts == {"an unrelated existing row", "new text"}
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as c:
+        yield c
 
 
-class TestMemoryScore:
-    def test_fresher_scores_higher(self, db):
-        now = datetime.now().isoformat()
-        old = (datetime.now() - timedelta(days=25)).isoformat()
-        assert db.memory_score(now, access_count=0) > db.memory_score(old, access_count=0)
-
-    def test_access_count_boosts_score(self, db):
-        ts = datetime.now().isoformat()
-        assert db.memory_score(ts, access_count=5) > db.memory_score(ts, access_count=0)
-
-    def test_bad_timestamp_does_not_raise(self, db):
-        db.memory_score("not-a-date", access_count=0)
+# ── storing ──────────────────────────────────────────────────────────────────
+def test_a_memory_round_trips(clean_memory):
+    result = memory.remember("I prefer concise answers.")
+    assert result["stored"] is True
+    assert [m["text"] for m in memory.live()] == ["I prefer concise answers."]
 
 
-class TestMarkStaleMemories:
-    def _insert_raw(self, db, text, category, provenance, age_days, access_count=0):
-        # get_db() now returns a long-lived, shared per-thread connection —
-        # closing it here would break every subsequent call in the test.
-        conn = db.get_db()
-        c = conn.cursor()
-        ts = (datetime.now() - timedelta(days=age_days)).isoformat()
-        c.execute(
-            "INSERT INTO memories (key, text, category, timestamp, stale, topic, provenance, access_count) "
-            "VALUES (?, ?, ?, ?, 0, NULL, ?, ?)",
-            (text, text, category, ts, provenance, access_count),
-        )
-        conn.commit()
+def test_a_memory_written_in_a_chat_announces_itself(clean_memory, conversation, events):
+    """§3.6 registers `memory.written`, and for a whole build nothing emitted
+    it — a registered kind no subsystem sends is one the client can never
+    render, which is the same silent gap `graph_query` had. The sequence is
+    the part worth asserting: it proves the event reached the log in the
+    write's own transaction (§4.2), not just a connected socket (§3.4).
+    """
+    memory.remember("They deploy on Tuesday mornings.", conversation_id=conversation)
 
-    def test_explicit_survives_past_inferred_cutoff(self, db):
-        # 15 days old: past the inferred cutoff (10) but well within explicit's (30).
-        self._insert_raw(db, "explicit fact", "personal", "explicit", age_days=15)
-        self._insert_raw(db, "inferred guess", "session", "inferred_chat", age_days=15)
-
-        flagged = db.mark_stale_memories()
-
-        assert flagged == 1
-        remaining = {m["text"] for m in db.list_memories()}
-        assert "explicit fact" in remaining
-        assert "inferred guess" not in remaining
-
-    def test_frequently_recalled_memory_earns_grace(self, db):
-        # 15 days old, inferred (base cutoff 10) — but recalled 10x buys 20 extra days.
-        self._insert_raw(db, "popular guess", "session", "inferred_screen", age_days=15, access_count=10)
-
-        flagged = db.mark_stale_memories()
-
-        assert flagged == 0
-        assert db.list_memories()[0]["text"] == "popular guess"
-
-    def test_stale_rows_excluded_from_default_list(self, db):
-        self._insert_raw(db, "old guess", "session", "inferred_chat", age_days=20)
-        db.mark_stale_memories()
-        assert db.list_memories() == []
-        assert len(db.list_memories(include_stale=True)) == 1
+    written = events.of_kind("memory.written")
+    assert len(written) == 1
+    assert written[0]["payload"]["text"] == "They deploy on Tuesday mornings."
+    assert written[0]["conversation_id"] == conversation
+    assert written[0]["sequence"] is not None
 
 
-class TestSearchMemories:
-    def test_search_increments_access_count(self, db):
-        db.add_memory("the sky is blue and vast", category="personal")
-        db.search_memories("sky blue")
-        [mem] = db.list_memories()
-        assert mem["access_count"] == 1
+def test_a_suppressed_duplicate_announces_nothing(clean_memory, conversation, events):
+    """Nothing was stored, so nothing is announced. The alternative is a client
+    showing the same fact arriving twice."""
+    memory.remember("They deploy on Tuesday mornings.", conversation_id=conversation)
+    again = memory.remember("They deploy on Tuesday mornings", conversation_id=conversation)
+
+    assert again["stored"] is False
+    assert len(events.of_kind("memory.written")) == 1
 
 
-class TestCorrectLastInferredMemory:
-    """'No, that's wrong' should undo the single most recent guess Primnox
-    made about the user — never something the user stated themselves."""
+def test_a_memory_stored_outside_a_chat_announces_nothing(clean_memory, events):
+    """`memory.written` is conversation-scoped (§3.2). A fact set from the
+    settings screen or loaded as a corpus has no stream to reach, and the bus
+    refuses a conversation-scoped event with no conversation."""
+    memory.remember("Stored with no conversation attached.")
 
-    def test_nothing_to_correct_initially(self, db):
-        assert db.correct_last_inferred_memory() is None
-
-    def test_corrects_an_inferred_memory(self, db):
-        db.add_memory("might be a night owl based on activity", provenance="inferred_chat")
-        corrected = db.correct_last_inferred_memory()
-        assert corrected == "might be a night owl based on activity"
-        assert db.list_memories() == []
-
-    def test_does_not_target_explicit_memories(self, db):
-        db.add_memory("user's name is Aniketh", provenance="explicit")
-        assert db.correct_last_inferred_memory() is None
-        assert len(db.list_memories()) == 1
-
-    def test_can_only_correct_once(self, db):
-        db.add_memory("guess about a hobby", provenance="inferred_screen")
-        assert db.correct_last_inferred_memory() == "guess about a hobby"
-        assert db.correct_last_inferred_memory() is None
-
-    def test_targets_the_most_recent_inferred_memory(self, db):
-        db.add_memory("older guess", provenance="inferred_chat")
-        db.add_memory("newer guess", provenance="inferred_screen")
-        corrected = db.correct_last_inferred_memory()
-        assert corrected == "newer guess"
-        remaining = [m["text"] for m in db.list_memories()]
-        assert remaining == ["older guess"]
-
-    def test_an_explicit_memory_after_an_inferred_one_clears_the_target(self, db):
-        # If the user states something explicitly after Primnox's guess, "no
-        # that's wrong" shouldn't reach past it to correct the older guess —
-        # tracking is last-memory-added, not last-inferred-memory-ever.
-        db.add_memory("a guess", provenance="inferred_chat")
-        db.add_memory("an explicit fact", provenance="explicit")
-        assert db.correct_last_inferred_memory() is None
+    assert events.of_kind("memory.written") == []
 
 
-class TestDeleteMemory:
-    """delete_memory() backs the "forget X" voice command. It used to only
-    match WHERE key = ? OR text = ? — both exact — so a lowercased,
-    trigger-stripped phrase like "wifi password" never equaled the original
-    mixed-case, full-sentence memory text, and "forget" silently deleted
-    nothing."""
-
-    def test_forget_matches_case_insensitively_by_substring(self, db):
-        db.add_memory("The WiFi Password Is Hunter2", category="personal")
-        db.delete_memory("wifi password")
-        assert db.list_memories() == []
-
-    def test_delete_by_exact_key_still_works(self, db):
-        db.add_memory("some fact", category="work")
-        [mem] = db.list_memories()
-        db.delete_memory(mem["key"])
-        assert db.list_memories() == []
-
-    def test_no_match_leaves_memories_untouched(self, db):
-        db.add_memory("keep me around", category="work")
-        db.delete_memory("totally unrelated phrase")
-        assert len(db.list_memories()) == 1
+def test_a_near_duplicate_is_not_stored_twice(clean_memory):
+    """A model restating the same fact on consecutive turns should not fill the
+    store with variants of one sentence."""
+    memory.remember("I prefer dark mode in every application.")
+    again = memory.remember("I prefer dark mode in every application")
+    assert again["stored"] is False
+    assert again["duplicate_of"]
+    assert len(memory.live()) == 1
 
 
-class TestConnectionReuse:
-    """get_db() used to open+close a brand-new sqlite3 connection (re-running
-    PRAGMA journal_mode=WAL) on every single call — real, measured overhead
-    at scale. It now caches one connection per thread instead."""
+def test_similar_but_different_facts_are_both_kept(clean_memory):
+    """The duplicate check must not merge facts that differ in the one token
+    that matters."""
+    memory.remember("I use Postgres for the main database")
+    memory.remember("I use Redis for the job queue")
+    assert len(memory.live()) == 2
 
-    def test_get_db_returns_the_same_object_across_calls(self, db):
-        assert db.get_db() is db.get_db()
 
-    def test_reset_forces_a_new_connection(self, db):
-        first = db.get_db()
-        db._reset_db_connection()
-        second = db.get_db()
-        assert first is not second
+def test_forgetting_is_soft(clean_memory):
+    """A memory the user removed must not come back through a re-import that no
+    longer knows it was removed."""
+    mid = memory.remember("Ephemeral fact.")["id"]
+    assert memory.forget(mid) is True
+    assert memory.live() == []
 
-    def test_reset_is_safe_to_call_with_no_cached_connection(self, db):
-        db._reset_db_connection()
-        db._reset_db_connection()  # should not raise on a second, no-op call
+    row = db.connect().execute("SELECT deleted_at FROM memories WHERE id=?", (mid,)).fetchone()
+    assert row["deleted_at"], "the row was hard-deleted"
+    assert memory.restore(mid) is True
+    assert len(memory.live()) == 1
 
-    def test_init_db_picks_up_a_changed_db_path(self, tmp_path, monkeypatch):
-        # This is the scenario connection caching could silently break: if
-        # init_db() didn't drop the cached connection, a test (or a real
-        # vault unlock) pointing DB_PATH at a new file would keep talking to
-        # the old one instead.
-        monkeypatch.setattr(memory, "DB_PATH", tmp_path / "first.db")
-        memory.init_db()
-        memory.add_memory("lives in the first db", category="personal")
 
-        monkeypatch.setattr(memory, "DB_PATH", tmp_path / "second.db")
-        memory.init_db()
+def test_empty_text_is_refused(clean_memory):
+    with pytest.raises(ValueError):
+        memory.remember("   ")
 
-        assert memory.list_memories() == []
-        memory.add_memory("lives in the second db", category="personal")
-        assert len(memory.list_memories()) == 1
 
-    def test_connection_survives_a_manual_close_by_reopening(self, db):
-        # Simulates local_vault.py's flow: something external rewrites the
-        # file on disk, then explicitly resets the cache so the next access
-        # reopens fresh instead of operating on stale/closed state.
-        db.add_memory("before reset", category="personal")
-        db._reset_db_connection()
-        # A fresh connection to the same (unchanged) file should see the same data.
-        assert len(db.list_memories()) == 1
-        db.add_memory("after reset", category="personal")
-        assert len(db.list_memories()) == 2
+def test_search_ranks_the_closest_fact_first(clean_memory):
+    memory.remember("The deployment runs on Tuesday mornings")
+    memory.remember("I like strong coffee")
+    hits = memory.search("deployment Tuesday")
+    assert hits and "deployment" in hits[0]["text"]
+
+
+def test_a_memory_outlives_the_conversation_that_created_it(clean_memory):
+    """ON DELETE SET NULL, not CASCADE: deleting a chat clears the attribution,
+    not the fact the user asked to be remembered."""
+    cid = turns.create_conversation("source")["id"]
+    memory.remember("Remember this beyond the chat.", conversation_id=cid)
+
+    turns.delete_conversation(cid)
+
+    rows = memory.live()
+    assert len(rows) == 1
+    assert rows[0]["conversation_id"] is None
+
+
+# ── retrieval the runtime performs ───────────────────────────────────────────
+def test_memory_reaches_the_prompt_without_the_model_asking(clean_memory, conversation):
+    memory.remember("I prefer terse answers with no preamble.")
+    bundle = context.build(conversation, "write me a function")
+
+    assert "memory" in bundle.retrieved
+    assert any("terse answers" in m["content"]
+               for m in bundle.messages if m["role"] == "system")
+
+
+@pytest.mark.skipif(not importer.available(), reason="graphify not installed")
+def test_the_graph_reaches_the_prompt_without_the_model_asking(fresh_db, conversation):
+    """Regression for the gap this suite was written to close: the graph was
+    reachable only through a tool, so a model that did not think to call it
+    answered from nothing."""
+    importer.import_tree(REPO / "assets", scope="repo")
+    bundle = context.build(conversation, "where is ingest_bytes called?")
+
+    assert "graph" in bundle.retrieved
+    injected = "\n".join(m["content"] for m in bundle.messages if m["role"] == "system")
+    assert "ingest_bytes" in injected
+    assert "service.py" in injected, "a hit arrived without its citation"
+
+
+def test_the_conversation_graph_reaches_the_prompt(conversation):
+    live.drop_all()
+    turns.create_turn(conversation, "We'll use `EventSourcing` for the audit trail.")
+    bundle = context.build(conversation, "remind me of the approach")
+
+    assert "conversation" in bundle.retrieved
+    live.drop_all()
+
+
+def test_retrieval_never_breaks_a_turn(conversation, monkeypatch):
+    """Retrieval is an enhancement on the hot path of every turn. A graph that
+    fails to load must cost the extra context, never the reply."""
+    from primnox2.knowledge import graph as knowledge
+
+    monkeypatch.setattr(knowledge, "query",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    bundle = context.build(conversation, "still has to work")
+    assert bundle.messages[-1]["content"] == "still has to work"
+
+
+def test_retrieval_stays_inside_the_budget(clean_memory, conversation):
+    """A tiny window must still produce a usable prompt rather than one made
+    entirely of retrieved context."""
+    for i in range(200):
+        memory.remember(f"Distinct preference number {i} about topic {i}.")
+    bundle = context.build(conversation, "hello", budget=500)
+    assert bundle.tokens <= bundle.budget
+
+
+# ── HTTP ─────────────────────────────────────────────────────────────────────
+def test_memory_crud_over_http(client, clean_memory):
+    created = client.post("/memories", json={"text": "Over HTTP", "category": "work"})
+    assert created.status_code == 200 and created.json()["stored"] is True
+
+    listed = client.get("/memories").json()
+    assert any(m["text"] == "Over HTTP" for m in listed["memories"])
+    assert listed["stats"]["total"] >= 1
+
+    mid = next(m["id"] for m in listed["memories"] if m["text"] == "Over HTTP")
+    assert client.delete(f"/memories/{mid}").status_code == 200
+    assert not any(m["text"] == "Over HTTP" for m in client.get("/memories").json()["memories"])
+
+
+def test_empty_memory_is_rejected_over_http(client, clean_memory):
+    assert client.post("/memories", json={"text": "  "}).status_code == 400
+
+
+def test_forgetting_an_unknown_memory_is_404(client):
+    assert client.delete("/memories/mem_nope").status_code == 404
+
+
+# ── memory is created in the conversation, not in a settings screen ──────────
+def test_the_model_can_save_a_memory_mid_chat(clean_memory, conversation):
+    """The defect this closes: `remember` did not exist, so the ONLY way to save
+    a fact was a textarea in a settings tab — which nobody opens, so the store
+    stayed empty while the assistant kept forgetting."""
+    from primnox2.tools import registry, runtime  # noqa: F401
+
+    ctx = registry.ToolContext(conversation_id=conversation)
+    out = registry.get("remember").handler(
+        {"text": "I prefer short answers.", "asked_by_user": True}, ctx)
+
+    assert out["status"] == "success"
+    rows = memory.live()
+    assert rows and rows[0]["text"] == "I prefer short answers."
+    assert rows[0]["provenance"] == memory.EXPLICIT
+    assert rows[0]["conversation_id"] == conversation
+
+
+def test_a_model_initiated_memory_is_marked_as_inferred(clean_memory, conversation):
+    """Whether the user asked or the model decided is the difference between a
+    fact and a guess, and the review screen has to be able to show which."""
+    from primnox2.tools import registry, runtime  # noqa: F401
+
+    registry.get("remember").handler(
+        {"text": "They work mostly in Python."}, registry.ToolContext(conversation_id=conversation))
+    assert memory.live()[0]["provenance"] == memory.INFERRED
+
+
+def test_an_incognito_chat_refuses_to_write_a_permanent_memory(clean_memory):
+    """Incognito promises nothing is written. A permanent fact extracted from
+    one would be the single thing it must never do."""
+    from primnox2.chat import turns
+    from primnox2.tools import registry, runtime  # noqa: F401
+
+    cid = turns.create_conversation("secret", incognito=True)["id"]
+    out = registry.get("remember").handler(
+        {"text": "Should never be stored."}, registry.ToolContext(conversation_id=cid))
+
+    assert out["status"] == "error"
+    assert memory.live() == []
+
+
+def test_saving_the_same_fact_twice_reports_it_rather_than_failing(clean_memory, conversation):
+    from primnox2.tools import registry, runtime  # noqa: F401
+
+    ctx = registry.ToolContext(conversation_id=conversation)
+    registry.get("remember").handler({"text": "I prefer dark mode always."}, ctx)
+    second = registry.get("remember").handler({"text": "I prefer dark mode always."}, ctx)
+
+    assert second["status"] == "success"
+    assert "already" in second["output"].lower()
+    assert len(memory.live()) == 1
+
+
+def test_the_model_is_told_the_tool_exists(clean_memory):
+    """A tool nobody mentions is a tool nobody calls."""
+    from primnox2.tools import runtime
+
+    prompt = runtime.system_prompt()
+    assert "remember" in prompt
+    assert "remember" in {s.name for s in __import__(
+        "primnox2.tools.registry", fromlist=["x"]).all_specs()}
+
+
+# ── bulk import ──────────────────────────────────────────────────────────────
+def test_import_keeps_each_memory_at_its_own_time(clean_memory):
+    """The reason `import_many` exists.
+
+    `remember()` stamps `created_at` with now, so importing a corpus would put
+    two years of history at one instant — and "which of these is current" would
+    then be answered by insertion order, which happens to look right.
+    """
+    memory.import_many([
+        {"text": "Devan prefers dark mode.", "created_at": 1_000_000_000_000},
+        {"text": "Devan switched to light mode.", "created_at": 1_040_000_000_000},
+    ])
+    rows = memory.live()
+    assert [r["text"] for r in rows] == ["Devan switched to light mode.",
+                                         "Devan prefers dark mode."]
+    assert [r["created_at"] for r in rows] == [1_040_000_000_000, 1_000_000_000_000]
+
+
+def test_importing_the_same_pack_twice_adds_nothing(clean_memory):
+    """A corpus loaded twice must not double. The dedup rule is the same one
+    `remember()` uses, applied against the live store."""
+    rows = [{"text": f"Devan met person {i} about project {i}.",
+             "created_at": 1_000_000_000_000 + i} for i in range(20)]
+    first = memory.import_many(rows)
+    second = memory.import_many(rows)
+
+    assert first["stored"] == 20
+    assert (second["stored"], second["duplicates"]) == (0, 20)
+    assert len(memory.live()) == 20
+
+
+def test_duplicates_inside_one_import_are_caught(clean_memory):
+    """Suppression has to consider what this batch already accepted, not only
+    what was in the store when it began."""
+    result = memory.import_many([
+        {"text": "Devan writes mostly Python."},
+        {"text": "Devan writes mostly Python"},
+    ])
+    assert (result["stored"], result["duplicates"]) == (1, 1)
+
+
+def test_an_import_can_be_forgotten_like_anything_else(clean_memory):
+    """Imported memories are ordinary rows: soft delete has to reach them, or a
+    benchmark corpus becomes permanent furniture."""
+    ids = memory.import_many([{"text": "Devan cycles to the office."}])["ids"]
+    assert memory.forget(ids[0]) is True
+    assert memory.live() == []
