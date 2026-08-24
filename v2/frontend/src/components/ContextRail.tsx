@@ -57,7 +57,7 @@ export function ContextRail({ state, liveTurn, health, onClose }:
       <header className="h-14 shrink-0 flex items-center justify-between px-5 border-b border-on-surface/[0.07]">
         <span className="px-label">Context</span>
         <button onClick={onClose} aria-label="Hide context panel"
-          className="p-1 -mr-1 rounded text-on-surface/40 hover:text-on-surface transition-all duration-200">
+          className="p-1 -mr-1 rounded text-on-surface/50 hover:text-on-surface transition duration-150">
           <PanelRight size={14} />
         </button>
       </header>
@@ -73,7 +73,7 @@ export function ContextRail({ state, liveTurn, health, onClose }:
               {steps.map(s => (
                 <li key={s.label} className="flex items-center gap-2.5">
                   {s.done ? <Check size={12} className="text-primary shrink-0" />
-                          : <Loader2 size={12} className="text-on-surface/45 px-spin shrink-0" />}
+                          : <Loader2 size={12} className="text-on-surface/50 px-spin shrink-0" />}
                   <span className={`text-[11px] ${s.done ? 'text-on-surface/55' : 'text-on-surface/80'}`}>{s.label}</span>
                 </li>
               ))}
@@ -90,10 +90,10 @@ export function ContextRail({ state, liveTurn, health, onClose }:
                   <a href={`${API}/assets/${f.id}/download`} download={f.name}
                     className="group flex items-center gap-2.5 -mx-2 px-2 py-1.5 rounded-lg
                                hover:bg-on-surface/[0.05] transition-colors duration-200">
-                    <FileText size={13} className="shrink-0 text-on-surface/40" />
+                    <FileText size={13} className="shrink-0 text-on-surface/50" />
                     <span className="text-[11px] text-on-surface/75 truncate flex-1">{f.name}</span>
                     {f.bytes != null && (
-                      <span className="font-mono text-[9px] text-on-surface/30 tabular-nums shrink-0">
+                      <span className="font-mono text-[9px] text-on-surface/50 tabular-nums shrink-0">
                         {f.bytes < 1024 ? `${f.bytes}B` : `${(f.bytes / 1024).toFixed(0)}K`}
                       </span>
                     )}
@@ -105,7 +105,7 @@ export function ContextRail({ state, liveTurn, health, onClose }:
                 <li key={w.id} className="flex items-center gap-2.5 -mx-2 px-2 py-1.5">
                   <Package size={13} className="shrink-0 text-primary/60" />
                   <span className="text-[11px] text-on-surface/75 truncate flex-1">{w.title}</span>
-                  <span className="font-mono text-[9px] text-on-surface/30 shrink-0">v{w.version}</span>
+                  <span className="font-mono text-[9px] text-on-surface/50 shrink-0">v{w.version}</span>
                 </li>
               ))}
             </ul>
@@ -115,19 +115,19 @@ export function ContextRail({ state, liveTurn, health, onClose }:
         <section className="px-5 py-4 border-b border-on-surface/[0.07]">
           <p className="px-label mb-3">Context</p>
           <ul className="space-y-2.5">
-            <li className="flex items-center gap-2.5"><Cpu size={13} className="text-on-surface/40 shrink-0" />
+            <li className="flex items-center gap-2.5"><Cpu size={13} className="text-on-surface/50 shrink-0" />
               <span className="text-[11px] text-on-surface/70">
                 {health?.model ? `${health.model.provider} · ${health.model.model}` : 'resolving provider…'}
               </span></li>
-            <li className="flex items-center gap-2.5"><Terminal size={13} className="text-on-surface/40 shrink-0" />
+            <li className="flex items-center gap-2.5"><Terminal size={13} className="text-on-surface/50 shrink-0" />
               <span className="text-[11px] text-on-surface/70">{state.turns.length} turns in context</span></li>
             {/* Says which backend is actually isolating execution — or that
                 none is, rather than implying a sandbox that isn't there. */}
             <li className="flex items-start gap-2.5">
               {health?.sandbox
-                ? <ShieldCheck size={13} className="text-on-surface/40 shrink-0 mt-0.5" />
+                ? <ShieldCheck size={13} className="text-on-surface/50 shrink-0 mt-0.5" />
                 : <ShieldAlert size={13} className="text-error/70 shrink-0 mt-0.5" />}
-              <span className={`text-[11px] ${health?.sandbox ? 'text-on-surface/45' : 'text-error/80'}`}>
+              <span className={`text-[11px] ${health?.sandbox ? 'text-on-surface/50' : 'text-error/80'}`}>
                 {health?.sandbox === 'appcontainer' ? 'Sandbox: AppContainer isolation'
                   : health?.sandbox === 'unsandboxed' ? 'Sandbox: NONE — code runs unisolated'
                   : health ? 'Sandbox: unavailable — execution refused'
@@ -135,8 +135,8 @@ export function ContextRail({ state, liveTurn, health, onClose }:
               </span>
             </li>
             {health?.model && !health.model.local && (
-              <li className="flex items-start gap-2.5"><ShieldAlert size={13} className="text-on-surface/40 shrink-0 mt-0.5" />
-                <span className="text-[11px] text-on-surface/45">Cloud provider — prompts leave this device</span></li>
+              <li className="flex items-start gap-2.5"><ShieldAlert size={13} className="text-on-surface/50 shrink-0 mt-0.5" />
+                <span className="text-[11px] text-on-surface/50">Cloud provider — prompts leave this device</span></li>
             )}
           </ul>
         </section>
@@ -154,7 +154,7 @@ export function ContextRail({ state, liveTurn, health, onClose }:
       </div>
 
       <footer className="h-10 shrink-0 flex items-center gap-2 px-5 border-t border-on-surface/[0.07]">
-        <Circle size={7} className={liveTurn ? 'text-primary fill-current animate-pulse' : 'text-on-surface/25 fill-current'} />
+        <Circle size={7} className={liveTurn ? 'text-primary fill-current animate-pulse' : 'text-on-surface/50 fill-current'} />
         <span className="px-label">{liveTurn ? STATUS_COPY[liveTurn.status] ?? 'Working' : 'Idle'}</span>
       </footer>
     </aside>

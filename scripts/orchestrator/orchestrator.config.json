@@ -1,0 +1,85 @@
+{
+  "$comment": [
+    "Every value the orchestrator uses lives in this file or in an env var it",
+    "names. Nothing is baked into orchestrator.mjs. Interpolation supported in",
+    "any string value: ${env:NAME}, ${env:NAME:-fallback}, ${configDir},",
+    "${repoRoot}, ${tmpdir}, ${runId}, ${taskId}."
+  ],
+
+  "runner": {
+    "command": "${env:ORCH_OPENCODE_BIN:-opencode}",
+    "subcommand": "run",
+    "baseArgs": ["--pure", "--auto", "--format", "json"],
+    "modelFlag": "--model",
+    "variantFlag": "--variant",
+    "agentFlag": "--agent",
+    "attachFlag": "--file",
+    "titleFlag": "--title",
+    "windows": {
+      "$comment": "Node refuses to spawn .cmd/.bat without a shell. followShims resolves the real executable a package-manager shim forwards to; if that fails we go through the comspec with verbatim arguments.",
+      "followShims": true,
+      "batchExtensions": [".cmd", ".bat"],
+      "comspec": "${env:COMSPEC:-cmd.exe}",
+      "comspecArgs": ["/d", "/s", "/c"]
+    }
+  },
+
+  "worker": {
+    "label": "Ox Alpha Max",
+    "model": "${env:ORCH_WORKER_MODEL:-openrouter/stealth/ox-alpha}",
+    "variant": "${env:ORCH_WORKER_VARIANT:-max}",
+    "agent": null,
+    "allowedModels": ["openrouter/stealth/ox-alpha"],
+    "kickoff": "Read TASK.md and implement it completely. Follow AGENTS.md. Write real files; do not stub.",
+    "briefFilename": "TASK.md",
+    "standardsFilename": "AGENTS.md"
+  },
+
+  "execution": {
+    "concurrency": "${env:ORCH_CONCURRENCY:-3}",
+    "taskTimeoutMs": "${env:ORCH_TASK_TIMEOUT_MS:-2700000}",
+    "killGraceMs": 10000,
+    "$retryComment": "Retries exist for the failure that clears on its own - a provider's per-day quota. Backoff doubles from retryBackoffMs and is capped at retryBackoffMaxMs.",
+    "retries": "${env:ORCH_RETRIES:-0}",
+    "retryBackoffMs": "${env:ORCH_RETRY_BACKOFF_MS:-60000}",
+    "retryBackoffMaxMs": "${env:ORCH_RETRY_BACKOFF_MAX_MS:-900000}"
+  },
+
+  "paths": {
+    "$comment": "sandboxRoot MUST resolve outside repoRoot; the doctor check enforces it.",
+    "sandboxRoot": "${env:ORCH_SANDBOX_ROOT:-${tmpdir}/ox-orchestrator/sandbox}",
+    "runsDir": "${env:ORCH_RUNS_DIR:-${configDir}/runs}",
+    "tasksDir": "${configDir}/tasks",
+    "standardsDir": "${configDir}/standards",
+    "denylistFile": "${configDir}/denylist.txt"
+  },
+
+  "isolation": {
+    "$comment": [
+      "The worker is a stranger. It sees only what the sandbox contains: the",
+      "brief, the standards file, and explicitly seeded inputs. Everything is",
+      "swept against the denylist first; a hit aborts that task, not the run."
+    ],
+    "requireSandboxOutsideRepo": true,
+    "sweepSeededInputs": true,
+    "sweepBrief": true,
+    "maxSweepFileBytes": 2097152,
+    "sweepBinaryExtensions": [".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".woff", ".woff2", ".ttf", ".otf", ".mp4", ".wasm"],
+    "writeSandboxConfig": true,
+    "sandboxConfigEnvVar": "OPENCODE_CONFIG",
+    "sandboxConfigFilename": "opencode.json",
+    "env": {
+      "$comment": "Only these env vars reach the worker process. HOME/USERPROFILE are required for opencode credential lookup.",
+      "passthrough": ["PATH", "Path", "PATHEXT", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot", "windir", "COMSPEC", "TEMP", "TMP", "NUMBER_OF_PROCESSORS", "OS"],
+      "inject": {
+        "NO_COLOR": "1",
+        "CI": "1"
+      }
+    }
+  },
+
+  "collect": {
+    "outputDirname": "output",
+    "ignore": ["node_modules", ".git", ".opencode", "AGENTS.md", "TASK.md", "opencode.json"]
+  }
+}

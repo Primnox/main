@@ -17,7 +17,7 @@ export const RESOLUTION_COPY: Record<string, string> = {
 export function PermissionBlock({ p }: { p: PermissionRequest }) {
   if (p.auto || p.resolved) {
     return (
-      <div className="mb-3 flex items-center gap-2 text-[11px] text-on-surface/40">
+      <div className="mb-3 flex items-center gap-2 text-[11px] text-on-surface/50">
         {p.resolved === 'deny'
           ? <ShieldAlert size={11} className="shrink-0" />
           : <ShieldCheck size={11} className="shrink-0" />}
@@ -40,7 +40,7 @@ export function PermissionBlock({ p }: { p: PermissionRequest }) {
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {p.options.map(o => (
               <button key={o.id} onClick={() => api.resolvePermission(p.id, o.id)}
-                className="px-2.5 py-1 rounded-lg border border-on-surface/15 hover:bg-on-surface/[0.06] transition-all duration-200 px-label">
+                className="px-2.5 py-1 rounded-lg border border-on-surface/15 hover:bg-on-surface/[0.06] transition duration-150 px-label">
                 {o.label}
               </button>
             ))}

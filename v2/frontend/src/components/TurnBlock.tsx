@@ -3,12 +3,13 @@ import { motion } from 'motion/react';
 import { AlertTriangle, Ban, Loader2, RotateCw, Terminal } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { TERMINAL, api, type Turn } from '../lib/crs';
+import { COMPUTER_TOOLS, TERMINAL, api, type Turn } from '../lib/crs';
 import { CanvasContext, ViewerContext } from '../lib/contexts';
 import { MD } from '../lib/md';
 import { STATUS_COPY } from '../lib/status';
 import { Attachment } from './Attachment';
 import { Canvas } from './Canvas';
+import { ComputerBlock } from './ComputerBlock';
 import { CopyButton } from './CopyButton';
 import { QuestionBlock } from './QuestionBlock';
 import { formatElapsed, useElapsed } from '../lib/useElapsed';
@@ -38,7 +39,7 @@ function LiveStatus({ turn }: { turn: Turn }) {
       <Loader2 size={10} className="px-spin" aria-hidden="true" />
       <span aria-live="polite">{STATUS_COPY[turn.status] ?? turn.status}</span>
       {seconds > 0 && (
-        <span className="tabular-nums text-on-surface/30" aria-hidden="true">
+        <span className="tabular-nums text-on-surface/50" aria-hidden="true">
           · {formatElapsed(seconds)}
         </span>
       )}
@@ -50,9 +51,18 @@ export function TurnBlock({ turn }: { turn: Turn }) {
   const live = !TERMINAL.includes(turn.status);
   const openAsset = useContext(ViewerContext);
   const openCanvas = useContext(CanvasContext);
+  /* The entrance uses the full transform string, not Motion's `y` shorthand.
+     The shorthand is not hardware-accelerated: it runs on the main thread,
+     and this is the one entrance that fires on every single turn, while
+     tokens are still streaming into the element above it. `translate3d`
+     keeps it on the compositor. ease-out because it is an entrance - the
+     first frame is the one being watched. */
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }} className="mb-8">
+    <motion.div
+      initial={{ opacity: 0, transform: 'translate3d(0, 8px, 0)' }}
+      animate={{ opacity: 1, transform: 'translate3d(0, 0, 0)' }}
+      transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+      className="mb-8">
 
       <div className="flex justify-end mb-4">
         <div className="max-w-[80%] bg-on-surface/[0.07] border border-on-surface/[0.08] rounded-2xl rounded-br-sm px-4 py-2.5">
@@ -74,7 +84,15 @@ export function TurnBlock({ turn }: { turn: Turn }) {
           {turn.plan && <PlanBlock plan={turn.plan} />}
           {turn.permissions.map(p => <PermissionBlock key={p.id} p={p} />)}
           {turn.questions.map(q => <QuestionBlock key={q.id} q={q} />)}
-          {turn.toolCalls.map((c, i) => <ToolRow key={`${c.name}-${i}`} call={c} />)}
+          {turn.computer.map(c => <ComputerBlock key={c.id} session={c} />)}
+          {/* Desktop tools are filtered out of the tool list rather than
+              rendered twice. Every click also arrives as a tool.call, so
+              without this a session of ten clicks shows as ten anonymous
+              "click_element" rows next to the timeline that already says what
+              each one did, to what, and whether it worked. */}
+          {turn.toolCalls
+            .filter(c => !COMPUTER_TOOLS.has(c.name))
+            .map((c, i) => <ToolRow key={`${c.name}-${i}`} call={c} />)}
           {turn.executions.map(x => <ExecutionBlock key={x.id} execution={x} />)}
 
           {/* Files read the same way documents do: press the name, the file
@@ -102,7 +120,9 @@ export function TurnBlock({ turn }: { turn: Turn }) {
           ))}
 
           {turn.assistantText && (
-            <div className="group/reply text-sm leading-6">
+            /* The model's reply is reading, not telemetry — the one place
+               besides the guides that steps out of the terminal face. */
+            <div className="px-prose group/reply text-sm leading-6">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>{turn.assistantText}</ReactMarkdown>
               {/* Only once the reply is finished. A copy button on a streaming
                   answer hands over half a sentence, and the button appearing
@@ -134,7 +154,7 @@ export function TurnBlock({ turn }: { turn: Turn }) {
               {turn.error.retryable && (
                 <button onClick={() => api.retry(turn.id)}
                   aria-label="Retry this message"
-                  className="ml-auto shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-on-surface/15 hover:bg-on-surface/[0.06] transition-all duration-200 px-label">
+                  className="ml-auto shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-on-surface/15 hover:bg-on-surface/[0.06] transition duration-150 px-label">
                   <RotateCw size={10} /> Retry
                 </button>
               )}

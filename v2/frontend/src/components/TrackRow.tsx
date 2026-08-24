@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import { TERMINAL, type Turn } from '../lib/crs';
 
 /* One leg of the reckoning track.
@@ -8,12 +7,18 @@ import { TERMINAL, type Turn } from '../lib/crs';
  * of alignment with the thing it is tracking, and nothing can float across it.
  * The frame is the grid.
  *
+ * Each tick is also the control that sets a FIX - a position you are willing
+ * to call known-good. That is deliberate: the rail was already made of
+ * buttons, so declaring a fix costs no new chrome and no new place to look.
+ * Everything after the fix is dead reckoning, and the rule says so by getting
+ * heavier the further it runs unconfirmed.
+ *
  * State is carried in FORM first and hue second, always both, never hue alone:
  *
- *   fix        solid mark, full-weight rule      a confirmed position
- *   reckoning  dashed rule, hollow mark          carried forward, unconfirmed
- *   refusal    struck mark                       the runtime declined
- *   stale      half-height rule                  cancelled, went nowhere
+ *   fix        filled mark, solid rule           the confirmed position
+ *   confirmed  solid mark, solid rule            before the fix, settled
+ *   reckoning  hollow mark, dashed rule          carried forward, unconfirmed
+ *   refusal    struck label                      the runtime declined
  *
  * That is a WCAG 1.4.1 obligation (PRODUCT.md records AA), but it is also just
  * how a chart is read: you can photocopy one and it still tells you where the
@@ -36,13 +41,6 @@ function ordinalLabel(index: number): string {
   return String(index + 1).padStart(2, '0');
 }
 
-const RULE_BY_STATE: Record<TrackState, string> = {
-  fix: 'border-l border-dr-track',
-  reckoning: 'border-l border-dashed border-dr-reckoning/70',
-  refusal: 'border-l border-dr-refusal/50',
-  stale: 'border-l border-dr-track/40',
-};
-
 const DESCRIPTION_BY_STATE: Record<TrackState, string> = {
   fix: 'confirmed',
   reckoning: 'in progress',
@@ -53,21 +51,32 @@ const DESCRIPTION_BY_STATE: Record<TrackState, string> = {
 export function TrackRow({
   turn,
   index,
+  isFix,
+  drift,
+  onFix,
   children,
 }: {
   turn: Turn;
   index: number;
+  /** This leg is the current fix. */
+  isFix: boolean;
+  /** How many legs have run since the fix. 0 means this leg is at or before it. */
+  drift: number;
+  onFix: (turnId: string) => void;
   children: React.ReactNode;
 }) {
   const state = stateOf(turn);
-  const open = state === 'reckoning';
+  const confirmed = drift === 0;
 
-  /* Returning to an earlier leg is a scroll, never a mode: nothing is
-     destroyed and nothing is hidden, so there is no state to restore. */
-  const goTo = useCallback(() => {
-    document.getElementById(`leg-${turn.id}`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [turn.id]);
+  /* The rule earns weight with distance from the last fix. One leg out is a
+     hairline; several legs out is heavier and more saturated, so accumulated
+     uncertainty is something you watch build rather than a number you read. */
+  const rule = confirmed
+    ? { borderLeft: '1px solid var(--dr-track)' }
+    : {
+        borderLeft: `${drift > 1 ? 2 : 1}px dashed color-mix(in srgb, var(--dr-reckoning) ${
+          Math.min(30 + drift * 22, 85)}%, transparent)`,
+      };
 
   return (
     <div
@@ -77,37 +86,51 @@ export function TrackRow({
     >
       {/* The rail cell. It draws its own segment of the continuous track, so
           the track is assembled from the legs rather than painted over them. */}
-      <div className={`relative self-stretch pt-[0.6rem] ${RULE_BY_STATE[state]}`}>
+      <div className="relative self-stretch pt-[0.6rem]" style={rule}>
         <button
           type="button"
-          onClick={goTo}
-          title={`Leg ${ordinalLabel(index)}, ${DESCRIPTION_BY_STATE[state]}`}
+          onClick={() => onFix(turn.id)}
+          aria-pressed={isFix}
+          title={isFix
+            ? `Leg ${ordinalLabel(index)} is the current fix`
+            : `Mark leg ${ordinalLabel(index)} as a fix`}
           className="group absolute -left-px top-[0.6rem] flex items-center gap-2
                      rounded-sm pl-0 pr-1 outline-none
                      focus-visible:ring-2 focus-visible:ring-dr-fix/60"
         >
-          {/* The mark. Form first: solid, hollow, or struck. */}
+          {/* The mark. Form first: filled, solid, hollow, or struck. */}
           <span
             aria-hidden="true"
             className={[
               'block h-[7px] w-[7px] shrink-0 -translate-x-1/2 rotate-45',
-              state === 'fix' && 'bg-dr-tick group-hover:bg-dr-tick-open',
-              state === 'reckoning' && 'border border-dr-reckoning bg-transparent',
-              state === 'refusal' && 'bg-dr-refusal',
-              state === 'stale' && 'bg-dr-track',
+              'transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]',
+              isFix && 'scale-[1.45] bg-dr-fix',
+              !isFix && confirmed && 'bg-dr-tick group-hover:bg-dr-tick-open',
+              !isFix && !confirmed && state === 'refusal' && 'bg-dr-refusal',
+              !isFix && !confirmed && state !== 'refusal' && 'border border-dr-reckoning bg-transparent',
             ].filter(Boolean).join(' ')}
           />
           <span
             className={[
               'dr-measure text-[10px] leading-none transition-colors duration-150',
-              open ? 'text-dr-reckoning' : 'text-on-surface/65 group-hover:text-on-surface/90',
+              isFix ? 'text-dr-fix'
+                : confirmed ? 'text-on-surface/65 group-hover:text-on-surface/90'
+                : 'text-dr-reckoning',
               state === 'refusal' && 'line-through decoration-dr-refusal',
             ].filter(Boolean).join(' ')}
           >
             {ordinalLabel(index)}
           </span>
+          {isFix && (
+            <span className="dr-measure text-[10px] leading-none tracking-[0.12em] text-dr-fix">
+              FIX
+            </span>
+          )}
           <span className="sr-only">
-            Leg {ordinalLabel(index)}, {DESCRIPTION_BY_STATE[state]}. Jump to it.
+            Leg {ordinalLabel(index)}, {DESCRIPTION_BY_STATE[state]}.
+            {isFix
+              ? ' This is the current fix.'
+              : ` ${drift > 0 ? `${drift} leg${drift > 1 ? 's' : ''} since the last fix. ` : ''}Mark it as a fix.`}
           </span>
         </button>
       </div>

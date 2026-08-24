@@ -1,0 +1,16 @@
+{
+  "id": "score-factors",
+  "title": "Multiplicative score breakdown",
+  "enabled": true,
+  "briefFile": "briefs/score-factors.md",
+  "standards": "UI.md",
+  "deliverables": ["src/ScoreFactors.tsx", "src/ScoreFactors.test.tsx", "NOTES.md"],
+  "acceptance": [
+    "The layout reads as a multiplication, not as a list of nine independent bars.",
+    "A single zero factor is visibly fatal to the result and is named in words.",
+    "Inert factors render marked as not measured rather than being hidden.",
+    "A mismatch between the supplied total and the computed product is surfaced, never swallowed.",
+    "Factor descriptions are reachable by keyboard, not hover only.",
+    "Product, band classification, and running-product sequence are exported pure functions with tests covering zero, all-ones, epsilon mismatch, and empty input."
+  ]
+}

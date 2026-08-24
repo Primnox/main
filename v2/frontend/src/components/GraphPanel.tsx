@@ -99,13 +99,13 @@ export function GraphPanel({ onClose, initialScope, title, embedded }: {
         </select>
 
         {scope === 'facts' && (
-          <span className="px-label text-on-surface/45">
+          <span className="px-label text-on-surface/50">
             memories · decisions · documents
           </span>
         )}
 
         <button onClick={() => setAll(a => !a)} title="Show every node instead of the community overview"
-          className={`px-2.5 py-1.5 rounded-lg border text-[11px] transition-all duration-200
+          className={`px-2.5 py-1.5 rounded-lg border text-[11px] transition duration-150
             ${all ? 'border-on-surface/35 text-on-surface' : 'border-on-surface/[0.12] text-on-surface/55 hover:text-on-surface/85'}`}>
           <Maximize2 size={12} className="inline mr-1.5 -mt-px" />
           {all ? 'All nodes' : 'Overview'}
@@ -116,18 +116,18 @@ export function GraphPanel({ onClose, initialScope, title, embedded }: {
           <input id="index-target" value={target} onChange={e => setTarget(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') index(); }}
             placeholder="Folder to index…"
-            className="w-56 bg-transparent border border-on-surface/[0.12] rounded-lg px-3 py-1.5 text-[12px] outline-none focus-visible:border-on-surface/40 placeholder:text-on-surface/30" />
+            className="w-56 bg-transparent border border-on-surface/[0.12] rounded-lg px-3 py-1.5 text-[12px] outline-none focus-visible:border-on-surface/40 placeholder:text-on-surface/50" />
           <button onClick={index} disabled={indexing || !target.trim()}
-            className="px-3 py-1.5 rounded-lg border border-on-surface/[0.12] hover:border-on-surface/25 text-[11px] uppercase tracking-[0.1em] disabled:opacity-40 transition-all duration-200">
+            className="px-3 py-1.5 rounded-lg border border-on-surface/[0.12] hover:border-on-surface/25 text-[11px] uppercase tracking-[0.1em] disabled:opacity-40 transition duration-150">
             {indexing ? <Loader2 size={12} className="px-spin" /> : 'Index'}
           </button>
           <button onClick={load} aria-label="Refresh scopes"
-            className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition-all duration-200">
+            className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition duration-150">
             <RefreshCw size={14} />
           </button>
           {onClose && (
             <button onClick={onClose} aria-label="Close knowledge graph"
-              className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition-all duration-200">
+              className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition duration-150">
               <X size={16} />
             </button>
           )}
@@ -142,7 +142,7 @@ export function GraphPanel({ onClose, initialScope, title, embedded }: {
         <iframe key={src} src={src} title="Knowledge graph" className="flex-1 w-full border-0" />
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-8">
-          <Share2 size={28} className="text-on-surface/25" />
+          <Share2 size={28} className="text-on-surface/50" />
           <p className="text-sm text-on-surface/60 max-w-sm">
             {initialScope
               ? 'This conversation has not established anything yet. Entities, files and decisions appear here as you discuss them.'

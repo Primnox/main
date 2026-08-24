@@ -83,7 +83,7 @@ export const MD: any = {
        * the unbroken tokens that actually justify inline code in the first
        * place - a long path, a URL, a hash - which `break-word` alone leaves
        * overflowing. */
-      <code className="bg-on-surface/10 text-primary/90 px-1.5 py-0.5 rounded-md text-[0.82em] font-mono
+      <code className="bg-on-surface/10 text-primary px-1.5 py-0.5 rounded-md text-[0.82em] font-mono
                        whitespace-pre-wrap [overflow-wrap:anywhere]">{children}</code>
     ),
   a: ({ href, children }: any) => <a href={href} className="text-primary underline underline-offset-2">{children}</a>,

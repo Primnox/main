@@ -129,7 +129,12 @@ def scripted(monkeypatch):
     def install(*replies: str, chunk: int = 7, delay: float = 0.0):
         state = {"n": 0}
 
-        def fake_stream(messages, usage=None, scrub_map=None, on_thinking=None):
+        # `route` is the gate's third output parameter (see
+        # models/gateway.stream_completion). A scripted reply never fails
+        # over, so it stays empty — but the signature has to accept it or
+        # every scripted test fails inside the scheduler instead of the model.
+        def fake_stream(messages, usage=None, scrub_map=None, on_thinking=None,
+                        route=None):
             reply = replies[min(state["n"], len(replies) - 1)]
             state["n"] += 1
             # Report plausible usage the way a real provider does, so the

@@ -31,7 +31,7 @@ export function FlowchartBlock({ source }: { source: string }) {
     <>
       <div className="my-3 rounded-xl border border-on-surface/10 bg-on-surface/[0.03] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2 border-b border-on-surface/[0.07]">
-          <Share2 size={12} className="text-on-surface/45" />
+          <Share2 size={12} className="text-on-surface/50" />
           <span className="px-label">Flowchart</span>
           <button onClick={render}
             className="ml-auto text-[11px] uppercase tracking-[0.1em] text-on-surface/50 hover:text-on-surface transition-colors duration-200">
@@ -51,7 +51,7 @@ export function FlowchartBlock({ source }: { source: string }) {
               Flowchart
             </span>
             <button onClick={() => setOpen(false)} aria-label="Close flowchart"
-              className="ml-auto p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition-all duration-200">
+              className="ml-auto p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition duration-150">
               <X size={16} />
             </button>
           </header>

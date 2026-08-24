@@ -43,7 +43,7 @@ export function CopyButton({ text, label = 'Copy', className = '' }: {
     <button type="button" onClick={copy}
       aria-label={state === 'failed' ? 'Copy failed' : label}
       className={`px-interactive inline-flex items-center gap-1.5 rounded-lg px-2 py-1
-                  text-[11px] text-on-surface/45 hover:text-on-surface
+                  text-[11px] text-on-surface/50 hover:text-on-surface
                   hover:bg-on-surface/[0.06] ${className}`}>
       {state === 'done'
         ? <Check size={12} aria-hidden="true" className="text-primary" />

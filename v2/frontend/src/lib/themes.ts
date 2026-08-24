@@ -1,20 +1,19 @@
-/* The ten palettes, and the one place that applies them.
+/* The world, and its one variant.
  *
- * styles/themes.css has defined all ten since it was ported from
- * primnox.github.io, keyed on `data-theme` on <html>. Nothing ever set that
- * attribute, so nine of them had never been rendered by this app at all — the
- * CSS shipped, the switch did not exist.
+ * There were ten palettes here, ported from primnox.github.io — six dark, four
+ * light. They are gone, and their absence is the point: ten palettes is the
+ * opposite of committing to an aesthetic, and a product that ships both a
+ * light and a dark substrate has made every component decide twice and commit
+ * to neither.
  *
- * The swatch colours below are COPIES of each theme's --bg / --primary /
- * --accent. Copying is deliberate: reading them back with getComputedStyle
- * means mounting each theme to sample it, which flashes ten palettes across the
- * screen on first paint. They exist only to draw a 3-dot preview; if one drifts
- * the preview is slightly wrong and nothing else is, whereas the live UI always
- * reads the real token.
+ * What is left is Tactical Telemetry and a substrate variant. #0A0A0A and
+ * #121212 are both named in the archetype; the difference between them is the
+ * room you are sitting in, not a change of identity. Every other decision —
+ * white phosphor, hazard red as the only accent, zero radius, monospace — is
+ * identical across both, which is what makes this a variant rather than a
+ * second theme.
  */
-export type ThemeName =
-  | 'signature' | 'void' | 'carbon' | 'midnight' | 'ember'
-  | 'phosphor' | 'paper' | 'clinical' | 'sand' | 'mono';
+export type ThemeName = 'tactical' | 'tactical-dim';
 
 export type Theme = {
   name: ThemeName;
@@ -25,29 +24,13 @@ export type Theme = {
 };
 
 export const THEMES: Theme[] = [
-  { name: 'signature', label: 'Signature', light: false,
-    swatch: { bg: '#070707', primary: '#c3c0ff', accent: '#ffb695' } },
-  { name: 'void', label: 'Void', light: false,
-    swatch: { bg: '#000000', primary: '#ffffff', accent: '#ff4f2b' } },
-  { name: 'carbon', label: 'Carbon', light: false,
-    swatch: { bg: '#0e1014', primary: '#5fd8ff', accent: '#ffcc66' } },
-  { name: 'midnight', label: 'Midnight', light: false,
-    swatch: { bg: '#060a1a', primary: '#6ea8ff', accent: '#ff7ab8' } },
-  { name: 'ember', label: 'Ember', light: false,
-    swatch: { bg: '#140f0b', primary: '#f5a524', accent: '#ff6b5e' } },
-  { name: 'phosphor', label: 'Phosphor', light: false,
-    swatch: { bg: '#040a06', primary: '#4ade80', accent: '#d9f99d' } },
-  { name: 'paper', label: 'Paper', light: true,
-    swatch: { bg: '#f6f4ef', primary: '#4b3fbf', accent: '#b8501f' } },
-  { name: 'clinical', label: 'Clinical', light: true,
-    swatch: { bg: '#ffffff', primary: '#1447e6', accent: '#d81b4a' } },
-  { name: 'sand', label: 'Sand', light: true,
-    swatch: { bg: '#ece5d8', primary: '#1c6b47', accent: '#b0451a' } },
-  { name: 'mono', label: 'Mono', light: true,
-    swatch: { bg: '#f2f1ee', primary: '#121212', accent: '#3f3f3f' } },
+  { name: 'tactical', label: 'Tactical', light: false,
+    swatch: { bg: '#0A0A0A', primary: '#E61919', accent: '#4AF626' } },
+  { name: 'tactical-dim', label: 'Tactical Dim', light: false,
+    swatch: { bg: '#121212', primary: '#E61919', accent: '#4AF626' } },
 ];
 
-export const DEFAULT_THEME: ThemeName = 'signature';
+export const DEFAULT_THEME: ThemeName = 'tactical';
 
 const KEY = 'primnox2.theme';
 
@@ -67,8 +50,8 @@ export function storedTheme(): ThemeName {
   return DEFAULT_THEME;
 }
 
-/** Apply and remember. `signature` is :root's own palette, so it clears the
- *  attribute rather than setting `data-theme="signature"` — same result, and it
+/** Apply and remember. `tactical` is :root's own palette, so it clears the
+ *  attribute rather than setting `data-theme="tactical"` — same result, and it
  *  keeps the DOM honest about which theme is the default. */
 export function applyTheme(name: ThemeName): void {
   const root = document.documentElement;
@@ -80,7 +63,7 @@ export function applyTheme(name: ThemeName): void {
 /** Called from main.tsx before React mounts.
  *
  * Before first paint, not in an effect: an effect runs after the first render,
- * so the app would paint `signature` and then repaint the real theme — a visible
+ * so the app would paint `tactical` and then repaint the real theme — a visible
  * flash of the wrong palette on every launch, worst on the light themes where
  * it is a full black-to-white flash. */
 export function initTheme(): ThemeName {

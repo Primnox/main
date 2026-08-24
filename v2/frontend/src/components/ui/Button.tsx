@@ -38,9 +38,17 @@ export function Button({
     danger: `${pad} rounded-lg border border-error/40 font-mono text-[10px]
              uppercase tracking-[0.14em] text-error hover:bg-error/10`,
   };
+  /* Press feedback, once, here, rather than remembered at every call site.
+     A control that does not move under the finger gives no confirmation that
+     the press landed, which is the cheapest tactility there is. 0.97 and not
+     0.9: this is a desktop tool, and a button that visibly shrinks reads as a
+     toy. `active:` only, so it costs nothing until pressed, and the transform
+     is excluded under reduced motion by the property list in tailwind.css. */
   return (
     <BaseButton type="button"
       className={`px-interactive disabled:opacity-40 data-[disabled]:opacity-40
+                  transition duration-150 active:scale-[0.97]
+                  disabled:active:scale-100 data-[disabled]:active:scale-100
                   ${variants[variant]} ${className}`}
       {...rest}>
       {children}
@@ -74,6 +82,8 @@ export function IconButton({
     <BaseButton type="button" aria-label={label} title={label}
       aria-pressed={pressed} aria-expanded={expanded}
       className={`px-interactive p-1.5 rounded-lg disabled:opacity-40 data-[disabled]:opacity-40
+                  transition duration-150 active:scale-[0.97]
+                  disabled:active:scale-100 data-[disabled]:active:scale-100
                   ${active ? 'text-on-surface bg-on-surface/[0.07]'
                            : 'text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05]'}
                   ${className}`}

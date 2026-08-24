@@ -77,7 +77,7 @@ export function MemoryPanel({ onClose, embedded }: {
         )}
         <div className="ml-auto flex items-center gap-2">
           <div className="flex items-center gap-2 border border-on-surface/[0.12] rounded-lg px-2.5 py-1.5 w-56">
-            <Search size={12} className="text-on-surface/40 shrink-0" aria-hidden="true" />
+            <Search size={12} className="text-on-surface/50 shrink-0" aria-hidden="true" />
             {/* Named, not just hinted. The magnifier says "search" to someone
                 who can see it; the label says it to everyone else, and it
                 survives the placeholder disappearing on the first keystroke. */}
@@ -85,11 +85,11 @@ export function MemoryPanel({ onClose, embedded }: {
             <input id="memory-search" type="search" value={query}
               onChange={e => { setQuery(e.target.value); load(e.target.value); }}
               placeholder="Search memories…"
-              className="flex-1 bg-transparent text-[12px] outline-none placeholder:text-on-surface/30" />
+              className="flex-1 bg-transparent text-[12px] outline-none placeholder:text-on-surface/50" />
           </div>
           {onClose && (
             <button onClick={onClose} aria-label="Close memory"
-              className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition-all duration-200">
+              className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition duration-150">
               <X size={16} />
             </button>
           )}
@@ -101,7 +101,7 @@ export function MemoryPanel({ onClose, embedded }: {
 
           <section className="space-y-3">
             <p className="px-eyebrow">Add one by hand</p>
-            <p className="text-[12px] text-on-surface/45 -mt-1">
+            <p className="text-[12px] text-on-surface/50 -mt-1">
               Usually you will not need this. Say “remember that…” in any chat
               and it is saved from there, with the conversation it came from
               attached. This screen is for reviewing and forgetting.
@@ -120,7 +120,7 @@ export function MemoryPanel({ onClose, embedded }: {
                 ))}
               </select>
               <button onClick={add} disabled={busy || !draft.trim()}
-                className="px-3.5 py-1.5 rounded-lg border border-on-surface/[0.12] hover:border-on-surface/25 text-[11px] uppercase tracking-[0.1em] disabled:opacity-40 transition-all duration-200">
+                className="px-3.5 py-1.5 rounded-lg border border-on-surface/[0.12] hover:border-on-surface/25 text-[11px] uppercase tracking-[0.1em] disabled:opacity-40 transition duration-150">
                 Remember
               </button>
               {note && <span className="text-[12px] text-on-surface/55">{note}</span>}
@@ -132,7 +132,7 @@ export function MemoryPanel({ onClose, embedded }: {
               {query ? `Matching “${query}”` : 'Everything it knows'}
             </p>
             {rows.length === 0 && (
-              <p className="text-sm text-on-surface/45 py-6">
+              <p className="text-sm text-on-surface/50 py-6">
                 {query
                   ? 'Nothing matches.'
                   : 'Nothing remembered yet. Tell Primnox something worth keeping in a chat — “remember that I prefer short answers” — and it appears here.'}
@@ -140,7 +140,7 @@ export function MemoryPanel({ onClose, embedded }: {
             )}
             {rows.map(m => (
               <div key={m.id}
-                className="group flex items-start gap-3 px-4 py-3 rounded-xl border border-on-surface/[0.07] hover:border-on-surface/[0.16] transition-all duration-200">
+                className="group flex items-start gap-3 px-4 py-3 rounded-xl border border-on-surface/[0.07] hover:border-on-surface/[0.16] transition duration-150">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm leading-relaxed">{m.text}</p>
                   {/* Where a fact came from is the difference between a fact, a
@@ -163,7 +163,7 @@ export function MemoryPanel({ onClose, embedded }: {
                   </div>
                 </div>
                 <button onClick={() => forget(m.id)} aria-label={`Forget: ${m.text.slice(0, 40)}`}
-                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1.5 rounded-lg text-on-surface/40 hover:text-warn hover:bg-warn/10 transition-all duration-200">
+                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1.5 rounded-lg text-on-surface/50 hover:text-warn hover:bg-warn/10 transition duration-150">
                   <Trash2 size={13} />
                 </button>
               </div>
@@ -176,17 +176,17 @@ export function MemoryPanel({ onClose, embedded }: {
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] text-on-surface/70">Forget everything?</span>
                   <button onClick={wipe}
-                    className="px-3 py-1.5 rounded-lg border border-warn/40 text-warn text-[11px] uppercase tracking-[0.1em] hover:bg-warn/10 transition-all duration-200">
+                    className="px-3 py-1.5 rounded-lg border border-warn/40 text-warn text-[11px] uppercase tracking-[0.1em] hover:bg-warn/10 transition duration-150">
                     Yes, forget all
                   </button>
                   <button onClick={() => setConfirmWipe(false)}
-                    className="px-3 py-1.5 rounded-lg border border-on-surface/[0.12] text-[11px] uppercase tracking-[0.1em] hover:border-on-surface/25 transition-all duration-200">
+                    className="px-3 py-1.5 rounded-lg border border-on-surface/[0.12] text-[11px] uppercase tracking-[0.1em] hover:border-on-surface/25 transition duration-150">
                     Cancel
                   </button>
                 </div>
               ) : (
                 <button onClick={() => setConfirmWipe(true)}
-                  className="text-[12px] text-on-surface/40 hover:text-warn transition-colors duration-200">
+                  className="text-[12px] text-on-surface/50 hover:text-warn transition-colors duration-200">
                   Forget everything
                 </button>
               )}

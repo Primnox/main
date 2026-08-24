@@ -22,7 +22,7 @@ export function SectionHeader({
         <H className="px-eyebrow">{title}</H>
         {right && <div className="ml-auto shrink-0">{right}</div>}
       </div>
-      {note && <p className="text-[11px] leading-relaxed text-on-surface/40 max-w-[62ch]">{note}</p>}
+      {note && <p className="text-[11px] leading-relaxed text-on-surface/50 max-w-[62ch]">{note}</p>}
     </div>
   );
 }
@@ -42,7 +42,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-8 py-12 text-center">
-      {icon && <div className="text-on-surface/25" aria-hidden="true">{icon}</div>}
+      {icon && <div className="text-on-surface/50" aria-hidden="true">{icon}</div>}
       {title && <p className="px-label">{title}</p>}
       {children && (
         <p className="max-w-sm text-sm leading-relaxed text-on-surface/55">{children}</p>

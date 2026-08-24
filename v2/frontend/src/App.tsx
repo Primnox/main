@@ -68,6 +68,38 @@ export default function App() {
   });
   const openCanvas = useCallback((id: string) => setCanvasId(id), []);
 
+  /* The fix: the leg of each conversation the user has called a known-good
+     position. Everything after it is dead reckoning, and the rail says so.
+
+     Kept per conversation and persisted the same way the rail and the folder
+     set are, because a fix that forgot itself on reload would be worse than
+     no fix at all - you would re-confirm the same position every launch.
+
+     HONEST LIMIT: this lives in localStorage, not in primnox.db. It does not
+     reach the event log, does not survive a different machine, and an
+     incognito conversation deliberately keeps nothing. Making it durable is a
+     turns-table column and a CRS event kind, which is a backend change and
+     not this one. */
+  const [fixes, setFixes] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('primnox2.fixes') || '{}'); }
+    catch { return {}; }
+  });
+  const setFix = useCallback((turnId: string) => {
+    setFixes(prev => {
+      const cid = stateRef.current.id;
+      if (!cid) return prev;
+      /* Pressing the current fix again clears it, so the whole track goes
+         back to unconfirmed rather than stranding you with a fix you cannot
+         undo without picking a different one. */
+      const next = { ...prev };
+      if (next[cid] === turnId) delete next[cid];
+      else next[cid] = turnId;
+      try { localStorage.setItem('primnox2.fixes', JSON.stringify(next)); }
+      catch { /* private mode */ }
+      return next;
+    });
+  }, []);
+
   const [folders, setFolders] = useState<any[]>([]);
   // Remembered like the rail is. A folder that re-collapses on every reload
   // makes filing a conversation feel like hiding it.
@@ -406,7 +438,7 @@ export default function App() {
         actions={
         <button onClick={() => setCreatingFolder(true)} title="New folder"
           aria-label="New folder"
-          className="p-1.5 rounded-lg text-on-surface/40 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition-all duration-200">
+          className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition duration-150">
           <FolderPlus size={13} />
         </button>
       }>
@@ -435,16 +467,16 @@ export default function App() {
           <label htmlFor="chat-search" className="sr-only">Search chats</label>
           <div className="flex items-center gap-2 rounded-lg border border-on-surface/[0.10]
                           px-2.5 py-1.5 focus-within:border-on-surface/30">
-            <Search size={12} className="shrink-0 text-on-surface/40" aria-hidden="true" />
+            <Search size={12} className="shrink-0 text-on-surface/50" aria-hidden="true" />
             <input id="chat-search" type="search" value={chatQuery}
               onChange={e => setChatQuery(e.target.value)}
               placeholder="Search chats"
               className="min-w-0 flex-1 bg-transparent text-[12px] outline-none
-                         placeholder:text-on-surface/30" />
+                         placeholder:text-on-surface/50" />
             {chatQuery && (
               <button type="button" onClick={() => setChatQuery('')}
                 aria-label="Clear search"
-                className="px-interactive shrink-0 text-on-surface/40 hover:text-on-surface">
+                className="px-interactive shrink-0 text-on-surface/50 hover:text-on-surface">
                 <X size={12} aria-hidden="true" />
               </button>
             )}
@@ -462,7 +494,7 @@ export default function App() {
               </p>
               {matches.map(c => <ChatRow key={c.id} c={c} />)}
               {matches.length === 0 && (
-                <p className="px-3 py-4 text-xs text-on-surface/35">
+                <p className="px-3 py-4 text-xs text-on-surface/50">
                   Nothing matches “{chatQuery.trim()}”.
                 </p>
               )}
@@ -536,12 +568,12 @@ export default function App() {
                   }}>
                   <button onClick={() => toggleFolder(f.id)}
                     aria-expanded={open}
-                    className="flex-1 min-w-0 text-left px-3 py-1.5 rounded-lg flex items-center gap-2 text-[12px] text-on-surface/55 hover:text-on-surface/85 hover:bg-on-surface/[0.03] transition-all duration-200">
+                    className="flex-1 min-w-0 text-left px-3 py-1.5 rounded-lg flex items-center gap-2 text-[12px] text-on-surface/55 hover:text-on-surface/85 hover:bg-on-surface/[0.03] transition duration-150">
                     <ChevronRight size={11}
                       className={`shrink-0 opacity-60 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
                     <Folder size={12} className="shrink-0 opacity-60" />
                     <span className="truncate flex-1">{f.name}</span>
-                    <span className="font-mono text-[9px] text-on-surface/35 tabular-nums">{inside.length}</span>
+                    <span className="font-mono text-[9px] text-on-surface/50 tabular-nums">{inside.length}</span>
                   </button>
 
                   {/* Two-step delete, in place. `window.confirm` is blocked in
@@ -577,7 +609,7 @@ export default function App() {
                   <div className="pl-3">
                     {inside.map(c => <ChatRow key={c.id} c={c} />)}
                     {inside.length === 0 && (
-                      <p className="px-3 py-2 text-[11px] text-on-surface/30">Empty</p>
+                      <p className="px-3 py-2 text-[11px] text-on-surface/50">Empty</p>
                     )}
                   </div>
                 )}
@@ -622,11 +654,11 @@ export default function App() {
               "battery pptx" from "battery pdf" at a glance. */}
           {groupByDay(loose).map(([label, rows]) => (
             <div key={label}>
-              {label && <p className="px-label px-3 pt-3 pb-1.5 text-on-surface/30">{label}</p>}
+              {label && <p className="px-label px-3 pt-3 pb-1.5 text-on-surface/50">{label}</p>}
               {rows.map(c => <ChatRow key={c.id} c={c} />)}
             </div>
           ))}
-          {conversations.length === 0 && <p className="px-3 py-4 text-xs text-on-surface/35">Nothing yet</p>}
+          {conversations.length === 0 && <p className="px-3 py-4 text-xs text-on-surface/50">Nothing yet</p>}
           </>
           )}
         </nav>
@@ -648,7 +680,7 @@ export default function App() {
         {/* The ground the glass sits on.
             These three were defined in tailwind.css and used by nothing, which
             is why the composer's backdrop-filter had no visible effect: on
-            `signature` the panel is rgba(7,7,7,0.85) over a #070707 body, so
+            `tactical` the panel is rgba(10,10,10,0.94) over a #0A0A0A body, so
             blurring it diffused one black into an identical black. Glass only
             reads as glass when there is something behind it worth seeing
             through to.
@@ -669,7 +701,7 @@ export default function App() {
             <button onClick={() => setChats(true)}
               aria-label="Show conversations" aria-expanded={false}
               title="Show conversations"
-              className="px-interactive -ml-3 shrink-0 p-1.5 rounded-lg text-on-surface/45
+              className="px-interactive -ml-3 shrink-0 p-1.5 rounded-lg text-on-surface/50
                          hover:text-on-surface hover:bg-on-surface/[0.05]">
               <PanelLeftOpen size={16} aria-hidden="true" />
             </button>
@@ -691,7 +723,7 @@ export default function App() {
           <div className="shrink-0 flex items-center gap-2">
             {state.incognito && (
               <button onClick={closeIncognito}
-                className="px-3 py-1.5 rounded-lg border border-on-surface/[0.12] hover:border-on-surface/25 hover:bg-on-surface/[0.04] transition-all duration-200 px-label">
+                className="px-3 py-1.5 rounded-lg border border-on-surface/[0.12] hover:border-on-surface/25 hover:bg-on-surface/[0.04] transition duration-150 px-label">
                 End chat
               </button>
             )}
@@ -703,12 +735,12 @@ export default function App() {
             {state.id && !state.incognito && (
               <button onClick={() => setChatGraph(state.id)}
                 aria-label="Graph for this conversation" title="What this conversation has established"
-                className="p-1.5 rounded-lg text-on-surface/40 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition-all duration-200">
+                className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition duration-150">
                 <Share2 size={15} />
               </button>
             )}
             <button onClick={() => setNarrowRailOpen(true)} aria-label="Show context panel"
-              className="xl:hidden p-1.5 rounded-lg text-on-surface/40 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition-all duration-200">
+              className="xl:hidden p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface/85 hover:bg-on-surface/[0.05] transition duration-150">
               <PanelRight size={15} />
             </button>
           </div>
@@ -767,11 +799,21 @@ export default function App() {
                 rail is the grid's first column rather than decoration beside
                 it — see TrackRow. This replaces the centred transcript the
                 whole category ships. */}
-            {state.turns.map((turn, i) => (
-              <TrackRow key={turn.id} turn={turn} index={i}>
-                <TurnBlock turn={turn} />
-              </TrackRow>
-            ))}
+            {(() => {
+              /* Resolved once per render rather than per row: the drift of a
+                 leg is its distance from the fix, so every row needs to know
+                 where the fix IS, not just whether it is the fix. */
+              const fixId = state.id ? fixes[state.id] : undefined;
+              const fixIndex = fixId ? state.turns.findIndex(t => t.id === fixId) : -1;
+              return state.turns.map((turn, i) => (
+                <TrackRow key={turn.id} turn={turn} index={i}
+                  isFix={i === fixIndex}
+                  drift={fixIndex === -1 ? i + 1 : Math.max(0, i - fixIndex)}
+                  onFix={setFix}>
+                  <TurnBlock turn={turn} />
+                </TrackRow>
+              ));
+            })()}
             <div ref={endRef} />
           </div>
         </div>
@@ -783,7 +825,44 @@ export default function App() {
             which is a tinted rectangle, not glass. */}
         <div className="absolute inset-x-0 bottom-0 z-10 px-8 pb-6 pt-2
                         pointer-events-none [&_*]:pointer-events-auto">
-          <div className="mx-auto w-full max-w-[46rem]">
+          {/* The scrim.
+
+              Glass diffuses what is behind it; it does not END it. Below the
+              panel there was no glass at all — just the raw transcript running
+              under the "Enter to send" hint and out the bottom of the window,
+              so a reply's last line and the composer's own label overlapped at
+              full contrast. Two unrelated sentences crossing each other reads
+              as a rendering fault, not as depth.
+
+              So the ground rises behind the composer instead: transparent well
+              above it, opaque from the panel's lower edge down. The glass still
+              has something to diffuse (the fade is only partial across the
+              panel itself), and nothing under it competes with the composer.
+
+              Stops are in px from the bottom rather than percentages. The
+              textarea grows to 160px, and percentage stops would drag the
+              opaque band up across the panel as it grew — the fade has to stay
+              pinned to the panel's lower edge. That edge measures 49px up —
+              pb-6 (24) + the hint line (~15) + its mt-2.5 (10) — so the opaque
+              plateau runs to 54px rather than exactly 49: the hint's height is
+              font-metric dependent and varies between the ten themes, and a
+              1px margin here would show as a bright seam in whichever theme
+              rounded the other way. */}
+          <div aria-hidden="true"
+               className="!pointer-events-none absolute inset-x-0 -top-14 bottom-0"
+               style={{
+                 background:
+                   'linear-gradient(to top,'
+                   + ' var(--bg) 0px,'
+                   + ' var(--bg) 54px,'
+                   + ' color-mix(in srgb, var(--bg) 70%, transparent) 90px,'
+                   + ' color-mix(in srgb, var(--bg) 22%, transparent) 135px,'
+                   + ' transparent 190px)',
+               }} />
+          {/* `relative` so the panel paints over the scrim. The scrim is
+              absolutely positioned and later stacking steps win, so a static
+              wrapper here would put the gradient on top of the composer. */}
+          <div className="relative mx-auto w-full max-w-[46rem]">
             {/* Glass: the composer sits at the foot of the transcript and the
                 conversation scrolls behind it, so diffusing what is behind
                 rather than blanking it keeps the two connected. */}
@@ -847,7 +926,7 @@ export default function App() {
                   title={state.incognito
                     ? 'Attachments are stored on disk, so they are unavailable in an incognito chat'
                     : undefined}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface/45 hover:text-on-surface hover:bg-on-surface/[0.06] transition-all duration-200 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface/45 disabled:cursor-not-allowed">
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.06] transition duration-150 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface/50 disabled:cursor-not-allowed">
                   <Paperclip size={15} />
                 </button>
                 <span className="px-label px-1">
@@ -867,14 +946,14 @@ export default function App() {
                 {liveTurn && (
                   <button onClick={() => api.cancel(liveTurn.id)}
                     aria-label="Stop generating"
-                    className="w-8 h-8 rounded-lg flex items-center justify-center bg-on-surface/[0.09] hover:bg-on-surface/[0.14] transition-all duration-200">
+                    className="w-8 h-8 rounded-lg flex items-center justify-center bg-on-surface/[0.09] hover:bg-on-surface/[0.14] transition duration-150">
                     <Square size={13} className="fill-current" />
                   </button>
                 )}
                 <button onClick={send} disabled={!draft.trim() || state.gone}
                   aria-label="Send message"
-                  className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200
-                    disabled:bg-on-surface/5 disabled:text-on-surface/40 disabled:cursor-not-allowed
+                  className="w-8 h-8 rounded-lg flex items-center justify-center transition duration-150
+                    disabled:bg-on-surface/5 disabled:text-on-surface/50 disabled:cursor-not-allowed
                     enabled:bg-primary enabled:text-surface enabled:hover:opacity-80 enabled:active:scale-95">
                   <ArrowUp size={16} strokeWidth={2.5} />
                 </button>
@@ -900,12 +979,31 @@ export default function App() {
           rather than opening a second one, because two stacked side panels at
           this width would leave the plate below its reading measure. */}
       <AnimatePresence initial={false}>
+        {/* The track gives up its space immediately; the panel slides into the
+            space that opened. Animating the container's WIDTH instead made
+            every frame a layout+paint+composite on the widest element on
+            screen, which is what the performance rule exists to stop. The
+            inner panel carries a transform, which the compositor owns. */}
         {canvasId && section === 'chat' && (
           <motion.div key="canvas"
-            initial={{ width: 0, opacity: 0 }} animate={{ width: 420, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            initial={{ width: 0 }}
+            animate={{ width: 420, transition: { duration: 0 } }}
+            /* The width snaps, but only AFTER the panel has slid out.
+               AnimatePresence keeps a child mounted until the child it
+               TRACKS finishes exiting, and that is this wrapper - so a
+               zero-length exit here unmounted the subtree instantly and
+               the inner slide never rendered. Delaying the collapse by
+               the slide's own duration makes the wrapper outlive it. */
+            exit={{ width: 0, transition: { delay: 0.25, duration: 0 } }}
             className="hidden shrink-0 overflow-hidden lg:block">
-            <Canvas key={canvasId} id={canvasId} onClose={() => setCanvasId(null)} />
+            <motion.div
+              initial={{ opacity: 0, transform: 'translate3d(100%,0,0)' }}
+              animate={{ opacity: 1, transform: 'translate3d(0,0,0)' }}
+              exit={{ opacity: 0, transform: 'translate3d(100%,0,0)' }}
+              transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+              className="h-full w-[420px]">
+              <Canvas key={canvasId} id={canvasId} onClose={() => setCanvasId(null)} />
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -913,16 +1011,30 @@ export default function App() {
       <AnimatePresence initial={false}>
         {railOpen && section === 'chat' && !canvasId && (
           <motion.div key="rail"
-            initial={{ width: 0, opacity: 0 }} animate={{ width: 288, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            initial={{ width: 0 }}
+            animate={{ width: 288, transition: { duration: 0 } }}
+            /* The width snaps, but only AFTER the panel has slid out.
+               AnimatePresence keeps a child mounted until the child it
+               TRACKS finishes exiting, and that is this wrapper - so a
+               zero-length exit here unmounted the subtree instantly and
+               the inner slide never rendered. Delaying the collapse by
+               the slide's own duration makes the wrapper outlive it. */
+            exit={{ width: 0, transition: { delay: 0.25, duration: 0 } }}
             className="shrink-0 overflow-hidden hidden xl:block">
-            <ContextRail state={state} liveTurn={liveTurn} health={health} onClose={toggleRail} />
+            <motion.div
+              initial={{ opacity: 0, transform: 'translate3d(100%,0,0)' }}
+              animate={{ opacity: 1, transform: 'translate3d(0,0,0)' }}
+              exit={{ opacity: 0, transform: 'translate3d(100%,0,0)' }}
+              transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+              className="h-full w-[288px]">
+              <ContextRail state={state} liveTurn={liveTurn} health={health} onClose={toggleRail} />
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
       {!railOpen && section === 'chat' && (
         <button onClick={toggleRail} aria-label="Show context panel"
-          className="shrink-0 w-10 border-l border-on-surface/[0.07] bg-[var(--nav-bg)] hidden xl:flex items-start justify-center pt-4 text-on-surface/40 hover:text-on-surface transition-all duration-200">
+          className="shrink-0 w-10 border-l border-on-surface/[0.07] bg-[var(--nav-bg)] hidden xl:flex items-start justify-center pt-4 text-on-surface/50 hover:text-on-surface transition duration-150">
           <PanelRight size={15} />
         </button>
       )}
@@ -934,8 +1046,10 @@ export default function App() {
             transition={{ duration: 0.15 }}>
             <div className="absolute inset-0 bg-black/50" onClick={() => setNarrowRailOpen(false)} />
             <motion.div className="relative z-10 h-full"
-              initial={{ x: 300 }} animate={{ x: 0 }} exit={{ x: 300 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
+              initial={{ transform: 'translate3d(300px,0,0)' }}
+              animate={{ transform: 'translate3d(0,0,0)' }}
+              exit={{ transform: 'translate3d(300px,0,0)' }}
+              transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}>
               <ContextRail state={state} liveTurn={liveTurn} health={health}
                 onClose={() => setNarrowRailOpen(false)} />
             </motion.div>

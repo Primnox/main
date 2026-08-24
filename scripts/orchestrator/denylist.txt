@@ -1,0 +1,38 @@
+# Leak guard denylist.
+#
+# Every brief and every seeded input file is swept against this list before a
+# sandbox is handed to the worker. A hit aborts that task with a LEAK verdict.
+#
+# Syntax:
+#   term            literal, case-insensitive substring
+#   re:<pattern>    JavaScript regex, case-insensitive
+#   # comment       ignored
+#
+# Keep this list to genuinely identifying tokens. Over-broad entries make the
+# guard fire on ordinary English and train you to ignore it.
+
+# --- product and org identity ---
+primnox
+primnox2
+
+# --- internal tooling that implies the product ---
+graphify
+
+# --- personal identity ---
+cyanexani
+panianiketh
+
+# --- repository location and branch names ---
+re:[a-z]:\\project\b
+re:/c/project\b
+re:claude/remove-electron
+
+# --- internal document names ---
+PRIMNOX_CONTEXT
+PRIMNOX_ISLAND_ROADMAP
+
+# --- credential shapes that should never be seeded ---
+re:sk-[A-Za-z0-9_\-]{16,}
+re:sk-or-v1-[A-Za-z0-9]{16,}
+re:ghp_[A-Za-z0-9]{20,}
+re:-----BEGIN [A-Z ]*PRIVATE KEY-----

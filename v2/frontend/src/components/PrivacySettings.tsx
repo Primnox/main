@@ -49,7 +49,7 @@ export function PrivacySettings({ draft, onChange, modelStatus }: {
               <span className="px-label">Detection model</span>
               <Chip tone={statusTone}>{modelStatus}</Chip>
               {modelStatus !== 'ready' && (
-                <span className="text-[11px] text-on-surface/40">
+                <span className="text-[11px] text-on-surface/50">
                   {modelStatus === 'loading'
                     ? 'Names and addresses aren’t caught until this finishes — emails, IPs, cards and keys still are.'
                     : modelStatus === 'failed'

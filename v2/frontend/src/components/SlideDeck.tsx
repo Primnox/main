@@ -171,7 +171,7 @@ export function SlideDeck({ assetId, slides, aspect }: {
                 className={`px-interactive shrink-0 rounded px-2 py-1 font-mono
                             text-[10px] tabular-nums
                   ${i === at ? 'bg-on-surface/[0.10] text-on-surface'
-                             : 'text-on-surface/40 hover:text-on-surface/80'}`}>
+                             : 'text-on-surface/50 hover:text-on-surface/80'}`}>
                 {s.index}
               </button>
             </li>
@@ -187,7 +187,7 @@ export function SlideDeck({ assetId, slides, aspect }: {
           title={slide.notes ? 'Speaker notes' : 'No notes on this slide'}
           className={`px-interactive p-1.5 rounded-lg
             ${notesOpen ? 'text-on-surface bg-on-surface/[0.07]'
-                        : 'text-on-surface/45 hover:text-on-surface'}
+                        : 'text-on-surface/50 hover:text-on-surface'}
             ${slide.notes ? '' : 'opacity-40'}`}>
           <StickyNote size={15} aria-hidden="true" />
         </button>

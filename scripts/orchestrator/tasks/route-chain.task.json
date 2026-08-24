@@ -1,0 +1,16 @@
+{
+  "id": "route-chain",
+  "title": "Routing chain list",
+  "enabled": true,
+  "briefFile": "briefs/route-chain.md",
+  "standards": "UI.md",
+  "deliverables": ["src/RouteChain.tsx", "src/RouteChain.test.tsx", "NOTES.md"],
+  "acceptance": [
+    "Walk order is preserved exactly as received; the component never re-sorts.",
+    "An ineligible row names the single responsible factor, not a generic label.",
+    "Exactly one row is marked as the one that will serve, in text as well as colour.",
+    "No colour literal appears anywhere; every colour is a CSS custom property reference.",
+    "Rows already present do not replay their entrance animation on a parent refresh.",
+    "Blocking-factor selection and the serving-row predicate are exported pure functions with tests."
+  ]
+}

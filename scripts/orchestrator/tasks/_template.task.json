@@ -1,0 +1,36 @@
+{
+  "id": "kebab-case-id",
+  "title": "Human-readable work order title",
+  "enabled": false,
+
+  "$comment": [
+    "Use EITHER 'brief' (inline string) OR 'briefFile' (path relative to tasks/).",
+    "The brief must stand alone. The worker has no repository, no product, and",
+    "no conversation history - only this file, AGENTS.md, and any seeded inputs.",
+    "Name types and behaviours generically; never name the host system."
+  ],
+
+  "brief": "Describe the module to build in terms of its inputs, outputs, and invariants. State the language, module format, and runtime. State what must be configurable and how configuration arrives (constructor argument, options object, injected provider). Do not describe why it exists.",
+  "briefFile": null,
+
+  "standards": "AGENTS.md",
+
+  "seed": [
+    {
+      "$comment": "Optional. Copies a repo file into the sandbox. Swept against the denylist first; a hit blocks the task.",
+      "from": "path/relative/to/repo/root.ts",
+      "to": "reference/root.ts"
+    }
+  ],
+
+  "deliverables": [
+    "src/thing.ts",
+    "src/thing.test.ts"
+  ],
+
+  "acceptance": [
+    "Every tunable value is a parameter or a named default constant; nothing is inline.",
+    "No module-scope side effects and no I/O at import time.",
+    "Tests cover the stated invariants and pass."
+  ]
+}

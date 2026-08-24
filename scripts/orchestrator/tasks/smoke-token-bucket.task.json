@@ -1,0 +1,17 @@
+{
+  "id": "smoke-token-bucket",
+  "title": "Token bucket rate limiter",
+  "enabled": false,
+  "brief": "Build a token bucket rate limiter as a single ES module in TypeScript, targeting Node 20+ with no third-party dependencies.\n\nExport a class `TokenBucket`. Its constructor takes one options object with fields: `capacity` (max tokens held), `refillTokens` (tokens added per interval), `refillIntervalMs` (interval length), and `now` (a zero-argument function returning milliseconds, used for all time reads). Every one of these must have a default drawn from a single named defaults constant declared at the top of the module.\n\nBehaviour:\n- `tryRemove(count)` returns true and deducts when enough tokens are available, false and deducts nothing otherwise.\n- Refill is lazy: compute elapsed time on each call rather than using a timer.\n- The bucket never exceeds `capacity`.\n- `available()` returns the current token count after applying pending refill.\n- Invalid options (non-positive capacity or interval, negative refill) throw a `RangeError` from the constructor.\n\nThe module must not read the system clock directly anywhere except through the injected `now` function, so tests can drive time deterministically.\n\nWrite tests using the built-in `node:test` runner and `node:assert/strict`.",
+  "standards": "AGENTS.md",
+  "deliverables": [
+    "src/token-bucket.ts",
+    "src/token-bucket.test.ts",
+    "NOTES.md"
+  ],
+  "acceptance": [
+    "All four options are configurable and defaulted from one named constant block.",
+    "Time is read only through the injected now() function.",
+    "Tests drive time deterministically and cover refill, capacity clamping, and the RangeError cases."
+  ]
+}

@@ -90,11 +90,24 @@ export default {
         sans: 'var(--font-sans)',
         mono: 'var(--font-mono)',
         display: 'var(--font-display)',
+        /* The documented exception to mono dominance: long-form reading.
+           A 900-word guide set in a terminal face is archetype compliance
+           bought with the thing the guide exists to do. */
+        prose: 'var(--body-prose)',
       },
+      /* Ninety degrees, enforced rather than requested.
+         The archetype's one non-negotiable is the absolute rejection of
+         border-radius, and a token nobody is obliged to use does not enforce
+         anything: 300-odd `rounded-lg` and `rounded-full` calls across the
+         components would have kept their curves out of habit. Overriding the
+         SCALE means every one of them resolves to a right angle, including
+         the ones written next week by someone who never read this file. */
       borderRadius: {
+        none: '0', sm: '0', DEFAULT: '0', md: '0', lg: '0',
+        xl: '0', '2xl': '0', '3xl': '0', full: '0',
         panel: 'var(--radius-panel)',
         control: 'var(--radius-control)',
-        pill: '999px',
+        pill: '0',
       },
       boxShadow: {
         panel: 'var(--shadow-panel)',

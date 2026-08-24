@@ -56,7 +56,8 @@ class TestBackendCrash:
 
         paths.configure(root); db.configure(root / "primnox.db"); db.init()
 
-        def slow_stream(messages, usage=None, scrub_map=None, on_thinking=None):
+        def slow_stream(messages, usage=None, scrub_map=None, on_thinking=None,
+                        route=None):
             if usage is not None:
                 usage["input_tokens"] = 100
                 usage["output_tokens"] = 0

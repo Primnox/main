@@ -53,7 +53,7 @@ export function ContextSidebar({
               aria-label={`Hide ${title.toLowerCase()}`}
               aria-expanded={open}
               title="Hide — bring it back from the rail"
-              className="px-interactive p-1.5 rounded-lg text-on-surface/40
+              className="px-interactive p-1.5 rounded-lg text-on-surface/50
                          hover:text-on-surface hover:bg-on-surface/[0.05]">
               {/* A chevron pointing into the rail at desktop widths, an X in the
                   drawer — the same action, but "collapse toward there" and

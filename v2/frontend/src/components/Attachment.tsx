@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronRight, Download, FileText, Maximize2 } from 'lucide-react';
 import { API } from '../lib/crs';
 import { AssetPreview } from './AssetPreview';
+import { Reveal } from './Reveal';
 
 /* A file, in the turn it belongs to.
  *
@@ -25,6 +26,9 @@ export function Attachment({
   onExpand?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  /* Sticky: the preview is fetched and parsed on first open, so it stays
+     mounted afterwards and a second open costs nothing. */
+  const [opened, setOpened] = useState(false);
 
   return (
     <section
@@ -34,7 +38,7 @@ export function Attachment({
       <header className={`flex items-center gap-2 px-3 py-1.5 ${open ? 'border-b border-dr-rule' : ''}`}>
         <button
           type="button"
-          onClick={() => setOpen(o => !o)}
+          onClick={() => { setOpen(o => !o); setOpened(true); }}
           aria-expanded={open}
           className="group -mx-1 flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-0.5 text-left
                      outline-none focus-visible:ring-2 focus-visible:ring-dr-fix/60"
@@ -45,7 +49,7 @@ export function Attachment({
           </span>
           <ChevronRight
             size={12} aria-hidden="true"
-            className={`shrink-0 text-on-surface/40 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+            className={`shrink-0 text-on-surface/50 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
           />
         </button>
 
@@ -77,11 +81,16 @@ export function Attachment({
         )}
       </header>
 
-      {open && (
-        <div className="max-h-[26rem] overflow-auto custom-scrollbar">
-          <AssetPreview asset={asset} bounded />
-        </div>
-      )}
+      <Reveal open={open}>
+        {/* Mounted only once opened, and kept mounted after: the preview
+            parses the file, so re-fetching it on every collapse would make
+            closing an attachment cost something. */}
+        {opened && (
+          <div className="max-h-[26rem] overflow-auto custom-scrollbar">
+            <AssetPreview asset={asset} bounded />
+          </div>
+        )}
+      </Reveal>
     </section>
   );
 }

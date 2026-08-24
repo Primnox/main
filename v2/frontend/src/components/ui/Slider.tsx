@@ -62,7 +62,12 @@ export function Slider({
           <BaseSlider.Control className="flex w-full items-center py-2 cursor-pointer data-[disabled]:cursor-not-allowed">
             <BaseSlider.Track className="h-px w-full rounded bg-on-surface/20">
               <BaseSlider.Indicator className="h-px rounded bg-[var(--color-primary)]" />
+              {/* Grows under the finger rather than staying inert: a thumb
+                  that never acknowledges the grab is the one control where
+                  you cannot tell whether you have hold of it. */}
               <BaseSlider.Thumb className="size-3 rounded-full bg-[var(--color-primary)] outline-none
+                                           transition-transform duration-150
+                                           active:scale-[1.25] data-[dragging]:scale-[1.25]
                                            focus-visible:ring-2 focus-visible:ring-on-surface/40" />
             </BaseSlider.Track>
           </BaseSlider.Control>
@@ -87,7 +92,7 @@ export function Slider({
         </div>
       </div>
 
-      {hint && <p className="text-[11px] leading-relaxed text-on-surface/40 max-w-[62ch]">{hint}</p>}
+      {hint && <p className="text-[11px] leading-relaxed text-on-surface/50 max-w-[62ch]">{hint}</p>}
     </div>
   );
 }

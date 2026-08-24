@@ -1,0 +1,16 @@
+{
+  "id": "circuit-cards",
+  "title": "Circuit breaker state cards",
+  "enabled": true,
+  "briefFile": "briefs/circuit-cards.md",
+  "standards": "UI.md",
+  "deliverables": ["src/CircuitCards.tsx", "src/CircuitCards.test.tsx", "NOTES.md"],
+  "acceptance": [
+    "Terminal failure and cooling-down are visually and textually distinct; terminal never shows a countdown.",
+    "The countdown ticks locally between refreshes and reconciles to authoritative values without drift.",
+    "health_score is never presented as a success percentage; null rates read as 'not yet called'.",
+    "Reset buttons are disabled while in flight so a double-click cannot fire twice.",
+    "Cards already present do not replay their entrance animation on a poll refresh.",
+    "Ordering comparator, countdown reconciliation, and formatters are exported pure functions with tests."
+  ]
+}

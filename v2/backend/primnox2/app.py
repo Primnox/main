@@ -194,6 +194,24 @@ async def _shutdown() -> None:
     scheduler.scheduler.stop()
     clean = scheduler.scheduler.join(timeout=10.0)
 
+    # Release every Computer Use grant before anything else unwinds. Authority
+    # over the user's own applications is a live thing, not stored state: a
+    # session that outlives the process that was exercising it is a window
+    # somebody approved for an agent that no longer exists. Done after join()
+    # so a worker mid-click finishes rather than losing its grant underneath
+    # it, and guarded because Computer Use may not have loaded at all.
+    if tools.COMPUTER_USE:
+        from .computer import pointer as computer_pointer
+        from .computer import session as computer_sessions
+        computer_sessions.close_all("shutdown")
+        # And take the overlay's window and thread down with them. Closing the
+        # sessions only hides it: the thread is a daemon and would go on the
+        # way daemons do, but this process has a lifespan that runs more than
+        # once — every `with TestClient(app):` is another cycle — and a
+        # top-most window belonging to a shut-down subsystem is not something
+        # to leave lying on somebody's desktop between them.
+        computer_pointer.shutdown()
+
     # Undo the startup subscription and drop the loop reference regardless of
     # whether the vault lock below runs — otherwise every new lifespan cycle
     # (each `with TestClient(app):`, and any future production restart path)
@@ -815,6 +833,197 @@ async def delete_model_profile(name: str) -> dict:
     if not model_profiles.delete(name):
         raise HTTPException(status_code=404, detail=name)
     return model_profiles.describe()
+
+
+# ── Does it actually work? ───────────────────────────────────────────────────
+@app.post("/models/{name}/test")
+async def test_model_profile(name: str) -> dict:
+    """Probe a saved profile with its stored key.
+
+    A pass means reachable and authenticated, not "chat works" — some endpoints
+    serve /models to anyone and reject completions without a plan. The wording
+    in the UI is held to that distinction.
+    """
+    from .settings import connections
+
+    try:
+        return connections.test_profile(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=name)
+
+
+@app.post("/models/test")
+async def test_model_candidate(request: Request) -> dict:
+    """Try an endpoint and key BEFORE committing them to a profile.
+
+    Records no health: a typo in an add form should not leave a circuit behind
+    it for a provider the user never actually adopted.
+    """
+    from .settings import connections
+
+    body = await _json(request)
+    return connections.test_candidate(
+        str(body.get("base_url") or ""), str(body.get("api_key") or ""))
+
+
+@app.post("/models/test-all")
+async def test_all_model_profiles() -> dict:
+    from .settings import connections
+
+    return {"results": connections.test_all()}
+
+
+@app.post("/models/discover-all")
+async def discover_all_models() -> dict:
+    """Refresh every saved profile's model list in one pass."""
+    return {"found": model_profiles.discover_all(), **model_profiles.describe()}
+
+
+# ── Portability ──────────────────────────────────────────────────────────────
+@app.get("/models/export")
+async def export_model_profiles() -> dict:
+    """Profiles as portable JSON, deliberately WITHOUT keys — an export is a
+    file that gets mailed, committed by accident, or attached to a bug report."""
+    return model_profiles.export_profiles()
+
+
+@app.post("/models/import")
+async def import_model_profiles(request: Request) -> dict:
+    body = await _json(request)
+    try:
+        result = model_profiles.import_profiles(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {**result, **model_profiles.describe()}
+
+
+# ── The user's own annotations ───────────────────────────────────────────────
+@app.post("/models/{name}/favourite")
+async def favourite_model_profile(name: str, request: Request) -> dict:
+    body = await _json(request)
+    return {"favourites": model_profiles.set_favourite(name, bool(body.get("pinned", True)))}
+
+
+@app.post("/models/{name}/note")
+async def note_model_profile(name: str, request: Request) -> dict:
+    """A line of the user's own — which account it bills to, why it was added.
+    The catalogue's `hint` is the vendor's words; this is theirs."""
+    body = await _json(request)
+    return {"notes": model_profiles.set_note(name, str(body.get("note") or ""))}
+
+
+@app.get("/models/health")
+async def model_health() -> dict:
+    """What routing currently believes about every endpoint it has called.
+
+    The first thing to look at when a turn went somewhere unexpected: which
+    circuits are open, how long until they probe again, and the score each
+    candidate would be ranked by right now. `chain` is the order this instant —
+    the active provider first, then the fallbacks best-first.
+    """
+    from .models import health as model_health_state
+    from .models import routing as model_routing
+
+    chain = []
+    try:
+        for candidate in model_routing.chain():
+            explanation = model_routing.score(candidate)
+            chain.append({**explanation.as_dict(), "origin": candidate.origin,
+                          "local": candidate.is_local})
+    except Exception as exc:                                  # noqa: BLE001
+        # A broken chain must not break the page that exists to diagnose it.
+        chain = [{"error": f"{type(exc).__name__}: {exc}"}]
+
+    return {"circuits": model_health_state.snapshot(), "chain": chain,
+            "attempts_allowed": tunables.get("models.failover_attempts")}
+
+
+@app.get("/models/telemetry")
+async def model_telemetry() -> dict:
+    """The header of Mission Control. Measured values only — see the module
+    docstring for what is deliberately absent and why."""
+    from .settings import telemetry
+
+    return telemetry.snapshot()
+
+
+@app.get("/models/capabilities")
+async def model_capabilities() -> dict:
+    """What each configured provider can actually do, side by side.
+
+    Read from the capability registry the gateway already consults when it
+    decides whether to send a `tools` array — not from a benchmark, because
+    Primnox has never run one. Context window, tool calling and vision are
+    facts about a model. "Which is better at coding" is a rating, Primnox has
+    no data for it, and a five-star column invented to fill a table is a
+    published benchmark whether or not it is labelled as one.
+    """
+    from .models import gateway
+    from .models import health as circuits
+
+    rows = []
+    for profile in model_profiles.profiles():
+        base = (profile.get("base_url") or "").rstrip("/")
+        model = profile.get("model") or ""
+        caps = gateway.capabilities_for(base, model)
+        circuit = circuits.circuit(f"{base}|{model}")
+        rows.append({
+            "name": profile["name"],
+            "model": model,
+            "local": gateway.on_device_for(profile.get("kind", ""), base),
+            "tool_calling": caps.tool_calling,
+            "vision": caps.vision,
+            "json_mode": caps.json_mode,
+            "streaming": caps.streaming,
+            "context_window": caps.context_window,
+            "max_output": caps.max_output,
+            "parallel_tool_calls": caps.parallel_tool_calls,
+            # Measured, unlike the rest of this row, and null until it has run.
+            "latency_ms": circuit.latency_ms,
+            "calls": circuit.calls,
+        })
+    return {"providers": rows}
+
+
+@app.get("/models/omniroute")
+async def omniroute_status() -> dict:
+    """Is the gateway up, and what is behind it?
+
+    Its own route rather than a field on /models because the probe is a network
+    call, and the settings screen must still render when the answer is "not
+    installed" — which on a fresh machine is the normal answer, not an error.
+    """
+    return model_profiles.omniroute_status()
+
+
+@app.post("/models/health/reset")
+async def reset_model_health(request: Request) -> dict:
+    """Forget what routing believes — for someone who has just fixed the thing
+    a breaker is waiting out and does not want to wait for the cooldown."""
+    body = await _json(request)
+    key = (body.get("key") or "").strip() or None
+    from .models import health as model_health_state
+    cleared = model_health_state.reset(key)
+    return {"cleared": cleared, "circuits": model_health_state.snapshot()}
+
+
+# ── Guides ───────────────────────────────────────────────────────────────────
+@app.get("/guides")
+async def list_guides() -> dict:
+    """Titles and summaries, without the bodies — the index is a menu."""
+    from . import guides
+
+    return {"guides": guides.index()}
+
+
+@app.get("/guides/{slug}")
+async def read_guide(slug: str) -> dict:
+    from . import guides
+
+    guide = guides.get(slug)
+    if guide is None:
+        raise HTTPException(status_code=404, detail=slug)
+    return guide
 
 
 # ── Tunables ─────────────────────────────────────────────────────────────────

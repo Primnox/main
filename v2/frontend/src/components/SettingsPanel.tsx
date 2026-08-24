@@ -3,7 +3,11 @@ import { Loader2, SlidersHorizontal, X } from 'lucide-react';
 import { Tabs } from '@base-ui-components/react/tabs';
 import { API } from '../lib/crs';
 import { ModelProfiles } from './ModelProfiles';
+import { OmniRoute } from './OmniRoute';
+import { MissionControl } from './MissionControl';
+import { CompareProviders } from './CompareProviders';
 import { PrivacySettings } from './PrivacySettings';
+import { RoutingHealth } from './RoutingHealth';
 import { ThemePicker } from './ThemePicker';
 import { Tunables } from './Tunables';
 import { VaultSettings } from './VaultSettings';
@@ -112,7 +116,7 @@ export function SettingsPanel({ onClose, embedded }: {
           </Button>
           {onClose && (
             <button onClick={onClose} aria-label="Close settings"
-              className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition-all duration-200">
+              className="p-1.5 rounded-lg text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.05] transition duration-150">
               <X size={16} />
             </button>
           )}
@@ -135,19 +139,40 @@ export function SettingsPanel({ onClose, embedded }: {
         </Tabs.List>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-          <div className="max-w-xl mx-auto px-8 py-8 space-y-8">
+          {/* Measure follows the content, not the panel. Forms read better
+              narrow — a 60ch label column and a text field do not want 900px.
+              The provider tab is a 347-row catalogue with a facet rail and a
+              routing table beside it, and squeezing that into the same column
+              as a checkbox is most of why it was unusable. */}
+          <div className={`${tab === 'provider' ? 'max-w-5xl' : 'max-w-xl'}
+                           mx-auto px-8 py-8 space-y-8 transition-[max-width] duration-200`}>
             {note && <p className="text-[12px] text-on-surface/70">{note}</p>}
 
-            <Tabs.Panel value="appearance">
+            <Tabs.Panel value="appearance" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)]">
               <ThemePicker />
             </Tabs.Panel>
 
-            <Tabs.Panel value="tuning">
+            <Tabs.Panel value="tuning" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)]">
               <Tunables />
             </Tabs.Panel>
 
-            <Tabs.Panel value="provider" className="space-y-8">
+            <Tabs.Panel value="provider" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)] space-y-8">
+              {/* One page, top to bottom in the order the questions arrive:
+                  is it working, what have I got, which should I use, what else
+                  is out there, and where will the next turn actually go. The
+                  guides are disclosures inside those sections rather than a
+                  destination of their own. */}
+              {/* The gateway first: it is how Primnox reaches anything hosted,
+                  so whether it is installed is the first thing worth knowing.
+                  Then what you have configured, then how they compare. */}
+              <MissionControl />
+              <OmniRoute onChanged={load} />
               <ModelProfiles onChanged={load} />
+              <CompareProviders />
+              {/* Under the profile list, because it is the answer to the
+                  question the profile list provokes: I picked that one, so why
+                  did the last reply come from somewhere else. */}
+              <RoutingHealth />
               <section className="space-y-4">
                 <SectionHeader title="Advanced" level={3}
                   note="Edited directly. Activating a profile above overwrites these." />
@@ -159,8 +184,8 @@ export function SettingsPanel({ onClose, embedded }: {
                   <span className="px-label block">API key</span>
                   <input type="password" value={key} onChange={e => setKey(e.target.value)}
                     placeholder={data?.api_key_present ? '•••••••• stored' : 'not set'}
-                    className="w-full bg-transparent border border-on-surface/[0.12] rounded-xl px-4 py-2.5 text-sm outline-none focus-visible:border-on-surface/40 placeholder:text-on-surface/25" />
-                  <span className="block text-[11px] text-on-surface/40">
+                    className="w-full bg-transparent border border-on-surface/[0.12] rounded-xl px-4 py-2.5 text-sm outline-none focus-visible:border-on-surface/40 placeholder:text-on-surface/50" />
+                  <span className="block text-[11px] text-on-surface/50">
                     Written to {data?.env_file ?? 'v2/.env'}, never to the database and
                     never shown back. Leave blank to keep the current one.
                   </span>
@@ -177,16 +202,16 @@ export function SettingsPanel({ onClose, embedded }: {
               </section>
             </Tabs.Panel>
 
-            <Tabs.Panel value="privacy">
+            <Tabs.Panel value="privacy" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)]">
               <PrivacySettings draft={draft} onChange={setDraftKey}
                 modelStatus={data?.status?.privacy_model} />
             </Tabs.Panel>
 
-            <Tabs.Panel value="vault">
+            <Tabs.Panel value="vault" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)]">
               <VaultSettings />
             </Tabs.Panel>
 
-            <Tabs.Panel value="sandbox">
+            <Tabs.Panel value="sandbox" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)]">
               <section className="space-y-4">
                 <SectionHeader title="Sandbox" level={3} />
                 {choice('Permission prompts', 'sandbox.auto_approve', ['all', 'safe', 'off'],
@@ -194,7 +219,7 @@ export function SettingsPanel({ onClose, embedded }: {
               </section>
             </Tabs.Panel>
 
-            <Tabs.Panel value="diagnostics" className="space-y-8">
+            <Tabs.Panel value="diagnostics" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)] space-y-8">
               <section className="space-y-4">
                 <SectionHeader title="Diagnostics" level={3} />
                 {choice('Record a trace per turn', 'diagnostics.trace', ['', '1'],
@@ -208,7 +233,7 @@ export function SettingsPanel({ onClose, embedded }: {
                   <SectionHeader title="Status" level={3} />
                   {Object.entries(data.status).map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-4 text-[12px]">
-                      <span className="text-on-surface/45">{k}</span>
+                      <span className="text-on-surface/50">{k}</span>
                       <span className="text-on-surface/80 truncate">{String(v)}</span>
                     </div>
                   ))}

@@ -5,12 +5,12 @@ export function ToolRow({ call }: { call: ToolCall }) {
   return (
     <div className="mb-2 flex items-center gap-2.5 text-[11px]">
       {call.status === 'running'
-        ? <Loader2 size={11} className="px-spin text-on-surface/45 shrink-0" />
+        ? <Loader2 size={11} className="px-spin text-on-surface/50 shrink-0" />
         : call.status === 'error'
           ? <AlertTriangle size={11} className="text-error shrink-0" />
           : <Check size={11} className="text-primary shrink-0" />}
       <span className="font-mono text-on-surface/70">{call.name}</span>
-      {call.summary && <span className="text-on-surface/40 truncate">{call.summary}</span>}
+      {call.summary && <span className="text-on-surface/50 truncate">{call.summary}</span>}
     </div>
   );
 }

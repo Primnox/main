@@ -15,6 +15,16 @@ export function RowMenu({ anchor, onClose, children }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: anchor.bottom + 4, left: anchor.right - MENU_WIDTH });
+  /* Which edge the menu grew from. The positioning pass below already decides
+     whether there was room underneath the trigger and flips above it when
+     there was not, so the origin is derived from that decision rather than
+     assumed — a menu that flipped upward and then scaled down from its top
+     edge would appear to come from the wrong place entirely. */
+  const [flipped, setFlipped] = useState(false);
+  /* Entry runs on the frame after mount. Setting the open state during the
+     same commit that mounts the element gives the browser no start value to
+     transition FROM, so the menu would simply appear at its final size. */
+  const [shown, setShown] = useState(false);
 
   useEffect(() => {
     // Measured after render rather than guessed: the menu's height changes
@@ -22,10 +32,14 @@ export function RowMenu({ anchor, onClose, children }: {
     // someone adds one.
     const height = ref.current?.offsetHeight ?? 0;
     const room = window.innerHeight - anchor.bottom - 8;
+    const above = height > room;
+    setFlipped(above);
     setPos({
-      top: height > room ? Math.max(8, anchor.top - height - 4) : anchor.bottom + 4,
+      top: above ? Math.max(8, anchor.top - height - 4) : anchor.bottom + 4,
       left: Math.max(8, Math.min(anchor.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8)),
     });
+    const id = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(id);
   }, [anchor]);
 
   useEffect(() => {
@@ -46,8 +60,25 @@ export function RowMenu({ anchor, onClose, children }: {
           sits over the conversation it acts on, so keeping a hint of that
           conversation visible behind it is what says "this belongs to that
           row" rather than "a new opaque panel appeared". */}
+      {/* Scales from the trigger it belongs to, not from its own centre: this
+          menu is spatially anchored (it computes its position from the row's
+          rect), and a menu that grows from nowhere makes the reader find it
+          rather than follow it. 0.96 and not 0 - nothing in the real world
+          appears from nothing.
+
+          A transition rather than a keyframe, so a menu closed and reopened
+          quickly retargets from wherever it is instead of restarting. The
+          curve and duration sit inside the dropdown budget (150-250ms). */}
       <Panel as="div" variant="glass" ref={ref} role="menu"
-        style={{ top: pos.top, left: pos.left, width: MENU_WIDTH }}
+        style={{
+          top: pos.top,
+          left: pos.left,
+          width: MENU_WIDTH,
+          transformOrigin: flipped ? 'bottom right' : 'top right',
+          transform: shown ? 'scale(1)' : 'scale(0.96)',
+          opacity: shown ? 1 : 0,
+          transition: 'transform 150ms var(--ease-out), opacity 150ms var(--ease-out)',
+        }}
         className="fixed z-[61] py-1">
         {children}
       </Panel>

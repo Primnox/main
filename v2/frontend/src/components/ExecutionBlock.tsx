@@ -16,18 +16,18 @@ export function ExecutionBlock({ execution }: { execution: Execution }) {
       <button onClick={() => setOpen(o => !o)}
         aria-expanded={open}
         className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors duration-200">
-        <Terminal size={12} className="shrink-0 text-on-surface/45" />
+        <Terminal size={12} className="shrink-0 text-on-surface/50" />
         <span className="px-label">{execution.runtime}</span>
-        <span className="text-[11px] text-on-surface/45 truncate flex-1">
+        <span className="text-[11px] text-on-surface/50 truncate flex-1">
           {execution.status === 'running' ? 'running…' : execution.summary}
         </span>
         {execution.status === 'running'
-          ? <Loader2 size={11} className="px-spin text-on-surface/45 shrink-0" />
+          ? <Loader2 size={11} className="px-spin text-on-surface/50 shrink-0" />
           : execution.status === 'failed'
             ? <AlertTriangle size={11} className="text-error shrink-0" />
             : <Check size={11} className="text-primary shrink-0" />}
         <ChevronRight size={12}
-          className={`shrink-0 text-on-surface/35 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
+          className={`shrink-0 text-on-surface/50 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
       </button>
 
       {/* Outside the collapse on purpose: a generated file the user cannot
@@ -41,7 +41,7 @@ export function ExecutionBlock({ execution }: { execution: Execution }) {
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-primary/30 bg-primary/[0.06] text-[11px] text-on-surface/80 hover:bg-primary/[0.12] transition-colors duration-200">
               <Eye size={11} className="text-primary/80" />
               <span className="font-mono">{a.name}</span>
-              <span className="text-on-surface/40">{(a.bytes / 1024).toFixed(1)} KB</span>
+              <span className="text-on-surface/50">{(a.bytes / 1024).toFixed(1)} KB</span>
             </button>
           ))}
         </div>
@@ -65,7 +65,7 @@ export function ExecutionBlock({ execution }: { execution: Execution }) {
             </div>
           )}
           {execution.output.length === 0 && changeCount === 0 && (
-            <p className="px-3.5 py-3 text-[11px] text-on-surface/35">No output, no file changes.</p>
+            <p className="px-3.5 py-3 text-[11px] text-on-surface/50">No output, no file changes.</p>
           )}
         </div>
       )}

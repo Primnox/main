@@ -3,7 +3,7 @@ import { RotateCw } from 'lucide-react';
 import { api, type Tunable } from '../lib/crs';
 import { Button, Chip, SectionHeader, Slider } from './ui';
 
-/* The 27 declared tunables, as controls.
+/* The 32 declared tunables, as controls.
  *
  * Every one of them has been settable by environment variable and by API since
  * the registry was written, and settable from the UI never — so the numbers that
@@ -131,7 +131,7 @@ export function Tunables() {
                       <button type="button" onClick={() => resetOne(t.key)}
                         aria-label={`Reset ${t.summary} to its default of ${t.default}`}
                         title={`Back to the default, ${t.default}`}
-                        className="px-interactive p-1 rounded text-on-surface/40 hover:text-on-surface">
+                        className="px-interactive p-1 rounded text-on-surface/50 hover:text-on-surface">
                         <RotateCw size={12} aria-hidden="true" />
                       </button>
                     )}

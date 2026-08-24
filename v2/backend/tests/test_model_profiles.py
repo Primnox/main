@@ -162,10 +162,35 @@ def test_ollama_status_answers_either_way():
     assert isinstance(status["running"], bool)
 
 
-def test_presets_exist_on_first_read():
-    """An empty settings screen makes the user do research the app already has."""
-    names = {p["name"] for p in models.profiles()}
-    assert "Ollama (local)" in names and "Anthropic" in names
+def test_the_gateway_and_a_local_engine_are_seeded():
+    """Two entries, answering different questions: reach any hosted model, and
+    reach no network at all. A first run should manage both without config."""
+    seeded = {p["name"] for p in models.profiles()}
+    assert {"OmniRoute", "Ollama (local)"} <= seeded
+
+
+def test_the_shipped_catalogue_stays_small():
+    """It briefly held 346 rows ported from OmniRoute. Pointing at OmniRoute
+    instead is the whole pivot; a catalogue creeping back means we started
+    impersonating it again."""
+    assert len(models.catalogue()) < 10
+
+
+def test_entries_needing_a_server_or_a_key_are_not_seeded():
+    """A seeded row that cannot answer is a row that looks broken."""
+    seeded = {p["name"] for p in models.profiles()}
+    assert "LM Studio (local)" not in seeded
+    assert "Direct endpoint" not in seeded
+
+
+def test_a_localhost_gateway_would_not_be_classified_as_on_device():
+    """No catalogue entry is a gateway today, but the trust rule that makes one
+    safe to add is what stops the Privacy Mirror being skipped for a provider
+    that listens locally and forwards to the cloud."""
+    from primnox2.models import gateway
+
+    assert gateway.on_device_for("gateway", "http://127.0.0.1:20128/v1") is False
+    assert gateway.requires_key_for("gateway", "http://127.0.0.1:20128/v1") is False
 
 
 def test_a_profile_needs_a_name():

@@ -44,6 +44,12 @@ KEYRING_SERVICE = "primnox2"
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_OPENAI = f"{OLLAMA_HOST}/v1"
 
+# OmniRoute's default port, overridable for an instance on the LAN or a VPS.
+# It listens locally and forwards to the cloud, which is why its catalogue
+# entry is `kind: gateway` and not `local` — see providers.json, and
+# gateway.on_device_for(), which is what actually enforces the difference.
+OMNIROUTE_HOST = os.getenv("OMNIROUTE_HOST", "http://127.0.0.1:20128").rstrip("/")
+
 # Long enough for a cold TLS handshake through a CDN. At 3s discovery timed out
 # against a Cloudflare-fronted proxy that answers in 2.4s once connected, and
 # because `_fetch` swallows failures the picker just kept showing a stale list.
@@ -86,7 +92,8 @@ def _expand(value: str) -> str:
     so pointing at a remote engine is an environment variable and not an edit.
     """
     out = value
-    for name, replacement in (("OLLAMA_HOST", OLLAMA_HOST),):
+    for name, replacement in (("OLLAMA_HOST", OLLAMA_HOST),
+                              ("OMNIROUTE_HOST", OMNIROUTE_HOST)):
         out = out.replace("${" + name + "}", replacement)
     return out
 
@@ -120,25 +127,52 @@ def catalogue() -> list[dict]:
             continue
         entry = dict(row)
         entry["name"] = name
-        entry["base_url"] = _expand(str(entry.get("base_url") or ""))
+        # Absent stays absent: an entry with `endpoint_required` is one whose
+        # URL OmniRoute keeps in a package the clone does not carry, and "" is
+        # the honest value for it — the UI asks rather than guessing.
+        if entry.get("base_url"):
+            entry["base_url"] = _expand(str(entry["base_url"]))
         entry.setdefault("api_type", "openai")
         entry.setdefault("kind", "cloud")
         merged[name] = entry
     return list(merged.values())
 
 
+# The gateway is the point of the product now, so it is seeded and it is
+# active. Ollama comes with it because the two answer different questions —
+# "reach any hosted model" and "reach no network at all" — and a first run
+# should be able to do both without configuring anything.
+#
+# The three remaining catalogue entries (LM Studio, llama.cpp, a direct
+# endpoint) are added deliberately or not at all: each needs a running server
+# or a key, and a seeded row that cannot answer is a row that looks broken.
+PRIMARY_ID = "omniroute"
+SEEDED_IDS = ("omniroute", "ollama-local")
+
+
+def profile_from(entry: dict) -> dict:
+    """One catalogue entry as a saved profile."""
+    models = list(entry.get("fallback_models") or [])
+    return {
+        "name": entry["name"], "base_url": entry.get("base_url", ""),
+        "api_type": entry.get("api_type", "openai"), "kind": entry.get("kind", "cloud"),
+        "model": models[0] if models else "", "models": models,
+    }
+
+
 def _seed() -> list[dict]:
-    """Catalogue entries as profiles. Model lists start from the hint, which is
-    normally empty — discovery fills them."""
-    out = []
-    for entry in catalogue():
-        models = list(entry.get("fallback_models") or [])
-        out.append({
-            "name": entry["name"], "base_url": entry["base_url"],
-            "api_type": entry["api_type"], "kind": entry["kind"],
-            "model": models[0] if models else "", "models": models,
-        })
-    return out
+    by_id = {e.get("id"): e for e in catalogue()}
+    return [profile_from(by_id[pid]) for pid in SEEDED_IDS if pid in by_id]
+
+
+def primary_entry() -> dict | None:
+    """The catalogue entry Primnox routes through unless told otherwise."""
+    return next((e for e in catalogue() if e.get("primary")), None)
+
+
+def primary_name() -> str:
+    entry = primary_entry()
+    return entry["name"] if entry else "OmniRoute"
 
 
 FIELDS = ("name", "base_url", "api_type", "model", "kind")
@@ -211,25 +245,120 @@ def _write(key: str, value) -> None:
         )
 
 
+# Catalogue entries that used to ship and no longer do. Each of these was one
+# provider needing its own key; OmniRoute fronts all of them behind one
+# endpoint, so the shipped list stopped carrying five ways to do part of it.
+RETIRED_SEEDS = frozenset({"Anthropic", "OpenAI", "Groq", "OpenRouter", "Together"})
+
+# Entries a migration introduces. Named explicitly rather than diffed against
+# the catalogue: "add everything missing" resurrects entries the user deleted
+# on purpose. OmniRoute is here because it is the primary provider now, and an
+# existing install seeded before the pivot would otherwise never see it.
+NEW_SEEDS = frozenset({"OmniRoute"})
+
+# Bumped for the gateway pivot: v2 installs already ran the previous
+# migration, so without a new key they would never be offered OmniRoute and
+# the primary provider would be invisible to every existing user.
+MIGRATION_KEY = "provider.catalogue_migration_v3"
+
+
+def _migrate_catalogue(saved: list[dict]) -> list[dict]:
+    """Bring an existing install's profile list in line with the shipped one.
+
+    Runs ONCE, guarded by a stored flag, and does exactly two things:
+
+      Drops a retired seed — but only if it is inert. A profile with a key
+      saved, or one that is currently active, is the user's, not the
+      catalogue's, and is never touched however it got there. Someone who
+      pasted an OpenAI key keeps their OpenAI profile.
+
+      Adds the entries in NEW_SEEDS if they are missing, which is the only
+      way an existing install ever sees OmniRoute — `profiles()` seeds on
+      first run and never again, so without this the new entry would appear
+      only for someone who had never launched Primnox before. Only those:
+      anything else absent from the list is absent because the user deleted
+      it, and a migration that undoes deletions is a migration nobody trusts.
+
+    Once-only matters in both directions: a user who deletes Ollama should not
+    find it back tomorrow, and one who re-adds OpenAI by hand should not find
+    it pruned.
+    """
+    if _read(MIGRATION_KEY, False):
+        return saved
+
+    active = active_name()
+    kept, dropped = [], []
+    for row in saved:
+        name = row.get("name", "")
+        if name in RETIRED_SEEDS and name != active and not has_key(name):
+            dropped.append(name)
+            continue
+        kept.append(row)
+
+    have = {r.get("name") for r in kept}
+    added = [entry for entry in _seed()
+             if entry["name"] in NEW_SEEDS and entry["name"] not in have]
+    kept.extend(added)
+
+    if dropped or added:
+        import logging
+        logging.getLogger("primnox2.routing").info(
+            "catalogue migration: removed %s, added %s",
+            ", ".join(dropped) or "nothing", ", ".join(a["name"] for a in added) or "nothing")
+        _write(PROFILES_KEY, kept)
+    _write(MIGRATION_KEY, True)
+    return kept
+
+
 def profiles() -> list[dict]:
     saved = _read(PROFILES_KEY, None)
-    if saved is None:
-        saved = _seed()
-        # Ollama is on this machine and costs one local request, so the local
-        # profile arrives with what is actually installed rather than empty or
-        # — worse — with a model name someone guessed at build time.
-        installed = [m["name"] for m in ollama_status()["models"]]
-        if installed:
-            for row in saved:
-                if row.get("kind") == "ollama":
-                    row["models"] = installed
-                    row["model"] = installed[0]
-        _write(PROFILES_KEY, saved)
+    if saved is not None:
+        return _migrate_catalogue(saved)
+
+    saved = _seed()
+    # Ollama is on this machine and costs one local request, so the local
+    # profile arrives with what is actually installed rather than empty or
+    # — worse — with a model name someone guessed at build time.
+    installed = [m["name"] for m in ollama_status()["models"]]
+    if installed:
+        for row in saved:
+            if row.get("kind") == "ollama":
+                row["models"] = installed
+                row["model"] = installed[0]
+    _write(PROFILES_KEY, saved)
+
+    # A first run lands on the gateway rather than on the echo provider. The
+    # seeding used to leave nothing active, so a fresh install answered every
+    # message with "point Settings at a real provider" while a perfectly good
+    # route sat configured beside it.
+    if _read(ACTIVE_KEY, None) is None:
+        primary = next((row for row in saved if row["name"] == primary_name()), None)
+        if primary is not None:
+            _write(ACTIVE_KEY, primary["name"])
     return saved
 
 
 def active_name() -> str | None:
     return _read(ACTIVE_KEY, None)
+
+
+def chain(exclude: str | None = None) -> list[dict]:
+    """Profiles the gateway may fall back to, in saved order.
+
+    Only the MEMBERSHIP question is answered here — a profile with no model
+    chosen cannot serve a request, so it is not a candidate. Everything that
+    decides which of these actually gets called (health, the breaker, the
+    local/cloud trust boundary, whether a key exists) belongs to models/routing
+    and models/gateway, which is where the one routing decision is made. This
+    module knowing that a provider is unhealthy would be a second router.
+
+    The key is deliberately NOT read here: `get_key` reaches the OS credential
+    store, and paying for every profile to build a list that usually stops at
+    the first entry turns a keyring round-trip into a per-turn cost.
+    """
+    skip = exclude or active_name()
+    return [p for p in profiles()
+            if p.get("name") != skip and (p.get("model") or "").strip()]
 
 
 # ── discovery ────────────────────────────────────────────────────────────────
@@ -280,6 +409,160 @@ def ollama_status() -> dict:
         })
     return {"running": True, "host": OLLAMA_HOST,
             "models": sorted(models_out, key=lambda m: m["name"])}
+
+
+FAVOURITES_KEY = "provider.favourites"
+NOTES_KEY = "provider.notes"
+
+# OmniRoute's catalogue is filed by how a provider AUTHENTICATES, which is the
+# right axis for them and the wrong one to show a person: "apikey/regional" and
+# "apikey/inference-hosts" are the same decision to someone picking a provider.
+# Regrouped by what you would actually be choosing between.
+def favourites() -> list[str]:
+    return list(_read(FAVOURITES_KEY, []))
+
+
+def set_favourite(name: str, pinned: bool) -> list[str]:
+    """Pin a provider to the top of the catalogue.
+
+    Stored by NAME rather than catalogue id, because a user file can rename an
+    entry and a pin should follow what the person sees, not the slug.
+    """
+    current = [n for n in favourites() if n != name]
+    if pinned:
+        current.insert(0, name)
+    _write(FAVOURITES_KEY, current)
+    return current
+
+
+def notes() -> dict:
+    return dict(_read(NOTES_KEY, {}))
+
+
+def set_note(name: str, text: str) -> dict:
+    """A line of the user's own about a provider — which account it bills to,
+    why it was added, what broke last time. The catalogue's own `hint` is the
+    vendor's words; this is theirs."""
+    all_notes = notes()
+    if text.strip():
+        all_notes[name] = text.strip()[:500]
+    else:
+        all_notes.pop(name, None)
+    _write(NOTES_KEY, all_notes)
+    return all_notes
+
+
+def export_profiles() -> dict:
+    """Every saved profile as portable JSON, WITHOUT keys.
+
+    Keys are excluded rather than obfuscated. An export is a file that gets
+    mailed to someone, committed by accident, or attached to a bug report, and
+    the only version of it that is safe to treat carelessly is one that never
+    contained a credential.
+    """
+    return {
+        "primnox_profiles": 1,
+        "exported_at": now_ms(),
+        "profiles": [
+            {k: p.get(k) for k in ("name", "base_url", "api_type", "kind", "model", "models")}
+            for p in profiles()
+        ],
+        "notes": notes(),
+        "favourites": favourites(),
+    }
+
+
+def import_profiles(payload: dict) -> dict:
+    """Merge an exported file back in. Additive, and never touches a key.
+
+    A name that already exists is UPDATED in place rather than duplicated, and
+    an import can never remove a profile or a credential — the worst a bad file
+    can do is add rows the user then deletes.
+    """
+    rows = payload.get("profiles")
+    if not isinstance(rows, list):
+        raise ValueError("that file has no `profiles` list — is it a Primnox export?")
+
+    added, updated, skipped = [], [], []
+    existing = {p["name"] for p in profiles()}
+    for row in rows:
+        if not isinstance(row, dict):
+            skipped.append("(not an object)")
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name or not str(row.get("base_url") or "").strip():
+            skipped.append(name or "(unnamed)")
+            continue
+        save({k: row.get(k) for k in FIELDS if k in row} | {"name": name,
+             "models": row.get("models") or []})
+        (updated if name in existing else added).append(name)
+
+    incoming_notes = payload.get("notes")
+    if isinstance(incoming_notes, dict):
+        merged = notes() | {str(k): str(v)[:500] for k, v in incoming_notes.items()}
+        _write(NOTES_KEY, merged)
+
+    return {"added": added, "updated": updated, "skipped": skipped}
+
+
+def discover_all() -> dict:
+    """Refresh every saved profile's model list in one pass.
+
+    Sequential, like the connection tests and for the same reason: these are
+    the user's own rate-limited accounts, and a dozen simultaneous requests is
+    a good way to earn a 429 that says nothing about whether the key works.
+    """
+    found = {}
+    for profile in profiles():
+        name = profile["name"]
+        try:
+            found[name] = discover(name)
+        except Exception as exc:                                  # noqa: BLE001
+            import logging
+            logging.getLogger("primnox2.routing").warning(
+                "discovery for %s failed: %s", name, exc)
+            found[name] = []
+    return found
+
+
+def omniroute_status() -> dict:
+    """Is the gateway up, and what is behind it?
+
+    This is the most consequential probe in the product now. OmniRoute is how
+    Primnox reaches every hosted model, so "is it running" is the difference
+    between the app working and the app being able to answer only from Ollama.
+
+    Reported rather than inferred: `running` is whether it answered, `channels`
+    are its auto/* routing modes, `model_count` is how much catalogue it has
+    loaded — reachable with zero models means it started but has no providers
+    configured, which is a completely different problem from being down and
+    would otherwise present identically.
+    """
+    payload = _fetch(f"{OMNIROUTE_HOST}/v1/models")
+    if not isinstance(payload, dict):
+        return {
+            "running": False, "host": OMNIROUTE_HOST, "model_count": 0,
+            "channels": [], "configured": False,
+            "install": "npm install -g omniroute && omniroute",
+            "dashboard": f"{OMNIROUTE_HOST}/dashboard",
+        }
+
+    rows = payload.get("data") or payload.get("models") or []
+    names = [r.get("id") or r.get("name") for r in rows if isinstance(r, dict)]
+    names = sorted(n for n in names if n)
+    # The auto/* channels are OmniRoute's routing modes rather than models, and
+    # they are what someone should actually pick: a named model pins the turn
+    # to one provider and gives up the fallback that is the point of running it.
+    channels = sorted(n for n in names if n == "auto" or n.startswith("auto/"))
+    return {
+        "running": True, "host": OMNIROUTE_HOST, "model_count": len(names),
+        "channels": channels, "models": names[:400],
+        # Reachable but empty: started, no providers connected yet. Sending it
+        # a turn in this state fails in a way that looks like Primnox's fault.
+        "configured": len(names) > 0,
+        "install": "npm install -g omniroute && omniroute",
+        "dashboard": f"{OMNIROUTE_HOST}/dashboard",
+    }
 
 
 def discover(name: str) -> list[str]:
@@ -413,6 +696,10 @@ def activate(name: str) -> dict:
     os.environ["PRIMNOX_BASE_URL"] = profile["base_url"]
     os.environ["PRIMNOX_API_TYPE"] = profile["api_type"]
     os.environ["PRIMNOX_MODEL"] = profile["model"]
+    # The URL cannot say whether 127.0.0.1:20128 is a model on this machine or
+    # a gateway to somebody else's. `kind` can, and the gate reads it to decide
+    # whether the Privacy Mirror applies — so it travels with the rest.
+    os.environ["PRIMNOX_PROVIDER_KIND"] = profile.get("kind", "")
     key = get_key(name)
     if key:
         os.environ["PRIMNOX_API_KEY"] = key
@@ -452,4 +739,10 @@ def describe() -> dict:
         # even running" is the first question when a local model does not answer,
         # and the answer used to require a terminal.
         "ollama": ollama_status(),
+        # Carried here now that the catalogue payload that used to supply them
+        # is gone. Both are small, per-profile, and read on the same screen —
+        # a second round trip for two dictionaries was never worth it.
+        "notes": notes(),
+        "favourites": favourites(),
+        "primary": primary_name(),
     }

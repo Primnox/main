@@ -56,6 +56,47 @@ export type UserQuestion = {
   answered: string | null;
 };
 
+/* Desktop tools, whose calls are rendered by ComputerBlock's timeline rather
+   than as generic tool rows. Named here rather than in the component so the
+   list sits next to the types it belongs to — and so adding a tool to the
+   backend has exactly one place to be reflected. */
+export const COMPUTER_TOOLS = new Set([
+  'list_windows', 'control_window', 'read_window', 'click_element',
+  'type_into', 'click_at', 'scroll_window', 'press_keys', 'end_control',
+  'undo_last', 'record_workflow', 'replay_workflow',
+]);
+
+/* One thing the agent did to an application that is not Primnox.
+
+   Kept apart from ToolCall even though every one of these arrives as a tool
+   call too, because the two answer different questions. A tool call says what
+   the model asked the runtime for; this says what happened on the user's
+   desktop. The distinction matters here in a way it does not for a sandbox
+   execution: nothing in this list can be rolled back by Primnox, so the list
+   is the record of an irreversible thing rather than a progress indicator. */
+export type ComputerAction = {
+  id: string;
+  kind: 'read' | 'capture' | 'click' | 'type' | 'scroll' | 'keys' | 'undo';
+  description: string;
+  status: 'running' | 'done' | 'failed';
+  detail: string;
+  at: number;
+};
+
+/* A window the user approved, and everything done to it under that approval. */
+export type ComputerSession = {
+  id: string;
+  handle: string;
+  label: string;
+  process: string;
+  scope: 'read' | 'act';
+  ttlS: number;
+  startedAt: number;
+  endedAt: number | null;
+  endReason: string | null;
+  actions: ComputerAction[];
+};
+
 export type Turn = {
   id: string;
   status: TurnStatus;
@@ -79,13 +120,18 @@ export type Turn = {
   /* Every question this turn asked, in the order it asked them. */
   permissions: PermissionRequest[];
   questions: UserQuestion[];
+  /* Windows this turn took control of. Several can be live at once — driving
+     a browser and a spreadsheet in one task is ordinary — and each renders
+     its own timeline, because interleaving two applications into one list
+     would make it impossible to see which one an action happened in. */
+  computer: ComputerSession[];
   createdAt: number;
 };
 
 export const emptyTurn = (id: string, userText: string, createdAt: number): Turn => ({
   id, status: 'queued', userText, assistantText: '', thinking: '', partial: false, error: null,
   plan: null, toolCalls: [], executions: [], workspaces: [], assets: [],
-  permissions: [], questions: [], createdAt,
+  permissions: [], questions: [], computer: [], createdAt,
 });
 
 export type ConversationState = {
@@ -318,6 +364,51 @@ export function reduce(state: ConversationState, e: CrsEvent): ConversationState
         }
       )) };
 
+    /* ── Computer Use. Folded like executions are, with one difference that
+       matters: an action arrives TWICE, once as `running` and again when it
+       settles, and the second must update the first rather than append. The
+       backend emits both on purpose — an action that hangs is exactly the one
+       the user needs to see — so appending blindly would show every click
+       twice and make a stall look like a repeat. */
+    case 'computer.session.started':
+      return { ...s, turns: upsert(s.turns, id, t => (
+        t.computer.some(c => c.id === e.payload.session_id) ? t : {
+          ...t,
+          computer: [...t.computer, {
+            id: e.payload.session_id, handle: e.payload.handle,
+            label: e.payload.label, process: e.payload.process ?? '',
+            scope: e.payload.scope, ttlS: e.payload.ttl_s ?? 0,
+            startedAt: Date.now(), endedAt: null, endReason: null, actions: [],
+          }],
+        }
+      )) };
+
+    case 'computer.action':
+      return { ...s, turns: upsert(s.turns, id, t => ({
+        ...t,
+        computer: t.computer.map(c => c.id !== e.payload.session_id ? c : {
+          ...c,
+          actions: c.actions.some(a => a.id === e.payload.id)
+            ? c.actions.map(a => a.id === e.payload.id
+                ? { ...a, status: e.payload.status, description: e.payload.description,
+                    detail: e.payload.detail ?? '' }
+                : a)
+            : [...c.actions, {
+                id: e.payload.id, kind: e.payload.kind,
+                description: e.payload.description, status: e.payload.status,
+                detail: e.payload.detail ?? '', at: e.payload.at,
+              }],
+        }),
+      })) };
+
+    case 'computer.session.ended':
+      return { ...s, turns: upsert(s.turns, id, t => ({
+        ...t,
+        computer: t.computer.map(c => c.id === e.payload.session_id
+          ? { ...c, endedAt: Date.now(), endReason: e.payload.reason ?? 'finished' }
+          : c),
+      })) };
+
     case 'question.resolved':
       return { ...s, turns: upsert(s.turns, id, t => ({
         ...t,
@@ -541,6 +632,174 @@ export const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(key ? { key } : {}),
     }).then(json),
+
+  /* What routing currently believes. `chain` is the order this instant — the
+     active provider first, then the fallbacks ranked by health — and
+     `circuits` is what has actually been observed of each endpoint. Read-only
+     apart from the reset, which is what "I just fixed it, try again now"
+     means to a breaker that is still counting down. */
+  modelHealth: (): Promise<ModelHealth> =>
+    fetch(`${API}/models/health`).then(json),
+
+  /* Its own call rather than a field on /models, because the probe is a
+  /* The gateway Primnox routes hosted traffic through. Its own call because
+     the probe is a network request to a port that is often not listening —
+     on a fresh machine "not installed" is the expected answer, not an error,
+     and the settings screen has to render it either way. */
+  omnirouteStatus: (): Promise<OmniRouteStatus> =>
+    fetch(`${API}/models/omniroute`).then(json),
+  models: (): Promise<any> => fetch(`${API}/models`).then(json),
+  useModel: (name: string, model: string) =>
+    fetch(`${API}/models/${encodeURIComponent(name)}/model`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    }).then(json),
+
+  /* Probe an endpoint and key WITHOUT saving them. Finding out a credential is
+     wrong should not cost a saved profile and a failed conversation. */
+  testConnection: (base_url: string, api_key = ''): Promise<ConnectionTest> =>
+    fetch(`${API}/models/test`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base_url, api_key }),
+    }).then(json),
+  testProfile: (name: string): Promise<ConnectionTest> =>
+    fetch(`${API}/models/${encodeURIComponent(name)}/test`, { method: 'POST' }).then(json),
+
+  /* Guides ship with the backend as markdown rather than living on a website:
+     everything they describe is state on this machine, and a website cannot
+     see any of it. The index carries no bodies — it renders as a menu. */
+  /* Mission Control's header. Measured values only — see
+     settings/telemetry.py for what is deliberately absent and why. */
+  telemetry: (): Promise<Telemetry> => fetch(`${API}/models/telemetry`).then(json),
+  capabilities: (): Promise<{ providers: Capability[] }> =>
+    fetch(`${API}/models/capabilities`).then(json),
+  testAllProfiles: (): Promise<{ results: (ConnectionTest & { profile: string })[] }> =>
+    fetch(`${API}/models/test-all`, { method: 'POST' }).then(json),
+
+  guides: (): Promise<{ guides: GuideMeta[] }> => fetch(`${API}/guides`).then(json),
+  guide: (slug: string): Promise<Guide> =>
+    fetch(`${API}/guides/${encodeURIComponent(slug)}`).then(json),
+  resetModelHealth: (key?: string): Promise<ModelHealth> =>
+    fetch(`${API}/models/health/reset`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(key ? { key } : {}),
+    }).then(json),
+};
+
+/** One endpoint's observed history — mirrors health.Circuit.as_dict(). */
+export type Circuit = {
+  key: string;
+  /** OmniRoute's three states. `half_open` means the next call is a probe. */
+  state: 'closed' | 'open' | 'half_open';
+  open: boolean;
+  opens_in_s: number;
+  trips: number;
+  calls: number;
+  failures: number;
+  consecutive_failures: number;
+  error_rate: number;
+  success_rate: number | null;
+  latency_ms: number | null;
+  /** The penalty score: state, not success rate. See models/health.py. */
+  health_score: number;
+  /** The last failure was one time does not fix — a dead key, an empty balance. */
+  terminal: boolean;
+  reason: string;
+  last_error: string;
+};
+
+/** One candidate in the chain, scored — mirrors routing.Explanation. */
+export type RouteStep = {
+  provider: string;
+  model: string;
+  key: string;
+  score: number;
+  eligible: boolean;
+  reasons: string[];
+  factors: Record<string, number>;
+  origin: 'active' | 'profile';
+  local: boolean;
+  error?: string;
+};
+
+/** The gateway's status — mirrors settings.models.omniroute_status().
+ *  `configured` distinguishes "running with providers behind it" from
+ *  "running with nothing behind it", which a status code cannot. */
+export type OmniRouteStatus = {
+  running: boolean;
+  host: string;
+  model_count: number;
+  /** The auto/* routing modes. Picking one keeps the fallback; picking a
+   *  named model pins the turn to a single provider and gives that up. */
+  channels: string[];
+  models?: string[];
+  configured: boolean;
+  install: string;
+  dashboard: string;
+};
+
+/** Mission Control's header — mirrors settings.telemetry.snapshot().
+ *  No tokens-per-second and no quality score: neither is measured, and a
+ *  dashboard number nobody measured is a number nobody should act on. */
+export type Telemetry = {
+  providers: number;
+  local_loaded: number;
+  loaded_models: { name: string; vram_gb: number; expires_at: string }[];
+  requests_today: number;
+  turns: { today: number; completed: number; failed: number; cancelled: number; live: number };
+  success_rate: number | null;
+  latency_ms: number | null;
+  open_circuits: number;
+  active: string | null;
+  local_active: boolean;
+  scrubbing: boolean;
+  healthy: boolean;
+};
+
+/** What a configured provider can do — from the capability registry the
+ *  gateway consults, never from a benchmark Primnox has not run. */
+export type Capability = {
+  name: string;
+  model: string;
+  local: boolean;
+  tool_calling: 'native' | 'emulated' | 'none';
+  vision: 'native' | 'emulated' | 'none';
+  json_mode: boolean;
+  streaming: boolean;
+  context_window: number;
+  max_output: number;
+  parallel_tool_calls: boolean;
+  latency_ms: number | null;
+  calls: number;
+};
+
+/** A guide's front matter, without its body — mirrors guides.index(). */
+export type GuideMeta = {
+  slug: string;
+  title: string;
+  summary: string;
+  order: number;
+};
+
+export type Guide = GuideMeta & { body: string };
+
+/** One probe of an endpoint — mirrors settings.connections.probe(). */
+export type ConnectionTest = {
+  ok: boolean;
+  /** A failure type from the ported classifier, or 'not_json' / 'no_endpoint'. */
+  reason: string;
+  error: string;
+  latency_ms: number;
+  models: string[];
+  status: number | null;
+  /** Null when the probe tested an endpoint that is not a saved profile. */
+  profile?: string | null;
+};
+
+export type ModelHealth = {
+  circuits: Circuit[];
+  chain: RouteStep[];
+  attempts_allowed: number;
 };
 
 /** One row of `GET /tunables` — mirrors tunables.describe() exactly. */

@@ -47,7 +47,7 @@ export function WebPreview({ src, name, source, truncated }: {
           </button>
         </div>
 
-        <span className="px-label ml-auto hidden sm:inline text-on-surface/35">
+        <span className="px-label ml-auto hidden sm:inline text-on-surface/50">
           sandboxed · no network access to Primnox
         </span>
 
@@ -65,7 +65,7 @@ export function WebPreview({ src, name, source, truncated }: {
                         text-[12px] leading-relaxed whitespace-pre-wrap break-words
                         text-on-surface/80">
           {source}
-          {truncated && <span className="text-on-surface/40">{'\n\n… truncated'}</span>}
+          {truncated && <span className="text-on-surface/50">{'\n\n… truncated'}</span>}
         </pre>
       ) : (
         <iframe src={src} title={name}

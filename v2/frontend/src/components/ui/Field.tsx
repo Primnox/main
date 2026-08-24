@@ -40,10 +40,10 @@ export function Field({
         className={`w-full bg-transparent border border-on-surface/[0.12] rounded-xl
                     px-4 py-2.5 text-sm outline-none px-interactive
                     focus-visible:border-on-surface/40
-                    placeholder:text-on-surface/25 ${className}`}
+                    placeholder:text-on-surface/50 ${className}`}
         {...rest} />
       {hint && (
-        <BaseField.Description className="text-[11px] leading-snug text-on-surface/40">
+        <BaseField.Description className="text-[11px] leading-snug text-on-surface/50">
           {hint}
         </BaseField.Description>
       )}
@@ -89,7 +89,7 @@ export function Choice({
           </Radio.Root>
         ))}
       </RadioGroup>
-      {hint && <p className="text-[11px] leading-snug text-on-surface/40">{hint}</p>}
+      {hint && <p className="text-[11px] leading-snug text-on-surface/50">{hint}</p>}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { api } from '../lib/crs';
 import { MD } from '../lib/md';
 import { CopyButton } from './CopyButton';
+import { Reveal } from './Reveal';
 
 /* Whether this file is prose to be READ or source to be looked at.
  *
@@ -163,7 +164,7 @@ export function Canvas({
             )}
             <ChevronRight
               size={12} aria-hidden="true"
-              className={`shrink-0 text-on-surface/40 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+              className={`shrink-0 text-on-surface/50 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
             />
           </button>
         ) : (
@@ -292,7 +293,7 @@ export function Canvas({
       {/* Inline is bounded and scrolls its own overflow: a long document must
           not push the rest of the conversation off the screen. The panel owns
           the full height it was given. */}
-      {open && (
+      <Reveal open={open}>
       <div className={
         inline
           ? 'max-h-[26rem] overflow-y-auto custom-scrollbar'
@@ -323,7 +324,7 @@ export function Canvas({
           )
         )}
       </div>
-      )}
+      </Reveal>
     </Root>
   );
 }

@@ -57,7 +57,7 @@ export function ChatRow({ c }: { c: any }) {
       onContextMenu={e => { e.preventDefault(); openMenuAt(e.clientX, e.clientY); }}>
       <button onClick={() => a.open(c.id)}
         aria-current={active ? 'page' : undefined}
-        className={`flex-1 min-w-0 text-left px-3 py-2.5 rounded-lg flex items-center gap-2.5 transition-all duration-200 text-[13px]
+        className={`flex-1 min-w-0 text-left px-3 py-2.5 rounded-lg flex items-center gap-2.5 transition duration-150 text-[13px]
           ${active ? 'bg-on-surface/[0.07] text-on-surface' : 'text-on-surface/55 hover:text-on-surface/85 hover:bg-on-surface/[0.03]'}`}>
         {c.incognito
           ? <EyeOff size={13} className="shrink-0 opacity-60" />
@@ -66,7 +66,7 @@ export function ChatRow({ c }: { c: any }) {
             : <MessageSquare size={13} className="shrink-0 opacity-60" />}
         <span className="truncate flex-1">{c.title}</span>
         {c.turn_count > 0 && (
-          <span className="font-mono text-[9px] text-on-surface/35 tabular-nums">{c.turn_count}</span>
+          <span className="font-mono text-[9px] text-on-surface/50 tabular-nums">{c.turn_count}</span>
         )}
       </button>
 

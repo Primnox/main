@@ -91,7 +91,7 @@ export function VaultSettings() {
             {words.map((w, i) => (
               <li key={i}
                 className="flex items-center gap-2 rounded-lg border border-on-surface/[0.10] px-2.5 py-1.5">
-                <span className="font-mono text-[10px] text-on-surface/35 tabular-nums w-4 text-right shrink-0">
+                <span className="font-mono text-[10px] text-on-surface/50 tabular-nums w-4 text-right shrink-0">
                   {i + 1}
                 </span>
                 <span className="font-mono text-[12px] truncate">{w}</span>

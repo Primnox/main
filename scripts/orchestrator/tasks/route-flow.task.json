@@ -1,0 +1,16 @@
+{
+  "id": "route-flow",
+  "title": "Route path diagram",
+  "enabled": true,
+  "briefFile": "briefs/route-flow.md",
+  "standards": "UI.md",
+  "deliverables": ["src/RouteFlow.tsx", "src/RouteFlow.test.tsx", "NOTES.md"],
+  "acceptance": [
+    "Hand-authored inline SVG with a viewBox and no fixed width/height; no charting library.",
+    "The serving node is unmistakable by shape and weight, not by colour alone.",
+    "Remaining fallbacks render as provisional, never as though traffic reaches them.",
+    "The no-eligible-candidate case has its own deliberate terminal rendering.",
+    "A visually hidden ordered list mirrors the diagram, and tab order follows walk order.",
+    "Layout solver, serving-index resolver, and aria-label generator are exported pure functions with tests covering empty, single, none-eligible, and orientation-switch cases."
+  ]
+}

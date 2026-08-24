@@ -74,7 +74,7 @@ export function AssetPreview({
       {preview.kind === 'text' && (
         <pre className="p-5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] text-on-surface/80">
           {preview.text}
-          {preview.truncated && <span className="text-on-surface/40">{'\n\n… truncated'}</span>}
+          {preview.truncated && <span className="text-on-surface/50">{'\n\n… truncated'}</span>}
         </pre>
       )}
 

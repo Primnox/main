@@ -123,3 +123,23 @@ graphify-out/
 # hook's cache. Session scratch, not product truth. The direction it produced
 # lives in the contract comment in v2/frontend/index.html, which IS tracked.
 .impeccable/
+
+# Orchestrator run artefacts: worker output awaiting merge review.
+scripts/orchestrator/runs/
+
+# V2 build artefacts. The rules above say `backend/dist/` and friends, which
+# are anchored at the repo root and so never matched `v2/backend/...` — this
+# tree held 1.5 GB of PyInstaller output, 293 MB of build intermediates and
+# 373 MB of downloaded models, all of it untracked and one `git add -A` away
+# from the history.
+v2/backend/build/
+v2/backend/dist/
+v2/backend/models/
+v2/frontend/dist/
+v2/frontend/dist-electron/
+
+# Project MCP servers. This file is machine-specific — it names an absolute
+# interpreter path that exists on one box — and it configures a desktop
+# automation server with a promptless permission mode. Neither belongs in a
+# clone somebody else made.
+.mcp.json
