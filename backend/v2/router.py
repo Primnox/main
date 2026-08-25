@@ -204,8 +204,33 @@ _SIGNALS: list[_Signal] = [
             r"\bwhat have i told you\b", r"\bwhat do you know about me\b",
             companions=("H",)),
     _signal("M", "preference", 2.0,
-            r"\bmy (preference|setup|config|usual)\b", r"\bi (prefer|always|usually|never)\b",
+            # Plurals matter here: `my (preference)\b` cannot match "my
+            # preferences", because \b demands a boundary immediately after
+            # "preference" and the "s" denies it. "what are my preferences"
+            # therefore scored zero on every signal and fell through to the
+            # default — a code search, for a question about the user.
+            r"\bmy (preferences?|setup|configs?|configuration|usual)\b",
+            r"\bi (prefer|always|usually|never)\b",
             r"\bwe (use|prefer)\b", r"\bwhich (package manager|provider|model) (do|does)\b"),
+    # Questions about the user themself. Their absence was the single biggest
+    # hole in this table: measured over ten ordinary memory questions, only one
+    # reached M, and "where do I live", "what's my name", "who am I" and
+    # "what's my email address" all scored zero and defaulted to S — an exact
+    # code search, run against the codebase, to answer a question about a
+    # person. Retrieval that cannot be reached is indistinguishable from
+    # retrieval that does not exist, which is what "it doesn't know anything
+    # about me" actually is.
+    #
+    # Deliberately broad on the possessive. A first-person possessive question
+    # that turns out to have no stored fact costs one empty lookup; the same
+    # question sent to a code search costs a wrong answer.
+    _signal("M", "personal_fact", 2.5,
+            r"\bwho am i\b", r"\bwhere do i (live|work|stay)\b",
+            r"\bwhat(?:'s| is| are)? ?my \w+", r"\bwhat are my\b",
+            r"\bwhat (city|country|timezone|language) (am|do) i\b",
+            r"\bmy (name|email|e-mail|phone|address|birthday|job|role|title|company|employer|timezone)\b",
+            r"\bwhat did i tell you about\b",
+            companions=("H",)),
     _signal("M", "why_remembered", 2.5,
             r"\bwhy do you (remember|think|believe)\b", r"\bhow do you know\b",
             r"\bwhere did you (get|learn) that\b"),

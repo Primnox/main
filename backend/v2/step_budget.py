@@ -150,9 +150,59 @@ def predict(question: str, route=None) -> int:
     return 2
 
 
+# How many turns at a route label before what actually happened is allowed to
+# move the prediction, and how far back to look. Small enough to adapt within a
+# session, large enough that one unusual turn does not swing the ladder.
+_FEEDBACK_MIN_TURNS = 5
+_FEEDBACK_WINDOW = 20
+
+
+def observed_ceiling(route_label: str | None) -> int | None:
+    """The rung recent turns at this label actually needed, if it is known.
+
+    Only ever used to correct DOWNWARD, which is the asymmetry `predict()`
+    already documents: under-predicting costs one escalation, over-predicting
+    costs the difference between one step and eight on every request that did
+    not need it. So a label whose turns keep finishing early gets a cheaper
+    plan, and one that keeps running long is left alone — the escalation path
+    handles that direction already.
+
+    Takes the MAX of the window rather than the mean. The question is "what
+    does this kind of request need", and a mean lets a run of trivial turns
+    starve the occasional long one into an escalation it could have avoided.
+    """
+    if not route_label:
+        return None
+    _init()
+    rows = store.connect().execute(
+        "SELECT steps_used FROM turn_costs WHERE route_label = ? AND success = 1"
+        " ORDER BY rowid DESC LIMIT ?",
+        (route_label, _FEEDBACK_WINDOW),
+    ).fetchall()
+    if len(rows) < _FEEDBACK_MIN_TURNS:
+        return None
+    worst = max(int(r["steps_used"] or 0) for r in rows)
+    # Snap up to a real rung: the ladder is what the rest of the module speaks.
+    for rung in LADDER:
+        if worst <= rung:
+            return rung
+    return LADDER[-1]
+
+
 def plan(question: str, route=None, *, prefix_tokens: int = 0) -> Plan:
     """Build the cost plan for one turn."""
     predicted = predict(question, route)
+    # The telemetry recorded every miss and nothing read it back, so a label
+    # that had over-predicted six times running still predicted the same on the
+    # seventh. Measured: predicted 8, used 2, six times — prediction_accuracy
+    # 0.0, and the next plan unchanged. Over-prediction is not free either: at
+    # 8 it turns compaction on and cuts the result budget to 300 tokens, so a
+    # turn that needed two steps gets its results deferred to asset reads it
+    # then pays to fetch back.
+    observed = observed_ceiling(getattr(route, "label", None))
+    corrected_from = None
+    if observed is not None and observed < predicted:
+        corrected_from, predicted = predicted, observed
     cache = cache_pays_off(predicted) and (
         predicted >= 4 or prefix_tokens >= CACHE_MIN_PREFIX_TOKENS
     )
@@ -162,6 +212,9 @@ def plan(question: str, route=None, *, prefix_tokens: int = 0) -> Plan:
     rationale_parts.append("cache on" if cache else "cache off")
     if predicted >= 4:
         rationale_parts.append("compaction on")
+    if corrected_from is not None:
+        rationale_parts.append(
+            f"lowered from {corrected_from} — recent turns at this route finished sooner")
 
     return Plan(
         predicted_steps=predicted,

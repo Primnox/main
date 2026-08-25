@@ -31,6 +31,7 @@ to the caller:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 
 from primnox2.context.service import estimate_tokens
 from v2 import ids, store
@@ -110,8 +111,36 @@ def _task_row(row) -> dict:
     return out
 
 
+def _touch_stamp(conn) -> str:
+    """A stamp strictly newer than every other task's.
+
+    `open_tasks` orders by `updated_at` alone, so two tasks written inside the
+    same clock tick order arbitrarily — and `resume()` then returns whichever
+    SQLite happened to pick, which is "continue what I was doing" resuming the
+    wrong task. Reproduced at roughly one run in ten: start a second task, then
+    observe the first, and both land on the same `utc_now()` value.
+
+    Bumping past the current maximum rather than adding a tiebreak column keeps
+    the ordering inside the index that already exists (idx_tasks_open), and
+    makes "most recently touched" true by construction instead of by timer
+    resolution. The stamps stay ISO-8601 and therefore still sort
+    lexicographically, which is the property `utc_now()` exists to provide.
+    """
+    now = store.utc_now()
+    row = conn.execute("SELECT MAX(updated_at) AS newest FROM tasks").fetchone()
+    newest = (row["newest"] if row is not None else None) or ""
+    if now > newest:
+        return now
+    try:
+        return (datetime.fromisoformat(newest) + timedelta(microseconds=1)).isoformat()
+    except ValueError:                                        # pragma: no cover
+        # Unparseable stamp from some older write — appending still sorts after
+        # it, which is all the ordering needs.
+        return newest + "1"
+
+
 def _touch(conn, task_id: str) -> None:
-    conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (store.utc_now(), task_id))
+    conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_touch_stamp(conn), task_id))
 
 
 # ── Lifecycle ────────────────────────────────────────────────────────────────
@@ -342,7 +371,7 @@ def observe(task_id: str, observation: str, *, result_ref: str | None = None) ->
             refs.append(result_ref)
         conn.execute(
             "UPDATE tasks SET latest_observation = ?, result_refs = ?, updated_at = ? WHERE id = ?",
-            (observation, json.dumps(refs), store.utc_now(), task_id),
+            (observation, json.dumps(refs), _touch_stamp(conn), task_id),
         )
     return get(task_id)
 
@@ -367,7 +396,7 @@ def learn(task_id: str, fact: str) -> dict | None:
             known.append(fact)
         conn.execute(
             "UPDATE tasks SET known = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(known), store.utc_now(), task_id),
+            (json.dumps(known), _touch_stamp(conn), task_id),
         )
     return get(task_id)
 
@@ -378,7 +407,7 @@ def set_next(task_id: str, actions: list[str]) -> dict | None:
     with store.transaction() as conn:
         conn.execute(
             "UPDATE tasks SET next_actions = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(list(actions)), store.utc_now(), task_id),
+            (json.dumps(list(actions)), _touch_stamp(conn), task_id),
         )
     return get(task_id)
 
@@ -406,7 +435,7 @@ def retarget(
         merged = existing["constraints"] + [c for c in (constraints or []) if c not in existing["constraints"]]
         conn.execute(
             "UPDATE tasks SET goal = ?, constraints = ?, next_actions = '[]', updated_at = ? WHERE id = ?",
-            (goal.strip() if goal else existing["goal"], json.dumps(merged), store.utc_now(), task_id),
+            (goal.strip() if goal else existing["goal"], json.dumps(merged), _touch_stamp(conn), task_id),
         )
         if drop_pending:
             conn.execute(
@@ -457,7 +486,7 @@ def finish(task_id: str, status: str | None = None, *, outcome: str | None = Non
     with store.transaction() as conn:
         conn.execute(
             "UPDATE tasks SET status = ?, outcome = ?, finished_at = ?, updated_at = ? WHERE id = ?",
-            (status, outcome, store.utc_now(), store.utc_now(), task_id),
+            (status, outcome, store.utc_now(), _touch_stamp(conn), task_id),
         )
     return get(task_id)
 
