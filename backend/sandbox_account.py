@@ -60,8 +60,17 @@ def _is_elevated() -> bool:
 
 
 def account_exists(username: str = SANDBOX_USERNAME) -> bool:
-    import win32net
+    # The import belongs inside the try: pywin32 only installs on Windows
+    # (see requirements.txt), so importing it outside made this raise
+    # ModuleNotFoundError on Linux/macOS instead of answering the question.
+    # Since sandbox_account_configured() is documented as safe to call before
+    # every code execution, that turned every skill run and every
+    # runtime_capabilities.detect() on a non-Windows build into a hard
+    # failure ("No module named 'win32net'"). There is no Windows sandbox
+    # account on those platforms, so False is the correct answer — matching
+    # how _is_elevated() above already handles the same situation.
     try:
+        import win32net
         win32net.NetUserGetInfo(None, username, 0)
         return True
     except Exception:

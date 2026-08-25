@@ -20,6 +20,19 @@ def _clear_cache():
     runtime_capabilities.invalidate()
 
 
+@pytest.fixture(autouse=True)
+def _sandbox_provisioned(monkeypatch):
+    """Assume the sandbox account exists unless a test says otherwise.
+
+    _probe() short-circuits on an unprovisioned sandbox, and provisioning is
+    a real Windows account that only exists on a machine someone set it up
+    on — so without this stub these tests pass on a provisioned Windows dev
+    box and fail everywhere else, including two of CI's three runners. The
+    test that actually cares about the unprovisioned path overrides this
+    with its own monkeypatch."""
+    monkeypatch.setattr("sandbox_account.sandbox_account_configured", lambda: True)
+
+
 def _probe_result(stdout, success=True):
     return {"success": success, "stdout": stdout, "stderr": "", "return_code": 0 if success else 1}
 
