@@ -96,6 +96,29 @@ _SCHEMA = [
 
 def _init() -> None:
     store.ensure_schema("result_store", _SCHEMA)
+    _ensure_read_backs_column()
+
+
+_read_backs_checked: set = set()
+
+
+def _ensure_read_backs_column() -> None:
+    """Add `read_backs` to a table created before it existed.
+
+    Kept out of `_SCHEMA` because `ensure_schema` requires every statement to
+    be idempotent, and SQLite's `ALTER TABLE ADD COLUMN` is not — it errors
+    rather than no-ops when the column is already there. Guarding on
+    PRAGMA is the idempotent form.
+    """
+    key = str(store.db_path())
+    if key in _read_backs_checked:
+        return
+    conn = store.connect()
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(results)").fetchall()}
+    if "read_backs" not in columns:
+        with conn:
+            conn.execute("ALTER TABLE results ADD COLUMN read_backs INTEGER NOT NULL DEFAULT 0")
+    _read_backs_checked.add(key)
 
 
 # ── Normalisation and shape detection ────────────────────────────────────────
@@ -319,8 +342,15 @@ def get(result_id: str, *, mark_used: bool = True) -> str | None:
         return None
     if mark_used:
         with store.transaction() as conn:
+            # `read_backs` and `hits` count different things and conflating them
+            # loses the only number that says whether compaction is working.
+            # `hits` counts STORES (a byte-identical result arriving twice);
+            # this counts RETRIEVALS — the model deciding the observation was
+            # not enough and paying a call to get the body back. One is
+            # deduplication working, the other is compaction failing.
             conn.execute(
-                "UPDATE results SET last_used_at = ? WHERE id = ?", (store.utc_now(), result_id)
+                "UPDATE results SET read_backs = read_backs + 1, last_used_at = ?"
+                " WHERE id = ?", (store.utc_now(), result_id)
             )
     return row["content"]
 
@@ -422,6 +452,73 @@ def head(result_id: str, lines: int = 20) -> str | None:
 
 
 # ── Retention ────────────────────────────────────────────────────────────────
+
+
+def sufficiency(*, session: str | None = None, project: str | None = None) -> dict:
+    """How often a compact observation was enough, per tool.
+
+    The number that decides what should be compacted. A result that is stored
+    and never read back was, in hindsight, unnecessary in the active context —
+    the observation carried the turn on its own. One that IS read back cost a
+    round trip that sending the body would not have.
+
+    So this is the feedback signal compaction policy has been missing: not
+    "how many tokens did we save" but "how often did saving them cost a call".
+    A tool at 95% wants compacting harder; one at 60% is being compacted past
+    what its output can survive, and its budget should go up rather than down.
+
+    `tokens_saved_net` is deliberately not just the sum of what compaction
+    removed. It subtracts the full body of everything that got read back
+    anyway, because those were paid for twice — once as an observation, once
+    as the retrieval. It is the honest version of the headline number.
+    """
+    _init()
+    clauses, params = [], []
+    if session is not None:
+        clauses.append("session_id = ?")
+        params.append(session)
+    if project is not None:
+        clauses.append("project_id = ?")
+        params.append(project_id(project))
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    rows = store.connect().execute(
+        f"""
+        SELECT tool,
+               COUNT(*)                                   AS compacted,
+               SUM(CASE WHEN read_backs > 0 THEN 1 ELSE 0 END) AS read_back,
+               COALESCE(SUM(content_tokens), 0)           AS full_tokens,
+               COALESCE(SUM(CASE WHEN read_backs > 0 THEN content_tokens ELSE 0 END), 0)
+                                                          AS reread_tokens
+          FROM results {where}
+         GROUP BY tool
+         ORDER BY compacted DESC
+        """,
+        params,
+    ).fetchall()
+
+    by_tool, totals = [], {"compacted": 0, "read_back": 0, "full_tokens": 0, "reread_tokens": 0}
+    for r in rows:
+        compacted = int(r["compacted"] or 0)
+        read_back = int(r["read_back"] or 0)
+        by_tool.append({
+            "tool": r["tool"],
+            "compacted": compacted,
+            "read_back": read_back,
+            "sufficiency": round(1 - (read_back / compacted), 4) if compacted else None,
+            "full_tokens": int(r["full_tokens"] or 0),
+        })
+        for k in totals:
+            totals[k] += int(r[k] or 0)
+
+    compacted = totals["compacted"]
+    return {
+        "by_tool": by_tool,
+        "compacted": compacted,
+        "read_back": totals["read_back"],
+        "sufficiency": round(1 - (totals["read_back"] / compacted), 4) if compacted else None,
+        "tokens_saved_net": totals["full_tokens"] - totals["reread_tokens"],
+    }
 
 
 def forget_session(session: str) -> int:
