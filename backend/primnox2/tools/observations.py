@@ -65,13 +65,20 @@ class Ledger:
     somebody has to remember.
     """
 
-    def __init__(self, *, threshold: int = COMPACT_AFTER_TOKENS) -> None:
+    def __init__(self, *, threshold: int = COMPACT_AFTER_TOKENS,
+                 session: str | None = None) -> None:
         self.threshold = threshold
+        self.session = session
         self.accumulated = 0
         self.count = 0
         # What was compacted, so a turn can say so and a benchmark can check
         # it actually happened rather than trusting that it did.
         self.compacted: list[str] = []
+        # Results the store took but the threshold kept verbatim. Worth
+        # counting separately from `compacted`: it is the population a lower
+        # threshold would have caught, so the two numbers together say whether
+        # the threshold is set anywhere near right.
+        self.stored_but_sent_whole = 0
 
     def record(self, formatted: str, result: dict) -> str:
         """The text to append for this result — full, or compact.
@@ -82,22 +89,29 @@ class Ledger:
         self.count += 1
         cost = _estimate(formatted)
 
+        # Store first, threshold second. The store is what gives a result
+        # somewhere to point, and asking it AFTER deciding not to compact
+        # would mean the early results of a turn are unrecoverable — which is
+        # exactly the state that made most tools ineligible before.
+        ref = self._store(result)
+
         if self.accumulated < self.threshold:
             # Still cheap. Send it whole, and count it against the budget so
             # the NEXT one knows.
             self.accumulated += cost
+            if ref:
+                self.stored_but_sent_whole += 1
             return formatted
 
         # Already small, or with nowhere to point. Both mean compaction is the
         # wrong move, for different reasons.
         #
         # A result that fits in roughly an observation saves nothing by
-        # becoming one. And a result with no `result_ref` was never written to
-        # an asset — `_store_output` only promotes output ABOVE the inline cap
-        # — so replacing it with a summary would not defer the detail, it
-        # would destroy it. Compaction that loses information is not
-        # compaction.
-        if cost <= OBSERVATION_TOKENS * 2 or not result.get("result_ref"):
+        # becoming one. And a result nothing holds a copy of cannot be
+        # summarised without losing it: replacing it would not defer the
+        # detail, it would destroy it. Compaction that loses information is
+        # not compaction.
+        if cost <= OBSERVATION_TOKENS * 2 or not (ref or result.get("result_ref")):
             self.accumulated += cost
             return formatted
 
@@ -105,6 +119,37 @@ class Ledger:
         self.accumulated += _estimate(observation)
         self.compacted.append(f"R{self.count}")
         return observation
+
+    def _store(self, result: dict) -> str | None:
+        """Put the full output in the result store and return its handle.
+
+        The asset path this used to depend on answers a different question.
+        `_store_output` promotes output above the inline cap so a 200k-line
+        log does not enter the window, and it is allowed to fail silently —
+        losing an archive copy must not fail a tool that already ran. Both
+        properties are right for an archive and wrong for the only route back
+        to a result the model can no longer see, which is what a handle in a
+        compacted transcript is.
+
+        So the store is asked for every result, at any size, and a failure
+        here means this result simply is not compacted — never that it is
+        compacted into nothing.
+        """
+        output = result.get("output")
+        if not isinstance(output, str) or not output.strip():
+            return None
+        try:
+            from v2 import result_store
+
+            stored = result_store.put(
+                result.get("tool", "tool"), output, session=self.session,
+                budget_tokens=OBSERVATION_TOKENS,
+            )
+        except Exception:
+            return None
+        result["result_id"] = stored["result_id"]
+        result["result_observation"] = stored["observation"]
+        return stored["result_id"]
 
     def observe(self, result: dict) -> str:
         """A result reduced to what the next decision needs.
@@ -119,6 +164,17 @@ class Ledger:
         status = result.get("status", "success")
         summary = (result.get("summary") or "").strip()
 
+        # ORDER IS LOAD-BEARING, because the tail is what gets cut. An earlier
+        # version appended the excerpt before the pointer and capped the whole
+        # string, so on any result with a substantial excerpt — which is every
+        # result worth compacting — the truncation ate the `res_…` id and the
+        # instruction to fetch it. The observation still looked reasonable and
+        # was no longer redeemable, which is the one failure this whole
+        # mechanism is built to avoid.
+        #
+        # So everything the model needs in order to ACT goes first and is
+        # never trimmed: what ran, what the tool said, and how to get the
+        # rest. The excerpt is last and absorbs the entire cap.
         lines = [f"Observation R{self.count}: {name} "
                  f"{'completed' if status == 'success' else 'failed'}."]
         if summary:
@@ -126,8 +182,13 @@ class Ledger:
 
         # The pointer is what makes this lossless. Without an id the model has
         # no way back to the detail and compaction becomes deletion.
+        result_id = result.get("result_id")
         ref = result.get("result_ref")
-        if ref:
+        if result_id:
+            lines.append(f'Full output is {result_id} — read_result it if you '
+                         f'need the detail, with `find` to pull only the lines '
+                         f'you want.')
+        elif ref:
             lines.append(f'Full output is asset {ref} — read_asset it if you '
                          f'need the detail.')
         else:
@@ -137,9 +198,26 @@ class Ledger:
         if status != "success":
             lines.append("Fix the cause before retrying.")
 
-        text = "\n".join(lines)
-        cap = OBSERVATION_TOKENS * 4
-        return text if len(text) <= cap else text[:cap] + "…"
+        head = "\n".join(lines)
+
+        # The store's own summary, built from the SHAPE of the output — a head
+        # and tail for lines, keys and counts for JSON, the LAST lines rather
+        # than the first for a traceback. The tool's `summary` field says what
+        # the tool did; this says what it found, and a model deciding whether
+        # it needs the body needs the second one.
+        shaped = (result.get("result_observation") or "").strip()
+        if not shaped or shaped == summary:
+            return head
+
+        room = OBSERVATION_TOKENS * 4 - len(head) - 1
+        if room < 80:
+            # No space for an excerpt that would tell anyone anything. The
+            # pointer already survived, so this is a smaller observation and
+            # not a lossy one.
+            return head
+        if len(shaped) > room:
+            shaped = shaped[:room] + "…"
+        return f"{head}\n{shaped}"
 
 
 def strategy(predicted_steps: int) -> dict:

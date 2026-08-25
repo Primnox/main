@@ -199,6 +199,90 @@ register(ToolSpec(
 ))
 
 
+def _read_result(args: dict, ctx: ToolContext) -> dict:
+    """Fetch back a tool result the transcript only carries an observation of.
+
+    This is the half of compaction that makes it compaction. The result store
+    replaces a large result with a summary and a `res_…` handle, and that
+    trade is only honest if the handle can be redeemed — without this tool the
+    detail is not deferred, it is gone, and the model is left reasoning about
+    a summary it cannot check.
+
+    Three ways in, because "read it all back" is the worst of them. `find`
+    pulls the matching lines and their neighbours, `lines` takes the head, and
+    only a bare call returns the whole body. A model that read every result
+    back in full would pay for each one twice and land above where it started,
+    which is what `result_store.sufficiency()` exists to detect.
+    """
+    from v2 import result_store
+
+    result_id = (args.get("result_id") or "").strip()
+    if not result_id:
+        return {"status": "error", "summary": "a result id is required",
+                "output": "Pass the res_… id from the observation."}
+
+    info = result_store.info(result_id)
+    if info is None:
+        return {"status": "error", "summary": "no such result",
+                "output": f"{result_id} is not in the result store. It may "
+                          f"belong to an older session that has been pruned."}
+
+    if info.get("sensitivity") == "secret":
+        # The store withholds these from the observation on purpose; a tool
+        # any model can call is not the authorised path back to them.
+        return {"status": "error", "summary": "withheld",
+                "output": f"{result_id} holds a secret value and is not "
+                          f"readable here."}
+
+    query = (args.get("find") or "").strip()
+    if query:
+        found = result_store.section(result_id, query)
+        if not found or not found["matches"]:
+            return {"status": "success",
+                    "summary": f"no lines matching {query!r}",
+                    "output": f"{result_id} has no line matching {query!r}. "
+                              f"It holds {info['line_count']} lines; call "
+                              f"without `find` to read it."}
+        return {"status": "success",
+                "summary": f"{found['matches']} matching lines",
+                "output": _clip(found["text"])}
+
+    if args.get("lines"):
+        try:
+            count = int(args["lines"])
+        except (TypeError, ValueError):
+            return {"status": "error", "summary": "lines must be a number",
+                    "output": ""}
+        text = result_store.head(result_id, count) or ""
+        return {"status": "success", "summary": f"first {count} lines",
+                "output": _clip(text)}
+
+    text = result_store.get(result_id) or ""
+    return {"status": "success",
+            "summary": f"{info['content_tokens']} tokens, "
+                       f"{info['line_count']} lines",
+            "output": _clip(text)}
+
+
+register(ToolSpec(
+    name="read_result",
+    description=("Read back the full output of an earlier tool result that "
+                 "was summarised. Use the res_… id from an observation. "
+                 "Prefer `find` to pull only the lines you need."),
+    parameters={
+        "result_id": {"type": "string", "required": True,
+                      "description": "The res_… id from the observation."},
+        "find": {"type": "string", "required": False,
+                 "description": "Return only lines matching this text or "
+                                "pattern, with their neighbours."},
+        "lines": {"type": "integer", "required": False,
+                  "description": "Return only the first N lines."},
+    },
+    danger=LOW,
+    handler=_read_result,
+))
+
+
 # ── Memory ───────────────────────────────────────────────────────────────────
 def _remember(args: dict, ctx: ToolContext) -> dict:
     """Save a durable fact about the user, from the conversation.

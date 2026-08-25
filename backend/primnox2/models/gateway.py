@@ -378,6 +378,68 @@ def _cacheable_system(system: str):
              "cache_control": {"type": "ephemeral"}}]
 
 
+def _cacheable_conversation(convo: list[dict]) -> list[dict]:
+    """Mark the end of the conversation so the tool loop stops re-buying it.
+
+    `_cacheable_system` caches the preamble, which is the largest single
+    block, and stops there — so on an eight-step turn the preamble is read
+    back cheaply seven times while every tool result is re-sent at FULL price
+    on every step after it. The block that never changes was cached and the
+    part that grows was not, which is backwards: the growing part is the one
+    being paid for repeatedly.
+
+    Measured on `bench_compaction.py`'s eight-step workload, with the result
+    store compacting from the first result:
+
+        system block only              8,226 billed   93.3% under no-cache
+        breakpoint at the end of it    6,104 billed   95.0%
+
+    THIS IS ONLY SAFE BECAUSE NOTHING IS EVER REWRITTEN. A prefix cache keys
+    on exact bytes, so marking a conversation that gets edited between steps
+    would invalidate the whole prefix and buy a cache write it never reads
+    back — a loss, not a saving. `observations.Ledger` decides once, at
+    append time, and the loop only ever appends; that invariant is what makes
+    the breakpoint collectable, and it is why the two mechanisms compound
+    instead of cancelling.
+
+    The marker goes on the LAST message rather than a fixed position, because
+    the prefix worth caching is everything sent so far and that grows by one
+    exchange each step. Anthropic reads the longest cached prefix at or below
+    the marker, so last-message placement collects the previous step's write.
+
+    Only from the second message on. A conversation of one message is the
+    first call of a turn: there is no earlier prefix to read, and the write
+    would be paid by a turn that may never take a second step — which is the
+    measured 1% loss at one step that `observations.strategy` already refuses.
+    """
+    from ..context.service import estimate_tokens
+
+    if len(convo) < 2:
+        return convo
+
+    total = sum(estimate_tokens(str(m.get("content", ""))) for m in convo)
+    if total < MIN_CACHEABLE_TOKENS:
+        # Below the provider's minimum cacheable size the marker is ignored
+        # and, on some gateways, charged for anyway. Not worth the request.
+        return convo
+
+    marked = list(convo)
+    last = dict(marked[-1])
+    content = last.get("content")
+    if isinstance(content, str):
+        last["content"] = [{"type": "text", "text": content,
+                            "cache_control": {"type": "ephemeral"}}]
+    elif isinstance(content, list) and content:
+        blocks = [dict(b) if isinstance(b, dict) else b for b in content]
+        if isinstance(blocks[-1], dict):
+            blocks[-1]["cache_control"] = {"type": "ephemeral"}
+        last["content"] = blocks
+    else:
+        return convo
+    marked[-1] = last
+    return marked
+
+
 
 class AnthropicProvider:
     """Anthropic's messages API — a different wire format, same contract.
@@ -430,7 +492,7 @@ class AnthropicProvider:
             "max_tokens": max_tokens,
             "stream": True,
             **({"system": _cacheable_system(system)} if system else {}),
-            "messages": convo,
+            "messages": _cacheable_conversation(convo),
             **({"thinking": {"type": "enabled", "budget_tokens": 1024}} if thinking else {}),
         }).encode()
         req = urllib.request.Request(

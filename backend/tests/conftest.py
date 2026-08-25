@@ -39,6 +39,7 @@ from primnox2.kernel import scheduler as scheduler_module     # noqa: E402
 from primnox2.kernel.events import bus                        # noqa: E402
 from primnox2.models import gateway                           # noqa: E402
 from primnox2.storage import db                               # noqa: E402
+from v2 import store as v2_store                              # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -50,9 +51,26 @@ def runtime():
     paths.configure(root)
     db.configure(root / "primnox.db")
     db.init()
+
+    # The V2 substrate resolves its own database, and it does NOT read
+    # PRIMNOX2_HOME — `v2.store._app_data_dir` goes to %APPDATA% directly, on
+    # the same reasoning that keeps it from importing `memory`. So everything
+    # above protects V1's database and left V2's pointing at the developer's
+    # real one.
+    #
+    # That was harmless only while nothing on the V1 path touched it. The tool
+    # loop now stores every result there, so without this line an ordinary
+    # test run writes tool output into the user's actual app data — measured,
+    # 38 rows of it — and the next run reads its own leftovers back, because
+    # `result_store.put` deduplicates on content and returns the FIRST row's
+    # session. A test then sees a result it never stored, attributed to a
+    # session that no longer exists.
+    v2_store.configure(root / "primnox_v2.db")
+
     scheduler_module.scheduler.start()
     yield root
     scheduler_module.scheduler.stop()
+    v2_store.close_all()
 
 
 @pytest.fixture

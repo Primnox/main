@@ -41,6 +41,27 @@ FLUSH_TOKENS = 5
 ASSET_WAIT_S = 120
 
 
+def _predicted_steps(question: str) -> int:
+    """How many tool steps this question looks like it needs.
+
+    Only used to decide where compaction starts, so being wrong is cheap in
+    both directions: predicting short on a long turn costs the first result's
+    tokens, and predicting long on a short one costs an observation instead of
+    a body, recoverable with `read_result`.
+
+    Because it is cheap to be wrong, it is not worth being unavailable. The
+    predictor lives in the V2 substrate, and if that cannot be imported the
+    answer is 1 — which selects the behaviour this had before there was a
+    predictor at all.
+    """
+    try:
+        from v2 import step_budget
+
+        return step_budget.predict(question or "")
+    except Exception:
+        return 1
+
+
 def enqueue(turn_id: str | None, kind: str, payload: dict, *, idempotent: bool = False,
             cancellable: bool = True, priority: int = 0, max_attempts: int = 1) -> str:
     # Self-healing rather than trusting some earlier call to have guaranteed
@@ -360,7 +381,28 @@ class Scheduler:
         # One ledger per turn. It holds counters and the decisions already
         # taken, never the message list — so it cannot edit what has been
         # sent even by accident.
-        ledger = observations.Ledger()
+        #
+        # WHERE COMPACTION STARTS is decided here, once, from how long the
+        # turn looks. `Ledger`'s default keeps the first ~1,200 tokens of tool
+        # output verbatim, and the reasoning behind that is sound for a short
+        # turn: at one or two steps the preamble dominates, nothing is re-sent
+        # enough times to matter, and compacting would trade real detail for a
+        # saving too small to measure.
+        #
+        # It is exactly wrong for a long one. The first result of an
+        # eight-step turn is the most expensive thing in it — billed eight
+        # times — and the threshold is precisely what exempts it. Measured on
+        # `bench_compaction.py`'s eight-step workload, that exemption is the
+        # difference between compacting two results and compacting all eight.
+        #
+        # So the threshold is dropped to zero when the turn is predicted long
+        # enough for accumulation to be the problem, which is the decision
+        # `strategy()` already encodes and nothing had been asking it for.
+        turn_strategy = observations.strategy(_predicted_steps(payload["text"]))
+        ledger = observations.Ledger(
+            threshold=0 if turn_strategy["compact"] else observations.COMPACT_AFTER_TOKENS,
+            session=conversation_id)
+        _routing_log.debug("turn %s compaction: %s", turn_id, turn_strategy["why"])
 
         for step in range(max_steps + 1):
             # Each model call in a turn writes its own prose, and joining them
@@ -442,8 +484,9 @@ class Scheduler:
             })
 
         if ledger.compacted:
-            _routing_log.debug("turn %s compacted %s", turn_id,
-                               ", ".join(ledger.compacted))
+            _routing_log.debug("turn %s compacted %s (%d stored but sent whole)",
+                               turn_id, ", ".join(ledger.compacted),
+                               ledger.stored_but_sent_whole)
 
         final = "".join(visible_total).strip()
         if not final:
