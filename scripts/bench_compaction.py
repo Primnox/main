@@ -317,16 +317,32 @@ def main() -> int:
               f"{100 * (base - total) / base:7.1f}% {last:8,d}t "
               f"{100 * last / budget:8.1f}%  {label}")
 
-    # The floor. Compaction cannot touch the preamble, which is re-sent on
-    # every call, so it bounds what any result-side mechanism can reach —
-    # and naming that bound is the difference between a target and a wish.
+    # The floor, and the reason it is quoted with a caveat rather than as a
+    # fact. Compaction cannot touch the preamble, which is re-sent on every
+    # call, so uncached it bounds what any result-side mechanism can reach.
+    #
+    # That bound is real ONLY in the `none` column. An earlier version of this
+    # printed it flat — "no result-side mechanism can save more than 82.4%" —
+    # and that sentence was quoted as though it applied to the shipping
+    # system, which bills nothing like this. Measured live against the
+    # configured provider, the preamble comes back as ~2,215 cache-read tokens
+    # per step, so its real contribution is about a tenth of the number below
+    # and the floor is nowhere near where this arithmetic puts it.
+    #
+    # Local token counting cannot see that, because a cache read is a fact
+    # about a provider and not about a string. `bench_live_turn.py` reads the
+    # provider's own accounting back per step and is the number to trust when
+    # the two disagree.
     calls = len(rows) + 1
     floor = estimate_tokens(preamble) * calls
-    print(f"\n  FLOOR — the preamble is re-sent on all {calls} calls: "
-          f"{floor:,} tokens, {100 * floor / base:.1f}% of the baseline.")
-    print(f"  No result-side mechanism can save more than "
-          f"{100 - 100 * floor / base:.1f}% uncached. Reaching {TARGET:.0f}% "
-          f"needs the preamble billed as a cache read, or made smaller.")
+    print(f"\n  FLOOR (uncached only) — the preamble is re-sent on all {calls} "
+          f"calls: {floor:,} tokens,\n  {100 * floor / base:.1f}% of the "
+          f"baseline, so nothing result-side beats "
+          f"{100 - 100 * floor / base:.1f}% in the `none` column.")
+    print(f"  This does NOT bound the shipping system. Once the preamble is "
+          f"cached it is\n  billed at about a tenth of that, and the floor "
+          f"moves with it — see\n  `bench_live_turn.py`, which bills the same "
+          f"turn against the real provider.")
 
     saved = {key: 100 * (base - total) / base
              for key, (total, _) in totals.items()}
