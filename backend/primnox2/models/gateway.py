@@ -880,6 +880,15 @@ def _scrub_outbound(messages: list[dict]) -> tuple["ScrubSession | None", list[d
     unchanged rather than blocking the turn on a privacy layer that isn't
     working, mirroring V1's own "log and continue unscrubbed" choice at this
     exact boundary.
+
+    The system message is EXEMPT, and that is not a privacy hole: it is the
+    prompt Primnox wrote, it contains none of the user's data, and it carries
+    the tool syntax the model has to reproduce verbatim. Scrubbing it was
+    measured doing real damage — `<run_python>...</run_python>` came back as
+    §BIC_1§ (detected as a bank code), `react` as §STATE_1§, a lone `|` as
+    §USERAGENT_1§ — so the model was being handed instructions it could no
+    longer follow, in exchange for hiding nothing. Every other role still goes
+    through the scrubber untouched by this change.
     """
     from ..settings import service as settings_service
     if settings_service.get("privacy.mirror_enabled", "on") != "on":
@@ -895,7 +904,7 @@ def _scrub_outbound(messages: list[dict]) -> tuple["ScrubSession | None", list[d
         scrubbed = []
         for m in messages:
             content = m.get("content")
-            if isinstance(content, str):
+            if isinstance(content, str) and m.get("role") != "system":
                 m = {**m, "content": sess.scrub(content)}
             scrubbed.append(m)
         return sess, scrubbed

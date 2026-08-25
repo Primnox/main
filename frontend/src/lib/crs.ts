@@ -25,6 +25,10 @@ export type ToolCall = {
   summary?: string;
 };
 
+/* One reveal from the Privacy Mirror: the real value, the placeholder the model
+   saw in its place, and what kind of thing it was. */
+export type ScrubItem = { original: string; placeholder: string; label: string };
+
 /** One sandbox run. A turn may own several (§ExecutionSession). */
 export type Artifact = { asset_id: string; name: string; path: string; bytes: number };
 
@@ -125,13 +129,19 @@ export type Turn = {
      its own timeline, because interleaving two applications into one list
      would make it impossible to see which one an action happened in. */
   computer: ComputerSession[];
+  /* What the Privacy Mirror replaced before this turn left the device, and what
+     each placeholder stood for. Emitted as `privacy.scrub` only when something
+     was actually scrubbed, and only over this socket — the map itself never
+     leaves the machine. Empty means nothing matched, which is a different
+     statement from "the mirror was off"; the composer badge carries that one. */
+  privacyScrub: ScrubItem[];
   createdAt: number;
 };
 
 export const emptyTurn = (id: string, userText: string, createdAt: number): Turn => ({
   id, status: 'queued', userText, assistantText: '', thinking: '', partial: false, error: null,
   plan: null, toolCalls: [], executions: [], workspaces: [], assets: [],
-  permissions: [], questions: [], computer: [], createdAt,
+  permissions: [], questions: [], computer: [], privacyScrub: [], createdAt,
 });
 
 export type ConversationState = {
@@ -203,6 +213,15 @@ export function reduce(state: ConversationState, e: CrsEvent): ConversationState
     // for why this never touches assistantText.
     case 'thinking':
       return { ...s, turns: upsert(s.turns, id, t => ({ ...t, thinking: t.thinking + e.payload.text })) };
+
+    // Replace rather than append: the runtime emits the whole map once, after
+    // the turn's last model call, so a second event is a corrected view of the
+    // same turn rather than more reveals to add to it.
+    case 'privacy.scrub':
+      return {
+        ...s,
+        turns: upsert(s.turns, id, t => ({ ...t, privacyScrub: e.payload?.mapping ?? [] })),
+      };
 
     case 'turn.completed':
       return {

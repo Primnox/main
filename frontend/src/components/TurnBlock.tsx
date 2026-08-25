@@ -16,6 +16,7 @@ import { ExecutionBlock } from './ExecutionBlock';
 import { PermissionBlock } from './PermissionBlock';
 import { PlanBlock } from './PlanBlock';
 import { ThinkingBlock } from './ThinkingBlock';
+import { PrivacyMirrorBlock } from './PrivacyMirrorBlock';
 import { ToolRow } from './ToolRow';
 
 /* What a turn says about itself while it is still running.
@@ -79,6 +80,10 @@ export function TurnBlock({ turn }: { turn: Turn }) {
         <div className="flex-1 min-w-0">
           {live && <LiveStatus turn={turn} />}
 
+          {/* Before the reasoning and the reply, because it describes the
+              request on its way OUT — what the model was given, which is the
+              thing you want to know before you read what it said back. */}
+          {turn.privacyScrub.length > 0 && <PrivacyMirrorBlock items={turn.privacyScrub} />}
           {turn.thinking && <ThinkingBlock thinking={turn.thinking} live={live} />}
           {turn.plan && <PlanBlock plan={turn.plan} />}
           {turn.permissions.map(p => <PermissionBlock key={p.id} p={p} />)}
