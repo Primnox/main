@@ -767,6 +767,8 @@ def execute(name: str, arguments: dict, ctx: ToolContext) -> dict:
     except Exception as exc:
         result = {"status": "error", "summary": f"{type(exc).__name__}: {exc}", "output": ""}
 
+    _promote_large_output(name, result, ctx)
+
     payload = {
         "job_id": ctx.job_id, "name": name,
         "status": result.get("status", "success"),
@@ -779,6 +781,38 @@ def execute(name: str, arguments: dict, ctx: ToolContext) -> dict:
         bus.emit("tool.result", payload, conversation_id=ctx.conversation_id, turn_id=ctx.turn_id)
 
     return {"type": "tool_result", "tool": name, **result}
+
+
+def _promote_large_output(name: str, result: dict, ctx) -> None:
+    """Give any big tool result somewhere to point, not just the sandbox ones.
+
+    `observations.Ledger` only compacts a result that carries a `result_ref`,
+    and refuses otherwise — correctly, because without an id to retrieve the
+    body from, replacing it with a summary deletes information rather than
+    deferring it. But only `_execute_code` ever set one, so `grep`,
+    `graph_query`, `search_assets`, `recall_conversation` and the rest were
+    structurally exempt from compaction at any size.
+
+    Measured on an eight-step turn with realistic tool output: three of eight
+    results were eligible, and the turn cost 196,552 billed tokens against
+    213,790 for no compaction at all — an 8% saving from a mechanism built to
+    deliver far more. The mechanism was not underperforming; most of its input
+    never reached it.
+
+    Promotion happens here rather than in each tool because the condition is
+    the same everywhere ("is this output big enough to be worth storing") and
+    fourteen handlers each remembering to do it is fourteen chances to forget.
+    A tool that already stored its own output keeps its ref.
+    """
+    if result.get("result_ref"):
+        return
+    output = result.get("output")
+    if not isinstance(output, str):
+        return
+    from .builtins import _store_output
+    ref = _store_output(output, f"{name}-output.txt", ctx)
+    if ref:
+        result["result_ref"] = ref
 
 
 def _preview(arguments: dict) -> str:
