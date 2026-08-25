@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "primnox-v2-backend",
-      "runtimeExecutable": "C:/project/backend/venv/Scripts/python.exe",
+      "runtimeExecutable": "python",
       "runtimeArgs": [
         "backend/run.py"
       ],
@@ -11,7 +11,7 @@
     },
     {
       "name": "primnox-v2-backend-echo",
-      "runtimeExecutable": "C:/project/backend/venv/Scripts/python.exe",
+      "runtimeExecutable": "python",
       "runtimeArgs": [
         "backend/run_echo.py"
       ],

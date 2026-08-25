@@ -173,6 +173,10 @@ async def _startup() -> None:
     # execution asks for it.
     _spawn_sandbox_warm_once()
 
+    # Same treatment, for the same reason: spawning the gateway and waiting for
+    # it to answer takes seconds, and none of that belongs on the event loop.
+    _spawn_omniroute_once()
+
     print(f"[boot] Primnox V2 ({CRS_VERSION}) on 127.0.0.1:4109 · db={APPDATA / 'primnox.db'}")
 
 
@@ -281,6 +285,43 @@ def _spawn_sandbox_warm_once() -> None:
 def _warm_sandbox() -> None:
     backend = supervisor.available_backend()
     print(f"[boot] sandbox backend: {backend or 'NONE — execution will be refused'}")
+
+
+_omniroute_started = False
+_omniroute_lock = threading.Lock()
+
+
+def _spawn_omniroute_once() -> None:
+    """Bring the gateway up with the app, once per process.
+
+    Guarded exactly like the sandbox warm above, and for the same measured
+    reason: `_startup()` runs again for every `TestClient(app)`, and two
+    threads both finding "not running" would race to spawn two gateways
+    fighting for port 20128.
+    """
+    global _omniroute_started
+    if settings_service.get("provider.omniroute_autostart", "on") != "on":
+        return
+    with _omniroute_lock:
+        if _omniroute_started:
+            return
+        _omniroute_started = True
+    threading.Thread(target=_start_omniroute, name="primnox2-omniroute", daemon=True).start()
+
+
+def _start_omniroute() -> None:
+    try:
+        result = model_profiles.ensure_omniroute_running()
+    except Exception as exc:                                  # pragma: no cover
+        # Never fatal. No gateway means cloud turns fail with their own error;
+        # a traceback here would take the whole app down over an optional
+        # convenience.
+        print(f"[boot] omniroute: autostart failed — {exc}")
+        return
+    if result.get("started"):
+        print(f"[boot] omniroute: started pid={result.get('pid')} — {result.get('reason')}")
+    else:
+        print(f"[boot] omniroute: {result.get('reason')}")
 
 
 def _push_to_clients(event: dict) -> None:

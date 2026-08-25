@@ -63,6 +63,12 @@ ALLOWED = {
     # rather than ignoring the field. There is no safe universal default here —
     # only the user knows whether the model they picked actually supports it.
     "model.thinking_enabled": {"on", "off"},
+    # On by default. Without the gateway running, every cloud turn fails, and
+    # it fails in a way that reads as Primnox's fault rather than as a missing
+    # process — so the safe default is to bring it up rather than to wait and
+    # report. Turning it off is for people who run OmniRoute themselves, under
+    # a supervisor or on another machine.
+    "provider.omniroute_autostart": {"on", "off"},
 }
 
 SECRET_KEYS = {"provider.api_key"}

@@ -25,9 +25,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
+import subprocess
 import time
 from pathlib import Path
 
+from .. import paths
 from ..storage import db
 
 now_ms = lambda: int(time.time() * 1000)
@@ -563,6 +567,175 @@ def omniroute_status() -> dict:
         "install": "npm install -g omniroute && omniroute",
         "dashboard": f"{OMNIROUTE_HOST}/dashboard",
     }
+
+
+def _omniroute_is_local() -> bool:
+    """Only a gateway on this machine is ours to start.
+
+    OMNIROUTE_HOST is overridable to a LAN box or a VPS (see its definition),
+    and spawning a local process because a remote one is unreachable would
+    start a second, differently-configured gateway that then answers on a port
+    the user never pointed at. Unreachable-and-remote is a thing to report,
+    not a thing to fix from here.
+    """
+    return bool(re.match(r"https?://(127\.0\.0\.1|localhost|\[::1\])(:|/|$)",
+                         OMNIROUTE_HOST))
+
+
+def _await_omniroute(timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if isinstance(_fetch(f"{OMNIROUTE_HOST}/v1/models"), dict):
+            return True
+        time.sleep(1.0)
+    return False
+
+
+# A cold OmniRoute start loads its provider catalogue, SQLite and proxy logs
+# before it binds, and measured on this machine that ran past 45s while a warm
+# restart was ready in 4. The first number is the one that matters: too small a
+# budget does not just report wrongly, it lets the NEXT start think nothing is
+# coming and spawn a second gateway.
+OMNIROUTE_BOOT_SECONDS = 180.0
+
+
+def _omniroute_argv() -> list[str] | None:
+    """What to actually execute, preferring node over npm's shim.
+
+    On Windows `shutil.which` resolves to `omniroute.CMD`, and launching that
+    detached does not work: the shim runs `title %COMSPEC%` before handing off
+    to node, `title` needs a console, and DETACHED_PROCESS is precisely the
+    absence of one. Measured — the spawned tree stayed alive for eight minutes,
+    allocating memory and writing its SQLite WAL, and never bound the port.
+    Nothing in the log said so either, because the shim swallowed the output
+    that was supposed to explain it.
+
+    Running node against the package's own entry point removes cmd.exe from the
+    picture, which is the only reason any of that was happening. The shim stays
+    as the fallback for a layout where the entry point is not where npm usually
+    puts it.
+    """
+    exe = shutil.which("omniroute")
+    node = shutil.which("node")
+    if exe and node:
+        entry = Path(exe).parent / "node_modules" / "omniroute" / "bin" / "omniroute.mjs"
+        if entry.is_file():
+            return [node, str(entry)]
+    return [exe] if exe else None
+
+
+def _state_dir() -> Path:
+    """Where the gateway's lock and log live.
+
+    Falls back to the same directory `app.py` derives APPDATA from, because
+    `paths.root()` raises until `configure()` has run and neither of these
+    files is worth coupling to that ordering — bringing the gateway up is a
+    convenience, and it must not be able to crash startup by being early.
+    """
+    try:
+        return paths.root()
+    except RuntimeError:
+        base = Path(os.getenv("PRIMNOX2_HOME", Path.home() / "Documents" / "Primnox2"))
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+
+
+def _boot_lock_path():
+    return _state_dir() / "omniroute.boot"
+
+
+def _boot_in_flight() -> bool:
+    """Is another start already waiting for the gateway to bind?
+
+    Checked because "not answering yet" and "not running" are identical over
+    the port during a cold boot, and treating the first as the second is what
+    produced two gateways racing for 20128 — the loser sat there holding half
+    a gigabyte and serving nothing. A timestamp file is enough: liveness by
+    pid needs OS-specific process checks, and the only question here is
+    whether a start is recent enough to still be plausibly booting.
+    """
+    try:
+        age = time.time() - _boot_lock_path().stat().st_mtime
+    except OSError:
+        return False
+    return age < OMNIROUTE_BOOT_SECONDS
+
+
+def ensure_omniroute_running(*, wait: float = OMNIROUTE_BOOT_SECONDS) -> dict:
+    """Start the gateway if it is not already up. Returns what happened.
+
+    BLOCKING — subprocess spawn plus a readiness poll. Call it on a thread,
+    never from a request handler or the event loop.
+
+    Detached on purpose, and never killed on Primnox's shutdown. OmniRoute is
+    a shared gateway: its own documentation has Claude Code, Cursor and Cline
+    pointed at the same endpoint, so treating it as Primnox's child process
+    would mean quitting Primnox silently breaks whatever else is mid-request
+    against it. It outlives us in both directions — we adopt a running one
+    rather than starting a second, and we leave ours behind when we go.
+
+    This exists because the failure it prevents is invisible. With no gateway
+    the app looks fine, right up until a turn fails — and the error the user
+    actually gets blames the model rather than a missing process.
+    """
+    if not _omniroute_is_local():
+        return {"started": False, "reason": "remote host — not ours to start",
+                "host": OMNIROUTE_HOST}
+
+    if isinstance(_fetch(f"{OMNIROUTE_HOST}/v1/models"), dict):
+        return {"started": False, "reason": "already running", "running": True,
+                "host": OMNIROUTE_HOST}
+
+    if _boot_in_flight():
+        # Someone else is already bringing it up. Wait on theirs rather than
+        # adding a second contender for the port.
+        ready = _await_omniroute(wait)
+        return {"started": False, "running": ready, "host": OMNIROUTE_HOST,
+                "reason": "another start already in flight — waited for it"
+                          if ready else "another start in flight, still not answering"}
+
+    argv = _omniroute_argv()
+    if not argv:
+        return {"started": False, "running": False,
+                "reason": "not installed — `npm install -g omniroute`"}
+
+    # stdout to a log rather than DEVNULL: when the gateway refuses to come up
+    # the reason is in its own output, and discarding it leaves nothing to look
+    # at but "still not listening".
+    log_path = _state_dir() / "omniroute.log"
+    try:
+        handle = open(log_path, "ab", buffering=0)
+    except OSError:
+        handle = subprocess.DEVNULL
+
+    kwargs: dict = {"stdout": handle, "stderr": subprocess.STDOUT,
+                    "stdin": subprocess.DEVNULL}
+    if os.name == "nt":
+        # DETACHED_PROCESS so it does not share our console, and its own
+        # process group so a Ctrl-C in Primnox's terminal is not delivered to
+        # it as well — that was the whole point of not owning its lifetime.
+        kwargs["creationflags"] = (getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+                                   | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
+    else:
+        kwargs["start_new_session"] = True
+
+    # Claim the boot BEFORE spawning: a lock written afterwards leaves the
+    # whole slow startup unguarded, which is precisely the window the race
+    # happens in.
+    try:
+        _boot_lock_path().write_text(str(os.getpid()), encoding="utf-8")
+    except OSError:
+        pass
+
+    try:
+        proc = subprocess.Popen(argv, **kwargs)
+    except OSError as exc:
+        return {"started": False, "running": False, "reason": f"spawn failed: {exc}"}
+
+    ready = _await_omniroute(wait)
+    return {"started": True, "running": ready, "pid": proc.pid,
+            "host": OMNIROUTE_HOST, "log": str(log_path),
+            "reason": "ready" if ready else f"spawned but not answering within {wait:.0f}s"}
 
 
 def discover(name: str) -> list[str]:
