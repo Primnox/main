@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+### 🧱 V2 Core Substrate (`backend/v2/`)
+
+The foundation from the V2 architecture documents: a secure, structured model
+of the user's ongoing work rather than a larger chat history. Additive — no V1
+file changes, no new pip dependencies, and nothing here runs until it is wired
+in. See [`docs/v2-architecture.md`](docs/v2-architecture.md).
+
+- **World model** — entities, typed relationships and durable semantic/procedural
+  facts, each carrying source, origin (stated/observed/inferred), confidence,
+  sensitivity and a validity interval. Corrections supersede rather than delete,
+  so "what is true now" and "what did I believe then" are both answerable, and a
+  fresh inference cannot overwrite something the user stated.
+- **Episodic memory** — timestamped events consolidated into episodes by time gap
+  and scope, with a deterministic (zero-token) summariser and an optional model
+  hook. Answers "what was I doing yesterday?" from evidence, in local calendar
+  days, from UTC storage.
+- **Tool result store** — full outputs kept out of the transcript behind a `res_…`
+  handle, with a compact structural observation in their place, dedupe for
+  repeats, and `section()` for pulling just the relevant lines back. Measured:
+  an 18,168-token dependency report becomes a 103-token observation.
+- **Execution state** — goal, constraints, actions and four-valued outcomes
+  (completed / failed / partial / **unknown**), rendered as a ~74-token block that
+  replaces replaying the tool transcript. A task cannot be marked complete while
+  any action is unresolved.
+- **Graphify** — AST symbol index, callers/callees, dependents and bounded impact
+  analysis, with corpus filtering (dependencies, build output, minified and
+  generated files), stale-index detection per query, and incremental refresh.
+  Python is exact; JS/TS is regex-matched and says so via a lower confidence.
+  **The mandatory graphify-before-grep hook is gone** — lexical questions route to
+  search and never touch the graph.
+- **Retrieval router** — one discrete label (M/S/G/R/T/H/C) plus intent, from a
+  free deterministic classifier with an optional tiny-model hook.
+- **Context builder** — retrieve, rank, dedupe, label with provenance and compress
+  to a token budget; lexical search and file reading are injected, not
+  reimplemented.
+- **Cost control** — adaptive step ladder (1 → 2 → 4 → 8) replacing a fixed
+  five-step loop, caching switched on by measured turn length rather than by
+  default, and immutable compaction that appends a frozen block instead of
+  rewriting the cached prefix.
+- **Security fabric** — trust boundary (external content can never claim `stated`
+  provenance), shape-based secret redaction, credential isolation (the model sees
+  `cred_… (available)`, never a value), capability/sensitivity permission checks,
+  local-only project routing enforced by policy rather than by asking the model,
+  an audit log, and a project deletion that covers every store.
+- 419 tests, running on `pytest` alone — including 42 of the numbered behavioural
+  scenarios exercised end to end.
+
 ## v1.2.0-beta (2026-08-07)
 
 ### 🏝️ Dynamic Island
