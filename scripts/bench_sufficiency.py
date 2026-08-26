@@ -21,19 +21,33 @@ for the two behaviours that have to both be true:
 
 Run against a LOCAL model on purpose. It is free, so this can be run on every
 change to the observation format, and it is the harder case: if a 7B can act
-on an observation, a frontier model can. `qwen2.5:7b` is the default because
-it is the smallest thing in the app's own supported set that reliably emits
-the tool grammar at all — 0.5b does not, which is a measured property of that
-model and not of this format.
+on an observation, a frontier model can. `qwen2.5:7b` is the default when
+Ollama is the transport because it is the smallest thing in the app's own
+supported set that reliably emits the tool grammar at all — 0.5b does not,
+which is a measured property of that model and not of this format.
 
-Needs Ollama running. Nothing else, and no API key.
+Two transports, because "local" does not mean the same endpoint on every
+machine. Ollama speaks its own `/api/chat`; everything else within reach —
+OmniRoute, LM Studio, vLLM, llama.cpp's server — speaks the OpenAI chat
+completions shape. Both are here, and they differ only in where temperature
+goes on the way out and where the reply comes back. Not one scored thing is
+computed differently, so a number from one transport means the same as a
+number from the other.
+
+The default is OmniRoute on 127.0.0.1:20128 rather than Ollama, on the
+grounds that a benchmark nobody on this machine can run measures nothing.
+Pass `--ollama` to go back to the local 7B this was originally written
+against. No API key either way.
 
 Usage:
     python scripts/bench_sufficiency.py [model] [trials]
+    python scripts/bench_sufficiency.py --ollama qwen2.5:7b 5
+    PRIMNOX_BENCH_URL=http://host:8000/v1/chat/completions python ...
 """
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 import sys
@@ -45,7 +59,23 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 OLLAMA = "http://localhost:11434/api/chat"
-DEFAULT_MODEL = "qwen2.5:7b"
+OLLAMA_MODEL = "qwen2.5:7b"
+
+# OmniRoute, the local gateway. OpenAI-shaped, unauthenticated, and it fronts
+# enough models that which one to use stops being a reason not to run this.
+OPENAI = "http://127.0.0.1:20128/v1/chat/completions"
+
+# Not every id behind that gateway can host this benchmark, and the ones that
+# cannot fail silently rather than loudly. The `*-web` upstreams are scraped
+# browser sessions: they forward only the final user message and discard the
+# system prompt, the assistant turn and the observation itself. The model then
+# answers, fluently, that it cannot see any search results — which scores as a
+# model failure and is nothing of the kind. Measured on `deepseek-web`: a code
+# planted in an earlier user message comes back ABSENT every time, and usage is
+# reported as a fixed 2,000 prompt tokens regardless of what was sent, which is
+# the tell. Anything named `*-web` is unusable here for that reason.
+OPENAI_MODEL = "agy/gemini-2.5-flash"
+
 DEFAULT_TRIALS = 5
 
 RESULT_ID = re.compile(r"res_[0-9a-f]{16}")
@@ -97,15 +127,82 @@ def compacted(conversation: str) -> tuple[str, str]:
     return observation, result["result_id"]
 
 
-def ask(model: str, system: str, transcript: list[dict]) -> str:
-    payload = json.dumps({
-        "model": model, "messages": [{"role": "system", "content": system}] + transcript,
-        "stream": False, "options": {"temperature": 0},
-    }).encode()
-    req = urllib.request.Request(OLLAMA, data=payload,
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=300) as response:
-        return json.load(response)["message"]["content"]
+class Unreachable(RuntimeError):
+    """The endpoint declined to produce a completion, for its own reasons.
+
+    Deliberately not the same thing as a wrong answer. A gateway whose free
+    upstream has run out answers `service_unavailable`, which says nothing
+    at all about whether the observation was sufficient. Counting that as a
+    failed trial would put a fabricated number in the table.
+    """
+
+
+def is_ollama(endpoint: str) -> bool:
+    """Whether the endpoint wants Ollama's JSON rather than OpenAI's.
+
+    Decided from the path, not the host. The question is never which machine
+    answers — both transports are usually on loopback — but which body shape
+    it expects, and `/api/chat` is the only route in reach that expects
+    Ollama's.
+    """
+    return endpoint.rstrip("/").endswith("/api/chat")
+
+
+def detail(exc: Exception) -> str:
+    """The endpoint's own words about why it failed.
+
+    `HTTPError` stringifies to the status line and throws the body away, and
+    the body is the only place a gateway distinguishes "I am down" from "that
+    model does not exist" from "the free upstream is exhausted" — three
+    situations that call for three different reactions from whoever ran this.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            return f"HTTP {exc.code}: {exc.read().decode('utf-8', 'replace')[:500]}"
+        except OSError:
+            return f"HTTP {exc.code}"
+    return str(exc)
+
+
+def ask(endpoint: str, model: str, system: str, transcript: list[dict]) -> str:
+    """One deterministic completion, in whichever shape the endpoint speaks.
+
+    The system message and the transcript cross unchanged; only the envelope
+    around them differs. That is the point of doing it here rather than in
+    two separate benchmarks — the thing being measured must not be able to
+    drift between transports.
+    """
+    messages = [{"role": "system", "content": system}] + transcript
+    if is_ollama(endpoint):
+        payload = {"model": model, "messages": messages, "stream": False,
+                   "options": {"temperature": 0}}
+    else:
+        payload = {"model": model, "messages": messages, "stream": False,
+                   "temperature": 0}
+    request = urllib.request.Request(
+        endpoint, data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=300) as response:
+        reply = json.load(response)
+
+    # An OpenAI-compatible gateway will sometimes report an upstream failure
+    # inside a 200, so the status code alone does not mean a completion
+    # happened. Raising here keeps that out of the scored population.
+    if isinstance(reply.get("error"), (dict, str)):
+        raise Unreachable(json.dumps(reply["error"])[:500])
+
+    if is_ollama(endpoint):
+        return (reply.get("message") or {}).get("content") or ""
+
+    choices = reply.get("choices") or []
+    if not choices:
+        raise Unreachable(json.dumps(reply)[:500])
+    message = choices[0].get("message") or {}
+    # `content` only, never a reasoning channel. A model that emits the tool
+    # call while thinking has not called anything — that text is not part of
+    # the reply the runtime parses, so crediting it would score a failure as
+    # a pass for exactly the reason `fetched` refuses to credit prose.
+    return message.get("content") or ""
 
 
 def fetched(reply: str, result_id: str) -> bool:
@@ -122,9 +219,30 @@ def fetched(reply: str, result_id: str) -> bool:
     return False
 
 
+def options(argv: list[str]) -> tuple[str, str, int]:
+    """Endpoint, model and trial count, from flag, environment and position.
+
+    `[model] [trials]` stays positional and stays first, because that is the
+    invocation the module docstring has always promised and the one anybody
+    re-running this will type from memory. The endpoint had to go somewhere
+    else for that reason: putting it in front would make an old command line
+    quietly mean something new, which is worse than a slightly odd flag.
+    """
+    argv = list(argv)
+    ollama = "--ollama" in argv
+    if ollama:
+        argv.remove("--ollama")
+    endpoint = os.environ.get("PRIMNOX_BENCH_URL") or (OLLAMA if ollama
+                                                       else OPENAI)
+    fallback = OLLAMA_MODEL if is_ollama(endpoint) else OPENAI_MODEL
+    model = (argv[0] if argv
+             else os.environ.get("PRIMNOX_BENCH_MODEL") or fallback)
+    trials = int(argv[1]) if len(argv) > 1 else DEFAULT_TRIALS
+    return endpoint, model, trials
+
+
 def main() -> int:
-    model = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL
-    trials = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_TRIALS
+    endpoint, model, trials = options(sys.argv[1:])
 
     conversation = setup()
     from primnox2.context.service import estimate_tokens
@@ -135,6 +253,7 @@ def main() -> int:
     full = body()
 
     print(f"\nSUFFICIENCY — {model}, {trials} trials per case")
+    print(f"  via {endpoint}")
     print(f"  the body is {estimate_tokens(full):,} tokens; the observation "
           f"the model sees is {estimate_tokens(observation):,}")
     print(f"  handle {result_id}, needle planted at line {NEEDLE_LINE}")
@@ -163,10 +282,14 @@ def main() -> int:
                 {"role": "user", "content": question},
             ]
             try:
-                reply = ask(model, system, transcript)
-            except urllib.error.URLError as exc:
-                print(f"\n  Ollama is not answering at {OLLAMA} ({exc}). "
-                      f"Start it and re-run.")
+                reply = ask(endpoint, model, system, transcript)
+            except (urllib.error.URLError, Unreachable) as exc:
+                print(f"\n  No completion from {endpoint}.")
+                print(f"  {detail(exc)}")
+                # Abandoning the run rather than scoring the trials that did
+                # land: a partial table looks like a result and is not one.
+                print(f"  Nothing was measured. This is the endpoint's "
+                      f"problem, not the model's.")
                 return 2
             did = fetched(reply, result_id)
             # For the answerable case, correct means BOTH not fetching and
