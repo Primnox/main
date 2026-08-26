@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigation & Composer Prototype - Primnox</title>
+    <script type="module">
+        // This file serves the ComposerDemo component
+        // To use, run: npm --prefix frontend run dev
+        // Then import and render ComposerDemo from:
+        // frontend/src/components/proto/navigation-composer/ComposerDemo.tsx
+
+        document.body.innerHTML = `
+            <div style="padding: 20px; font-family: system-ui; text-align: center;">
+                <h1>Navigation & Composer Prototype</h1>
+                <p>To view the prototype, modify frontend/src/App.tsx to render ComposerDemo instead of the main app.</p>
+                <p>Or run: <code>npm --prefix frontend run dev</code> and check the components in:</p>
+                <pre style="background: #f0f0f0; padding: 10px; border-radius: 4px; text-align: left; display: inline-block;">
+frontend/src/components/proto/navigation-composer/
+├── Composer.tsx
+├── NavigationRail.tsx
+├── ConversationList.tsx
+├── ComposerDemo.tsx
+└── index.ts
+                </pre>
+            </div>
+        `;
+    </script>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        code {
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+        pre {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            border-left: 3px solid #333;
+        }
+    </style>
+</head>
+<body>
+</body>
+</html>
