@@ -13,7 +13,7 @@ import {
   useErrorContext,
   DisclosureLevelBadge,
 } from '../ProgressiveDisclosure';
-import { Copy, Trash2, Edit3, BookmarkPlus, MoreHorizontal } from 'lucide-react';
+import { Copy, Trash2, Edit3, BookmarkPlus } from 'lucide-react';
 
 /* ============================================================================
    Example 1: Chat Message Actions (Level 2 → Level 3)
