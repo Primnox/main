@@ -1,0 +1,388 @@
+/**
+ * Progressive Disclosure Styles
+ * Five-level disclosure pattern for Primnox
+ */
+
+/* ============================================================================
+   Level 1 (Core) — Always visible, no styling needed
+   ============================================================================ */
+
+.disclosure-level-1 {
+  /* No special styling; content is always shown */
+}
+
+/* ============================================================================
+   Level 2 (Common) — Inline button with chevron
+   ============================================================================ */
+
+.disclosure-level-2 {
+  display: inline-block;
+  width: 100%;
+}
+
+.disclosure-trigger-common {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  background: transparent;
+  border: 1px solid var(--color-border-light, #e5e7eb);
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #6b7280);
+  cursor: pointer;
+  transition: all 150ms ease-out;
+}
+
+.disclosure-trigger-common:hover {
+  background: var(--color-bg-secondary, #f9fafb);
+  border-color: var(--color-border, #d1d5db);
+  color: var(--color-text-primary, #1f2937);
+}
+
+.disclosure-trigger-common:focus-visible {
+  outline: 2px solid var(--color-primary, #3b82f6);
+  outline-offset: 2px;
+}
+
+.disclosure-trigger-common:active {
+  background: var(--color-bg-tertiary, #f3f4f6);
+}
+
+.disclosure-trigger-common .disclosure-icon {
+  display: inline-flex;
+  align-items: center;
+  transition: transform 150ms ease-out;
+  margin-left: 0.25rem;
+}
+
+.disclosure-trigger-common[aria-expanded="true"] .disclosure-icon {
+  transform: rotate(180deg);
+}
+
+.disclosure-content-inline {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: var(--color-bg-secondary, #f9fafb);
+  border: 1px solid var(--color-border-light, #e5e7eb);
+  border-radius: 0.375rem;
+  animation: slideDown 150ms ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.disclosure-content-inline .disclosure-description {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-tertiary, #9ca3af);
+}
+
+/* ============================================================================
+   Level 3+ (Advanced/Expert/Debug) — Card-style disclosure
+   ============================================================================ */
+
+.disclosure-level-3,
+.disclosure-level-4,
+.disclosure-level-5 {
+  margin: 0.75rem 0;
+  border: 1px solid var(--color-border-light, #e5e7eb);
+  border-radius: 0.5rem;
+  background: var(--color-bg-primary, #ffffff);
+  overflow: hidden;
+}
+
+.disclosure-level-3.card-style,
+.disclosure-level-4.card-style,
+.disclosure-level-5.card-style {
+  border: 1px solid var(--color-border, #d1d5db);
+  background: var(--color-bg-secondary, #f9fafb);
+  padding: 1rem;
+  border-radius: 0.75rem;
+}
+
+.disclosure-trigger-advanced {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.875rem 1rem;
+  background: transparent;
+  border: none;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #1f2937);
+  cursor: pointer;
+  transition: all 150ms ease-out;
+  text-align: left;
+}
+
+.disclosure-trigger-advanced:hover {
+  background: var(--color-bg-hover, #f3f4f6);
+}
+
+.disclosure-trigger-advanced:focus-visible {
+  outline: 2px solid var(--color-primary, #3b82f6);
+  outline-offset: -2px;
+}
+
+.disclosure-trigger-advanced:active {
+  background: var(--color-bg-active, #eff6ff);
+}
+
+.disclosure-trigger-advanced.open {
+  background: var(--color-bg-secondary, #f9fafb);
+  border-bottom: 1px solid var(--color-border-light, #e5e7eb);
+}
+
+.disclosure-trigger-advanced .error-indicator {
+  color: var(--color-error, #ef4444);
+  flex-shrink: 0;
+  margin-right: 0.5rem;
+}
+
+.disclosure-trigger-advanced .disclosure-title {
+  flex: 1;
+}
+
+.disclosure-trigger-advanced .disclosure-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  margin-left: 0.5rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.disclosure-trigger-advanced .disclosure-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.disclosure-trigger-advanced[aria-expanded="true"] .disclosure-icon {
+  transform: rotate(180deg);
+}
+
+.disclosure-content-card {
+  padding: 1rem;
+  background: var(--color-bg-primary, #ffffff);
+  animation: slideDown 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.disclosure-content-card .disclosure-description {
+  margin: 0 0 1rem 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--color-text-tertiary, #9ca3af);
+  border-left: 2px solid var(--color-border-light, #e5e7eb);
+  padding-left: 0.75rem;
+}
+
+/* ============================================================================
+   Disclosure Groups (for organized panels)
+   ============================================================================ */
+
+.disclosure-group {
+  margin-bottom: 1.5rem;
+}
+
+.disclosure-group-title {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.disclosure-group-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.disclosure-group-1 .disclosure-group-title {
+  display: none; /* Core group titles are hidden */
+}
+
+/* ============================================================================
+   Disclosure Badge (visual indicator)
+   ============================================================================ */
+
+.disclosure-badge {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: white;
+}
+
+.disclosure-badge.bg-blue-500 {
+  background: var(--color-blue-500, #3b82f6);
+}
+
+.disclosure-badge.bg-green-500 {
+  background: var(--color-green-500, #10b981);
+}
+
+.disclosure-badge.bg-yellow-500 {
+  background: var(--color-yellow-500, #f59e0b);
+}
+
+.disclosure-badge.bg-orange-500 {
+  background: var(--color-orange-500, #f97316);
+}
+
+.disclosure-badge.bg-red-500 {
+  background: var(--color-red-500, #ef4444);
+}
+
+/* ============================================================================
+   Context-Aware Disclosure (error state)
+   ============================================================================ */
+
+.disclosure-on-error .disclosure-trigger-advanced {
+  border-left: 3px solid var(--color-error, #ef4444);
+}
+
+.disclosure-on-error .disclosure-trigger-advanced:hover {
+  background: var(--color-error-light, #fee2e2);
+}
+
+/* ============================================================================
+   Responsive Adjustments
+   ============================================================================ */
+
+@media (max-width: 640px) {
+  .disclosure-trigger-common {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .disclosure-trigger-advanced {
+    padding: 0.75rem 0.875rem;
+  }
+
+  .disclosure-content-card {
+    padding: 0.75rem 0.875rem;
+  }
+
+  .disclosure-content-inline {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  /* Bottom sheet-style for mobile */
+  .disclosure-level-3.card-style,
+  .disclosure-level-4.card-style,
+  .disclosure-level-5.card-style {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    margin: 0;
+    border-radius: 1rem 1rem 0 0;
+    max-height: 80vh;
+    overflow-y: auto;
+    z-index: 50;
+    animation: slideUp 200ms ease-out;
+  }
+
+  @keyframes slideUp {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .disclosure-level-3.card-style::before,
+  .disclosure-level-4.card-style::before,
+  .disclosure-level-5.card-style::before {
+    content: '';
+    display: block;
+    height: 4px;
+    background: var(--color-border-light, #e5e7eb);
+    border-radius: 2px;
+    margin: 0 auto 1rem;
+    width: 2rem;
+  }
+}
+
+/* ============================================================================
+   Dark Mode Support
+   ============================================================================ */
+
+@media (prefers-color-scheme: dark) {
+  .disclosure-trigger-common {
+    background: transparent;
+    border-color: var(--color-border-dark, #374151);
+    color: var(--color-text-secondary-dark, #d1d5db);
+  }
+
+  .disclosure-trigger-common:hover {
+    background: var(--color-bg-secondary-dark, #111827);
+    border-color: var(--color-border-dark, #4b5563);
+    color: var(--color-text-primary-dark, #f9fafb);
+  }
+
+  .disclosure-content-inline {
+    background: var(--color-bg-secondary-dark, #111827);
+    border-color: var(--color-border-dark, #374151);
+  }
+
+  .disclosure-level-3,
+  .disclosure-level-4,
+  .disclosure-level-5 {
+    background: var(--color-bg-primary-dark, #1f2937);
+    border-color: var(--color-border-dark, #374151);
+  }
+
+  .disclosure-level-3.card-style,
+  .disclosure-level-4.card-style,
+  .disclosure-level-5.card-style {
+    background: var(--color-bg-secondary-dark, #111827);
+    border-color: var(--color-border-dark, #374151);
+  }
+
+  .disclosure-trigger-advanced {
+    color: var(--color-text-primary-dark, #f9fafb);
+  }
+
+  .disclosure-trigger-advanced:hover {
+    background: var(--color-bg-hover-dark, #273148);
+  }
+
+  .disclosure-trigger-advanced.open {
+    background: var(--color-bg-secondary-dark, #111827);
+    border-bottom-color: var(--color-border-dark, #374151);
+  }
+
+  .disclosure-content-card {
+    background: var(--color-bg-primary-dark, #1f2937);
+  }
+
+  .disclosure-content-card .disclosure-description {
+    color: var(--color-text-tertiary-dark, #9ca3af);
+    border-left-color: var(--color-border-dark, #4b5563);
+  }
+
+  .disclosure-group-title {
+    color: var(--color-text-secondary-dark, #d1d5db);
+  }
+}
