@@ -1,0 +1,127 @@
+{
+  "bundle_id": "research_20260826_abc123",
+  "query": "How do I use async/await in Python?",
+  "agent": "perplexity",
+  "scope": "conversation_c8e7f9a2",
+  "status": "complete",
+  "created_at": "2026-08-26T14:30:00Z",
+  "expires_at": "2026-09-25T14:30:00Z",
+  "results": [
+    {
+      "id": "result_1",
+      "type": "synthesis",
+      "content": "Async/await is Python's syntax for writing asynchronous code. The async keyword defines a coroutine function, and await pauses execution until a promise resolves. This is the modern way to handle concurrent operations without blocking the main thread.",
+      "citations": ["src_1", "src_3"],
+      "confidence": 0.95
+    },
+    {
+      "id": "result_2",
+      "type": "code_example",
+      "content": "import asyncio\n\nasync def fetch_data(url):\n    # In real code, use aiohttp or httpx\n    await asyncio.sleep(1)\n    return f'Data from {url}'\n\nasync def main():\n    result = await fetch_data('https://example.com')\n    print(result)\n\nif __name__ == '__main__':\n    asyncio.run(main())",
+      "language": "python",
+      "citations": ["src_2", "src_1"],
+      "confidence": 0.88
+    },
+    {
+      "id": "result_3",
+      "type": "analysis",
+      "content": "Key differences from threading: async/await runs on a single thread using cooperative multitasking, making it more efficient for I/O operations. It's ideal for web scraping, API calls, and database queries. However, it's not suitable for CPU-bound tasks.",
+      "citations": ["src_3", "src_4"],
+      "confidence": 0.92
+    }
+  ],
+  "citations": {
+    "src_1": {
+      "id": "src_1",
+      "source": "web",
+      "origin": "observed",
+      "confidence": 0.95,
+      "ref": {
+        "url": "https://docs.python.org/3.11/library/asyncio.html",
+        "url_domain": "docs.python.org",
+        "timestamp": "2026-08-26T14:32:00Z"
+      },
+      "title": "asyncio — Asynchronous I/O",
+      "snippet": "coroutines declared with an async def syntax. They may use the await expression to suspend execution until an awaitable completes.",
+      "type": "direct",
+      "reliability": "verified",
+      "retrieved_at": "2026-08-26T14:32:00Z",
+      "expires_at": "2026-09-25T14:32:00Z"
+    },
+    "src_2": {
+      "id": "src_2",
+      "source": "code",
+      "origin": "inferred",
+      "confidence": 0.88,
+      "ref": {
+        "file": "examples/async_fetch.py",
+        "line": 12
+      },
+      "title": "Example: async fetch",
+      "snippet": "async def fetch_data(url): await asyncio.sleep(1)",
+      "type": "direct",
+      "reliability": "trusted",
+      "retrieved_at": "2026-08-26T14:30:00Z"
+    },
+    "src_3": {
+      "id": "src_3",
+      "source": "web",
+      "origin": "observed",
+      "confidence": 0.92,
+      "ref": {
+        "url": "https://realpython.com/async-io-python/",
+        "url_domain": "realpython.com",
+        "timestamp": "2026-08-26T14:31:00Z"
+      },
+      "title": "Async IO in Python: A Complete Walkthrough",
+      "snippet": "The async def statement defines a coroutine. When you call a coroutine function, it returns a coroutine object.",
+      "type": "synthesized",
+      "reliability": "unverified",
+      "retrieved_at": "2026-08-26T14:31:00Z",
+      "expires_at": "2026-09-25T14:31:00Z"
+    },
+    "src_4": {
+      "id": "src_4",
+      "source": "web",
+      "origin": "observed",
+      "confidence": 0.85,
+      "ref": {
+        "url": "https://fastapi.tiangolo.com/",
+        "url_domain": "fastapi.tiangolo.com",
+        "timestamp": "2026-08-26T14:31:30Z"
+      },
+      "title": "FastAPI — Modern Python Web Framework",
+      "snippet": "FastAPI is built on async/await from the ground up, providing excellent performance and easy integration with async libraries.",
+      "type": "synthesized",
+      "reliability": "trusted",
+      "retrieved_at": "2026-08-26T14:31:30Z",
+      "expires_at": "2026-09-25T14:31:30Z"
+    }
+  },
+  "executions": [
+    {
+      "id": "exec_1",
+      "tool": "python_exec",
+      "status": "success",
+      "input": {
+        "code": "import asyncio\n\nasync def say_hello():\n    print('Hello')\n    await asyncio.sleep(1)\n    print('World')\n\nasyncio.run(say_hello())"
+      },
+      "output": "Hello\nWorld",
+      "started_at": "2026-08-26T14:32:30Z",
+      "ended_at": "2026-08-26T14:32:32Z",
+      "duration_ms": 1050
+    },
+    {
+      "id": "exec_2",
+      "tool": "fetch",
+      "status": "success",
+      "input": {
+        "url": "https://api.github.com/repos/python/cpython/topics"
+      },
+      "output": "Response: 200 OK\nContent-Type: application/json\nSize: 4.2 KB",
+      "started_at": "2026-08-26T14:32:45Z",
+      "ended_at": "2026-08-26T14:32:47Z",
+      "duration_ms": 1820
+    }
+  ]
+}
