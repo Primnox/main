@@ -1,6 +1,6 @@
-import { useContext } from 'react';
+import { useContext, useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertTriangle, Ban, Loader2, RotateCw, Terminal } from 'lucide-react';
+import { Ban, Loader2, Terminal } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { COMPUTER_TOOLS, TERMINAL, api, type Turn } from '../lib/crs';
@@ -18,6 +18,7 @@ import { PlanBlock } from './PlanBlock';
 import { ThinkingBlock } from './ThinkingBlock';
 import { PrivacyMirrorBlock } from './PrivacyMirrorBlock';
 import { ToolRow } from './ToolRow';
+import { RecoveryBlock } from './RecoveryBlock';
 
 /* What a turn says about itself while it is still running.
  *
@@ -51,6 +52,7 @@ export function TurnBlock({ turn }: { turn: Turn }) {
   const live = !TERMINAL.includes(turn.status);
   const openAsset = useContext(ViewerContext);
   const openCanvas = useContext(CanvasContext);
+  const [recoveryDismissed, setRecoveryDismissed] = useState(false);
   /* The entrance uses the full transform string, not Motion's `y` shorthand.
      The shorthand is not hardware-accelerated: it runs on the main thread,
      and this is the one entrance that fires on every single turn, while
@@ -145,22 +147,20 @@ export function TurnBlock({ turn }: { turn: Turn }) {
             </p>
           )}
 
-          {/* A failure renders as a failure, with an honest retry affordance —
-              never as an assistant message pretending to be a reply. */}
-          {turn.error && (
-            <div className="mt-2 flex items-start gap-2.5 rounded-xl border border-error/25 bg-error/[0.06] px-3.5 py-3">
-              <AlertTriangle size={14} className="text-error shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-[13px] text-on-surface/85">{turn.error.message}</p>
-                <p className="px-label mt-1">{turn.error.code}</p>
-              </div>
-              {turn.error.retryable && (
-                <button onClick={() => api.retry(turn.id)}
-                  aria-label="Retry this message"
-                  className="ml-auto shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-on-surface/15 hover:bg-on-surface/[0.06] transition duration-150 px-label">
-                  <RotateCw size={10} /> Retry
-                </button>
-              )}
+          {/* A failure renders as a failure, with recovery options.
+              RecoveryBlock handles error classification, retry logic,
+              and actionable recovery paths. */}
+          {turn.error && !recoveryDismissed && (
+            <div className="mt-2">
+              <RecoveryBlock
+                error={turn.error}
+                onRetry={() => api.retry(turn.id)}
+                onDismiss={() => setRecoveryDismissed(true)}
+                context={{
+                  attempt: 1,
+                  maxAttempts: 3,
+                }}
+              />
             </div>
           )}
         </div>

@@ -1,15 +1,26 @@
 import { useContext, useState } from 'react';
 import { AlertTriangle, Check, ChevronRight, Eye, Loader2, Terminal } from 'lucide-react';
-import { type Execution } from '../lib/crs';
+import { type Execution, type TurnError } from '../lib/crs';
 import { ViewerContext } from '../lib/contexts';
+import { RecoveryBlock } from './RecoveryBlock';
 
 export function ExecutionBlock({ execution }: { execution: Execution }) {
   const [open, setOpen] = useState(false);
+  const [recoveryDismissed, setRecoveryDismissed] = useState(false);
   const openAsset = useContext(ViewerContext);
   const changed = execution.changes;
   const changeCount = changed
     ? changed.created.length + changed.modified.length + changed.deleted.length
     : 0;
+
+  // Construct a TurnError from execution failure if available
+  const executionError: TurnError | null = execution.status === 'failed'
+    ? {
+      code: 'tool_execution_failed',
+      message: execution.summary || 'Tool execution failed',
+      retryable: true,
+    }
+    : null;
 
   return (
     <div className="mb-3 rounded-xl border border-on-surface/[0.09] overflow-hidden">
@@ -49,6 +60,20 @@ export function ExecutionBlock({ execution }: { execution: Execution }) {
 
       {open && (
         <div className="border-t border-on-surface/[0.07]">
+          {/* Recovery block for failures, before output */}
+          {executionError && !recoveryDismissed && (
+            <div className="px-3.5 py-3 border-b border-on-surface/[0.07]">
+              <RecoveryBlock
+                error={executionError}
+                compact={false}
+                onDismiss={() => setRecoveryDismissed(true)}
+                context={{
+                  tool: execution.runtime,
+                }}
+              />
+            </div>
+          )}
+
           {execution.output.length > 0 && (
             <pre className="max-h-64 overflow-auto px-3.5 py-3 font-mono text-[11px] leading-relaxed text-on-surface/70 bg-on-surface/[0.02]">
               {execution.output.join('\n')}
