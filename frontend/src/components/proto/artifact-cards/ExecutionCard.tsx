@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Download, Repeat2, Copy, Eye } from 'lucide-react';
+import { Download, Repeat2, Eye } from 'lucide-react';
 import { ArtifactCard, type CardAction, type CardMetadata } from './ArtifactCard';
 
 /**

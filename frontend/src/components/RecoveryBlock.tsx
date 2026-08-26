@@ -180,27 +180,44 @@ export function RecoveryBlock({
       transition={{ duration: 0.2 }}
       className={`mb-3 rounded-xl border overflow-hidden ${colorClass}`}
     >
-      {/* Header: always visible */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-black/[0.03] transition-colors duration-200"
-      >
-        {icon}
+      {/* Header: always visible.
+          A row, not a button. The recovery actions are themselves buttons, and
+          a button inside a button is invalid HTML — the browser closes the
+          outer one early, which in practice meant Retry and Dismiss sat outside
+          the element they appeared to be inside and did not reliably click.
+          The expand affordance is its own button covering the message. */}
+      <div className="w-full flex items-center gap-2.5 px-3.5 py-2.5">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
+          className="flex flex-1 min-w-0 items-center gap-2.5 text-left hover:bg-black/[0.03] transition-colors duration-200"
+        >
+          {icon}
 
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium leading-snug">
-            {recoveryMessage(classified, context)}
-          </p>
-          {(retrying || (classified.retryable && attempt < maxAttempts)) && (
-            <p className="text-[11px] opacity-70 mt-0.5">
-              {retrying ? (
-                <>Retry in <CountdownTimer from={retryCountdown} onComplete={handleRetryCountdownComplete} /></>
-              ) : (
-                <>Attempt {attemptLabel}</>
-              )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium leading-snug">
+              {recoveryMessage(classified, context)}
             </p>
+            {(retrying || (classified.retryable && attempt < maxAttempts)) && (
+              <p className="text-[11px] opacity-70 mt-0.5">
+                {retrying ? (
+                  <>Retry in <CountdownTimer from={retryCountdown} onComplete={handleRetryCountdownComplete} /></>
+                ) : (
+                  <>Attempt {attemptLabel}</>
+                )}
+              </p>
+            )}
+          </div>
+
+          {/* Expand/collapse indicator if there's more detail */}
+          {message && message.length > 60 && (
+            <ChevronDown
+              size={12}
+              className={`shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+            />
           )}
-        </div>
+        </button>
 
         {/* Action buttons in header */}
         <div className="flex items-center gap-1.5">
@@ -251,18 +268,10 @@ export function RecoveryBlock({
                   <X size={12} />
                 </button>
               )}
-
-              {/* Expand/collapse indicator if there's more detail */}
-              {message && message.length > 60 && (
-                <ChevronDown
-                  size={12}
-                  className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-                />
-              )}
             </>
           )}
         </div>
-      </button>
+      </div>
 
       {/* Expanded details */}
       <AnimatePresence>

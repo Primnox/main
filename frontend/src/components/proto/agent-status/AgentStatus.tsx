@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Loader2, AlertTriangle, CheckCircle2, Clock, FileText, Cpu, ShieldAlert, ShieldCheck, Terminal, Package, Download } from 'lucide-react';
-import { Collapsible } from '@base-ui-components/react/collapsible';
+import { ChevronRight, Loader2, AlertTriangle, CheckCircle2, Clock, FileText, ShieldAlert, ShieldCheck, Download } from 'lucide-react';
 import './AgentStatus.css';
 
 /* Level 1: Glance — Status word + elapsed time, minimal cognitive load
@@ -111,7 +110,7 @@ function Level1Glance({ status, elapsed, live, onExpand }: {
 }
 
 /* Level 2: Expanded view — progress steps, files, warnings */
-function Level2Expanded({ status, elapsed, progress, recentFiles, warning }: {
+function Level2Expanded({ progress, recentFiles, warning }: {
   status: string;
   elapsed: number;
   progress?: ProgressStep[];
@@ -355,7 +354,9 @@ function Level3DeepInspect({ diagnostics, status }: {
 export function AgentStatus(props: AgentStatusProps) {
   const [expanded, setExpanded] = useState(false);
   const [showDeepInspect, setShowDeepInspect] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout>();
+  // ReturnType<typeof setTimeout>, not NodeJS.Timeout — this is browser code and
+  // the repo has no @types/node, so the NodeJS namespace does not exist here.
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const live = !['idle', 'completed', 'failed'].includes(props.status);
 

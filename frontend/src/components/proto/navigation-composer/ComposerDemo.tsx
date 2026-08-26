@@ -82,7 +82,7 @@ export function ComposerDemo() {
       { id: '1', name: 'example.pdf', status: 'ingesting' },
       { id: '2', name: 'data.json', status: 'ready' },
     ]);
-    setDraft('I've attached the files for you to review.');
+    setDraft("I've attached the files for you to review.");
   };
 
   // Get demo props

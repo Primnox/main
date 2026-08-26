@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Code, MessageCircle, TrendingUp } from 'lucide-react';
 import { CitationInline } from './CitationInline';
 
@@ -29,7 +28,7 @@ export function ResultBlock({
   onCitationClick: (id: string) => void;
   selectedCitation: string | null;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  
 
   const getIcon = () => {
     switch (result.type) {

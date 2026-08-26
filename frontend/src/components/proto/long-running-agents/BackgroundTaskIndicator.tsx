@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, CheckCircle, Clock, Pause, Play, Trash2, X } from 'lucide-react';
-import { useState } from 'react';
+import { AlertCircle, CheckCircle, Clock, Pause, Play, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 /**
  * BackgroundTaskIndicator
@@ -30,21 +30,24 @@ interface TaskRecord {
   }>;
 }
 
-function useElapsedTime(createdAt: string) {
+// createdAt is nullable because the indicator renders before a task exists, and
+// a hook cannot be called conditionally — the caller passes null rather than
+// skipping the call.
+function useElapsedTime(createdAt: string | null) {
   const [elapsed, setElapsed] = useState(0);
 
-  const calculate = () => {
-    const now = new Date();
-    const start = new Date(createdAt);
-    const seconds = Math.floor((now.getTime() - start.getTime()) / 1000);
-    setElapsed(seconds);
-  };
+  useEffect(() => {
+    if (!createdAt) return;
 
-  useState(() => {
+    const calculate = () => {
+      const start = new Date(createdAt);
+      setElapsed(Math.floor((Date.now() - start.getTime()) / 1000));
+    };
+
     calculate();
     const interval = setInterval(calculate, 1000);
     return () => clearInterval(interval);
-  });
+  }, [createdAt]);
 
   const hours = Math.floor(elapsed / 3600);
   const mins = Math.floor((elapsed % 3600) / 60);
@@ -92,7 +95,7 @@ export function BackgroundTaskIndicator({
   onCancel,
 }: Props) {
   const [showActions, setShowActions] = useState(false);
-  const elapsed = task ? useElapsedTime(task.created_at) : '0s';
+  const elapsed = useElapsedTime(task?.created_at ?? null);
 
   if (!task) return null;
 

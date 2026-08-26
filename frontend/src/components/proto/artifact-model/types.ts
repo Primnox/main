@@ -38,7 +38,7 @@ export type Artifact = {
   preview: {
     kind: ArtifactKind;
     url?: string;                             // Asset download/preview URL
-    metadata?: Record<string, unknown>;       // Kind-specific (e.g., page_count)
+    metadata?: Record<string, string | number | undefined>;       // Kind-specific (e.g., page_count)
   };
 
   // Versioning (workspace only)
@@ -114,5 +114,5 @@ export type AssetData = {
   status: 'ingesting' | 'ready' | 'failed';
   bytes: number;
   mime?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, string | number | undefined>;
 };

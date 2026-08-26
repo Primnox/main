@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Search, RefreshCw, X, Loader2 } from 'lucide-react';
 import { ResultBlock } from './ResultBlock';
 import { SourcePanel } from './SourcePanel';

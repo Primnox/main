@@ -118,6 +118,54 @@
   --grain-op: 0.028;
 }
 
+/* tactical-light — accessibility accommodation. Substrate inverted for users who
+   need light UI for medical reasons (migraines, photophobia, low vision). Every
+   other archetype decision is preserved: monospace, zero radius, one accent. */
+[data-theme="tactical-light"] {
+  --bg: #F5F5F5;
+  --text: #1A1A1A;
+  --muted: rgba(26,26,26,0.62);
+  --border: rgba(26,26,26,0.18);
+
+  --hover: rgba(26,26,26,0.045);
+  --surface: rgba(26,26,26,0.04);
+  --surface-brd: rgba(26,26,26,0.16);
+  --ring: rgba(230,25,25,0.55);
+  --nav-bg: rgba(245,245,245,0.94);
+  --scroll: rgba(26,26,26,0.22);
+  --cursor-ring: rgba(230,25,25,0.6);
+  --sel-fg: #F5F5F5;
+  --you: rgba(26,26,26,0.6);
+
+  --p-faint: rgba(230,25,25,0.06);
+  --p-fill: rgba(230,25,25,0.08);
+  --p-soft: rgba(230,25,25,0.10);
+  --p-line: rgba(230,25,25,0.35);
+  --p-line-2: rgba(230,25,25,0.45);
+  --p-line-3: rgba(230,25,25,0.55);
+  --a-fill: rgba(230,25,25,0.06);
+  --a-pill: rgba(230,25,25,0.28);
+  --a-line: rgba(230,25,25,0.22);
+  --a-text: #E61919;
+  --g-line: rgba(74,246,38,0.35);
+
+  --shadow-panel: inset 0 0 0 1px rgba(26,26,26,0.10);
+  --shadow-panel-hover: inset 0 0 0 1px rgba(26,26,26,0.20);
+  --shadow-focus: 0 0 0 2px var(--bg), 0 0 0 4px #E61919;
+
+  --scan-ink: rgba(255,255,255,0.12);
+  --grain-op: 0.025;
+}
+
+/* tactical-light-dim — light theme in a brighter room. Substrate only. */
+[data-theme="tactical-light-dim"] {
+  --bg: #FAFAFA;
+  --sel-fg: #FAFAFA;
+  --nav-bg: rgba(250,250,250,0.94);
+  --scan-ink: rgba(255,255,255,0.08);
+  --grain-op: 0.020;
+}
+
 /* ─── Material-3 bridge ───────────────────────────────────────────────────────
    The app's tailwind.config.js maps every Tailwind colour to a --color-* token.
    Rather than redefine all of them per theme (10 x 40 values), derive them from
@@ -291,6 +339,15 @@
 ::selection {
   background: #E61919;
   color: #EAEAEA;
+}
+[data-theme="tactical-light"],
+[data-theme="tactical-light-dim"] {
+  color-scheme: light;
+}
+[data-theme="tactical-light"] ::selection,
+[data-theme="tactical-light-dim"] ::selection {
+  background: #E61919;
+  color: #1A1A1A;
 }
 :root {
   scrollbar-width: thin;

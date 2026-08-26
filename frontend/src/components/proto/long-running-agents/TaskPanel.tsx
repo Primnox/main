@@ -4,7 +4,6 @@ import {
   CheckCircle,
   ChevronDown,
   Clock,
-  Copy,
   Edit2,
   HelpCircle,
   Pause,
@@ -109,7 +108,7 @@ function ActionIcon({ status }: { status: string }) {
   }
 }
 
-function Circle({ size, className }: any) {
+function Circle({ className }: any) {
   return <div className={`w-3.5 h-3.5 rounded-full border border-current ${className}`} />;
 }
 
@@ -262,6 +261,16 @@ export function TaskPanel({
           {failedCount > 0 && (
             <span className="text-xs text-error">
               {failedCount} failed
+            </span>
+          )}
+          {/* Unresolved is shown even though it is the least alarming number.
+              task_state.py treats unknown and partial as outcomes in their own
+              right, and a header that counts only done and failed silently
+              rounds them into one or the other — which is the exact conflation
+              the four-valued model exists to prevent. */}
+          {unresolvedCount > 0 && (
+            <span className="text-xs text-warn">
+              {unresolvedCount} unresolved
             </span>
           )}
         </div>

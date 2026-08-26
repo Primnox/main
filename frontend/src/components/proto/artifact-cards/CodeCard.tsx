@@ -36,27 +36,10 @@ const LANGUAGE_COLORS: Record<string, string> = {
   tsx: 'bg-cyan-600/20 text-cyan-700',
 };
 
-/**
- * Simple syntax highlighting for common patterns
- * This is a basic implementation; for production, use Shiki or Highlight.js
- */
-const highlightCode = (code: string, language?: string) => {
-  if (!language) return code;
-
-  // This is just a demo - in production, use a real syntax highlighter
-  const keywords = {
-    python: ['def', 'class', 'import', 'from', 'if', 'else', 'for', 'while', 'return', 'True', 'False', 'None'],
-    javascript: ['const', 'let', 'var', 'function', 'class', 'import', 'export', 'if', 'else', 'for', 'while', 'return'],
-    typescript: ['const', 'let', 'var', 'function', 'class', 'interface', 'type', 'import', 'export', 'async', 'await'],
-    bash: ['echo', 'if', 'then', 'else', 'for', 'while', 'do', 'done', 'function'],
-  };
-
-  const keywordList = keywords[language.toLowerCase()] || [];
-  const keywordRegex = new RegExp(`\\b(${keywordList.join('|')})\\b`, 'g');
-
-  // Just return as-is for now - real implementation would use proper parsing
-  return code;
-};
+// Syntax highlighting is deliberately absent. The unit's brief forbids new npm
+// dependencies, and a hand-rolled keyword regex is worse than none — it
+// mis-tokenises strings and comments, which reads as a rendering bug rather
+// than a missing feature. Wire Shiki in when the prototype graduates.
 
 export const CodeCard: React.FC<CodeCardProps> = ({
   id,

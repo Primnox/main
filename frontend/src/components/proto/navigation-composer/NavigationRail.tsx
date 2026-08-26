@@ -9,6 +9,7 @@
  */
 
 import { Brain, Circle, MessageSquare, SlidersHorizontal } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { ThemeCycle } from '../../ThemePicker';
 
 export type RailSection = 'chat' | 'knowledge' | 'memory' | 'settings';
@@ -16,7 +17,7 @@ export type RailSection = 'chat' | 'knowledge' | 'memory' | 'settings';
 export interface RailItem {
   id: RailSection;
   label: string;
-  icon: React.ComponentType<{ size: number; className?: string }>;
+  icon: LucideIcon;
   hint: string;
 }
 
@@ -138,7 +139,7 @@ export function NavigationRail({
 }
 
 interface RailButtonProps {
-  icon: React.ComponentType<{ size: number; className?: string }>;
+  icon: LucideIcon;
   label: string;
   active?: boolean;
   current?: boolean;

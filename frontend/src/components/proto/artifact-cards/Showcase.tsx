@@ -125,7 +125,7 @@ Error: Cannot find module 'lodash'
           language="python"
           fileName="fibonacci.py"
           onCopy={(code) => console.log('Copied:', code.slice(0, 30))}
-          onDownload={(code, name) => console.log('Downloading:', name)}
+          onDownload={(_code, name) => console.log('Downloading:', name)}
           isMobile={isMobile}
         />
 

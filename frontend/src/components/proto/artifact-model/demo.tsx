@@ -4,10 +4,10 @@
  * Shows three artifact types and demonstrates why a unified lifecycle fails.
  */
 
-import React, { useState } from 'react';
-import { FileText, Download, History, X, Image, Layers } from 'lucide-react';
-import { Artifact, WorkspaceData, AssetData } from './types';
-import { workspaceToArtifact, pdfAssetToArtifact, slideAssetToArtifact, imageAssetToArtifact } from './converters';
+import { useState } from 'react';
+import { FileText, X, Image, Layers } from 'lucide-react';
+import { WorkspaceData, AssetData } from './types';
+import { workspaceToArtifact, pdfAssetToArtifact, slideAssetToArtifact } from './converters';
 
 // Mock data
 const mockWorkspace: WorkspaceData = {
@@ -47,15 +47,9 @@ const mockSlideAsset: AssetData = {
   metadata: { slide_count: 30, aspect: 16 / 9, sha256: 'def456' },
 };
 
-const mockImageAsset: AssetData = {
-  id: 'asset:img-001',
-  name: 'screenshot.png',
-  kind: 'image',
-  status: 'ready',
-  bytes: 1_200_000,
-  mime: 'image/png',
-  metadata: { width: 2560, height: 1440, sha256: 'ghi789' },
-};
+// Image was a fourth converter in converters.ts but has no viewer here: three
+// types are enough to show that one metadata shape spans them while the
+// lifecycles diverge, and a fourth that behaves like the PDF adds no evidence.
 
 /**
  * Artifact 1: Workspace (Canvas-like)
@@ -236,7 +230,7 @@ function SlideViewer() {
               </span>
               <button
                 onClick={() =>
-                  setCurrentSlide(Math.min(artifact.preview.metadata?.slides ?? 30, currentSlide + 1))
+                  setCurrentSlide(Math.min(Number(artifact.preview.metadata?.slides ?? 30), currentSlide + 1))
                 }
                 className="px-3 py-1 bg-gray-200 text-xs rounded hover:bg-gray-300"
               >

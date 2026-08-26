@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { AlertTriangle, Repeat2, Copy, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, Repeat2, Copy } from 'lucide-react';
 import { ArtifactCard, type CardAction, type CardMetadata } from './ArtifactCard';
 
 /**

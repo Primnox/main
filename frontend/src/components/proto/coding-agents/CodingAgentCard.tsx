@@ -17,8 +17,8 @@ interface CodingAgentCardProps {
 }
 
 export const CodingAgentCard: React.FC<CodingAgentCardProps> = ({
-  turnId,
-  turnTitle,
+  turnId: _turnId,
+  turnTitle: _turnTitle,
   message,
   diffs,
   fileTree,

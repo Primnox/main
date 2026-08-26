@@ -18,7 +18,7 @@ interface Citation {
  */
 export function CitationInline({
   number,
-  citationId,
+  citationId: _citationId,
   citation,
   selected = false,
   onClick,

@@ -204,7 +204,7 @@ export function Composer({
               type="file"
               multiple
               className="hidden"
-              onChange={(e) => {
+              onChange={() => {
                 /* Handled via onAttachClick callback */
               }}
             />

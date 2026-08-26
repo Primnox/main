@@ -56,10 +56,10 @@ export function ConversationList({
   activeId,
   onOpenConversation,
   onRenameConversation,
-  onTogglePinned,
-  onMoveToFolder,
-  onDeleteConversation,
-  onCreateFolder,
+  onTogglePinned: _onTogglePinned,
+  onMoveToFolder: _onMoveToFolder,
+  onDeleteConversation: _onDeleteConversation,
+  onCreateFolder: _onCreateFolder,
 }: ConversationListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());

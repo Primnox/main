@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Copy, RotateCcw, Menu, Settings, LogOut, Send, Paperclip, Mic, StopCircle, ChevronDown } from 'lucide-react';
 import './mainstream.css';
 
@@ -92,9 +92,9 @@ export default function MainstreamShowcase() {
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState(mockConversations[0]);
-  const [selectedModel, setSelectedModel] = useState('Claude 3.5 Sonnet');
+  const [selectedModel] = useState('Claude 3.5 Sonnet');
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [showEmptyState, setShowEmptyState] = useState(false);
+  const [showEmptyState] = useState(false);
 
   const handleSend = () => {
     if (!input.trim()) return;
