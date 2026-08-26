@@ -6,4 +6,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: { port: 5273, strictPort: true },
+  build: {
+    rollupOptions: {
+      input: {
+        main: new URL('./index.html', import.meta.url).pathname,
+        proto: new URL('./proto.html', import.meta.url).pathname,
+      },
+    },
+  },
 })
