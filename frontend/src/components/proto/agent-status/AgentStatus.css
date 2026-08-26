@@ -1,0 +1,86 @@
+/* Agent Status Component Styles */
+
+.agent-status {
+  --color-on-surface: var(--color-on-surface, #000);
+  --color-primary: var(--color-primary, #0066ff);
+  --color-success: var(--color-success, #22c55e);
+  --color-error: var(--color-error, #ef4444);
+  --color-warn: var(--color-warn, #f59e0b);
+  --color-info: var(--color-info, #3b82f6);
+}
+
+.agent-status .px-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .agent-status .px-spin {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Typography scale (matching Primnox design system) */
+.px-label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: inherit;
+}
+
+/* Ensure tab button interactions are smooth */
+.agent-status button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* File download button hover state */
+.agent-status a[download]:hover {
+  text-decoration: none;
+}
+
+/* Deep inspect tabs responsive */
+@media (max-width: 640px) {
+  .agent-status [role="tablist"] {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .agent-status [role="tablist"] button {
+    flex-shrink: 0;
+    min-width: max-content;
+  }
+}
+
+/* Dark mode support (assumes CSS variables are provided) */
+@media (prefers-color-scheme: dark) {
+  .agent-status {
+    color-scheme: dark;
+  }
+}
+
+/* Light mode support */
+@media (prefers-color-scheme: light) {
+  .agent-status {
+    color-scheme: light;
+  }
+}
+
+/* Print styles — hide interactive elements */
+@media print {
+  .agent-status button,
+  .agent-status a[download] {
+    display: none;
+  }
+}
