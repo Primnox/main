@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:proto": "vite -c vite.proto.config.ts",
     "build": "tsc && vite build",
+    "build:proto": "tsc && vite build -c vite.proto.config.ts",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
