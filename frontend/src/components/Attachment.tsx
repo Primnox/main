@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronRight, Download, FileText, Maximize2 } from 'lucide-react';
 import { API } from '../lib/crs';
 import { AssetPreview } from './AssetPreview';
+import { AssetVersions } from './AssetVersions';
 import { Reveal } from './Reveal';
 
 /* A file, in the turn it belongs to.
@@ -29,6 +30,13 @@ export function Attachment({
   /* Sticky: the preview is fetched and parsed on first open, so it stays
      mounted afterwards and a second open costs nothing. */
   const [opened, setOpened] = useState(false);
+
+  /* Restoring an old version makes a different asset current, and the preview
+     has to follow or the reader restores v1 and goes on looking at v2. The
+     turn still references the asset it produced — history is per-lineage, not
+     per-turn — so this is local to the component rather than pushed upward. */
+  const [restoredId, setRestoredId] = useState<string | null>(null);
+  const shown = restoredId ? { ...asset, id: restoredId } : asset;
 
   return (
     <section
@@ -87,9 +95,13 @@ export function Attachment({
             closing an attachment cost something. */}
         {opened && (
           <div className="max-h-[26rem] overflow-auto custom-scrollbar">
-            <AssetPreview asset={asset} bounded />
+            <AssetPreview asset={shown} bounded />
           </div>
         )}
+        {/* Below the preview, not above: the file is what the reader came for,
+            and its history is context for it. Renders nothing unless this file
+            has actually been regenerated. */}
+        {opened && <AssetVersions assetId={asset.id} onRestored={setRestoredId} />}
       </Reveal>
     </section>
   );

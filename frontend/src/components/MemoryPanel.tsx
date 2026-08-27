@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Brain, Search, Trash2, X } from 'lucide-react';
 import { API } from '../lib/crs';
+import { FactList } from './FactList';
 import { Chip, Field } from './ui';
 
 /* ── Permanent memory ───────────────────────────────────────────────────────
@@ -126,6 +127,23 @@ export function MemoryPanel({ onClose, embedded }: {
               {note && <span className="text-[12px] text-on-surface/55">{note}</span>}
             </div>
           </section>
+
+          {/* Below the hand-added memories and above nothing else: this is the
+              larger half of "what does it know", and it is the half the user
+              never wrote. Hidden while searching, because the search box above
+              queries /memories and showing an unfiltered list underneath a
+              filtered one reads as the filter having failed. */}
+          {!query && (
+            <section className="space-y-2">
+              <p className="px-eyebrow">What it has observed</p>
+              <p className="-mt-1 text-[12px] text-on-surface/50">
+                Recorded from files, tools and repositories rather than from
+                you — each one carrying where it came from, so a guess is not
+                mistaken for something seen.
+              </p>
+              <FactList />
+            </section>
+          )}
 
           <section className="space-y-2">
             <p className="px-eyebrow">

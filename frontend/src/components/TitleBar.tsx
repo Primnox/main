@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Minus, Square, Copy, X } from 'lucide-react';
+import { TaskIndicator } from './TaskIndicator';
 
 /* The window chrome, because `tauri.conf.json` sets `decorations: false`.
  *
@@ -80,6 +81,15 @@ export function TitleBar() {
       >
         Primnox
       </span>
+
+      {/* Deliberately outside the IN_TAURI guard, unlike the window controls:
+          a running task is real in the browser too, and hiding it during
+          development is how it would stay unnoticed until release. No drag
+          region on it — it is a control, and grabbing the window by it would
+          make the button unclickable. */}
+      <div className="ml-auto mr-2 flex items-center">
+        <TaskIndicator />
+      </div>
 
       {IN_TAURI && (
         <div className="flex items-center">

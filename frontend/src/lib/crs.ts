@@ -35,6 +35,73 @@ export type ToolCall = {
   summary?: string;
 };
 
+/** One entry in an asset's lineage. `asset_id` repeats once a version has been
+ *  reverted to, because reverting appends rather than rewrites. */
+export type AssetVersion = {
+  version: number;
+  asset_id: string;
+  summary: string | null;
+  created_by_turn_id: string | null;
+  created_at: number;
+  original_name: string;
+  bytes: number;
+  sha256: string;
+  status: string;
+};
+
+export type AssetVersions = {
+  versions: AssetVersion[];
+  head: string;
+  /** 'keep' means superseded bytes are retained and Revert will work.
+   *  'history' means the record survives but the file may not. */
+  retention: 'keep' | 'history';
+};
+
+/** Mirrors v2/task_state.py. `partial` and `unknown` are load-bearing: an
+ *  action whose tool died mid-flight is not a failure and not a success, and
+ *  collapsing it into either is the thing the four-valued model prevents. */
+export type TaskAction = {
+  id: string;
+  sequence: number;
+  description: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'partial' | 'unknown' | 'skipped';
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  detail: string | null;
+};
+
+export type TaskRecord = {
+  id: string;
+  goal: string;
+  status: 'active' | 'blocked' | 'completed' | 'failed' | 'partial' | 'abandoned';
+  constraints: string[];
+  created_at: string;
+  updated_at: string;
+  latest_observation: string | null;
+  next_actions: string[];
+  known: string[];
+  actions: TaskAction[];
+};
+
+/** A durable belief and where it came from. `origin` is the axis that keeps a
+ *  guess from being read as a fact, which is the whole reason to show any of
+ *  this rather than just the text. */
+export type Fact = {
+  id: string;
+  text: string;
+  kind: string;
+  source: 'user' | 'conversation' | 'file' | 'git' | 'os' | 'tool' | 'model' | 'artifact';
+  source_ref: string | null;
+  origin: 'stated' | 'observed' | 'inferred';
+  confidence: number;
+  observed_at: string;
+  supersedes: string | null;
+  superseded_by: string | null;
+  stale: number;
+  disputed: number;
+};
+
 /* One reveal from the Privacy Mirror: the real value, the placeholder the model
    saw in its place, and what kind of thing it was. */
 export type ScrubItem = { original: string; placeholder: string; label: string };
@@ -637,6 +704,49 @@ export const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ version }),
     }).then(json),
+
+  /* Assets get the same two calls documents have had all along. `versions` is
+     empty for anything never regenerated, which is most files — the caller
+     draws nothing rather than a one-entry history. `retention` comes back with
+     it so Revert is only offered when the bytes are actually still there. */
+  assetVersions: (id: string): Promise<AssetVersions> =>
+    fetch(`${API}/assets/${id}/versions`).then(json),
+  revertAsset: (id: string, version: number) =>
+    fetch(`${API}/assets/${id}/revert`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version }),
+    }).then(json),
+
+  /* Tasks. The backend has tracked these since v2/task_state.py landed; until
+     the routes existed there was no way to ask. */
+  tasks: (): Promise<{ tasks: TaskRecord[] }> => fetch(`${API}/tasks`).then(json),
+  task: (id: string): Promise<TaskRecord> => fetch(`${API}/tasks/${id}`).then(json),
+  resumeTask: (): Promise<{ task: TaskRecord | null }> =>
+    fetch(`${API}/tasks/resume`).then(json),
+  retargetTask: (id: string, goal: string) =>
+    fetch(`${API}/tasks/${id}/retarget`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goal }),
+    }).then(json),
+  /** Omit `status` to let the backend derive an honest one from what ran. */
+  finishTask: (id: string, status?: string) =>
+    fetch(`${API}/tasks/${id}/finish`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(status ? { status } : {}),
+    }).then(json),
+
+  /* Facts, with the provenance that makes a claim checkable. */
+  facts: (params: { project?: string; subject?: string; limit?: number } = {}):
+    Promise<{ facts: Fact[] }> => {
+    const q = new URLSearchParams();
+    if (params.project) q.set('project', params.project);
+    if (params.subject) q.set('subject', params.subject);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return fetch(`${API}/facts${qs ? `?${qs}` : ''}`).then(json);
+  },
+  searchFacts: (query: string, limit = 8): Promise<{ facts: Fact[] }> =>
+    fetch(`${API}/facts/search?q=${encodeURIComponent(query)}&limit=${limit}`).then(json),
 
   resolvePermission: (requestId: string, choice: string) =>
     fetch(`${API}/permissions/${requestId}`, {
