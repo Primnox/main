@@ -10,6 +10,7 @@ import './styles/progressive-disclosure.css'
 import { MainstreamShowcase } from './components/proto/mainstream-assistants'
 import CodingAgentsDemoPage from './components/proto/coding-agents/Demo'
 import { ResearchPanel } from './components/proto/research-build-agents'
+import { ResponsePrimitivesDemo } from './components/proto/response-primitives'
 import { ArtifactCardsShowcase } from './components/proto/artifact-cards'
 import { ArtifactModelDemo } from './components/proto/artifact-model'
 import { AgentStatusDemo } from './components/proto/agent-status'
@@ -25,10 +26,10 @@ import { LongRunningAgentsDemo } from './components/proto/long-running-agents/De
 // This gallery is the comparison surface — one server, one theme, one place to
 // see whether the units actually agree with each other.
 //
-// Units 4 and 13 have no entry here on purpose. Unit 4 delivered a backend
-// classifier rather than the response-primitive rule it was asked for, and
-// Unit 13 delivered documents only. Listing them with an empty panel would
-// imply a prototype exists.
+// Unit 13 has no entry here on purpose: it delivered documents only, and
+// listing it with an empty panel would imply a prototype exists. Unit 4 was
+// re-run — its first attempt produced a backend classifier instead of the
+// response-primitive rule it was asked for — and now has one.
 
 interface Proto {
   id: string
@@ -61,6 +62,13 @@ const PROTOS: Proto[] = [
     // embedded, because embedded={false} renders fixed inset-0 and covers the
     // gallery's own navigation.
     render: () => <ResearchPanel embedded />,
+  },
+  {
+    id: 'response-primitives',
+    unit: 4,
+    title: 'Response primitives',
+    blurb: 'One rule places any payload at inline / block / panel — semantic type is not an input.',
+    render: () => <ResponsePrimitivesDemo />,
   },
   {
     id: 'artifact-cards',
