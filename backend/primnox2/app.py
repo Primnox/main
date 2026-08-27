@@ -798,6 +798,38 @@ async def diff_workspace(workspace_id: str, a: int, b: int) -> dict:
     return workspaces.diff(workspace_id, a, b)
 
 
+@app.get("/assets/{asset_id}/versions")
+async def asset_versions(asset_id: str) -> dict:
+    """Version history for a generated asset.
+
+    Empty for anything never regenerated, which is most files. `retention` is
+    reported alongside so the client can say whether an old version is
+    restorable rather than offering a Revert that may not work.
+    """
+    from .assets import versions as asset_versions_service
+    if assets.get(asset_id) is None:
+        raise HTTPException(status_code=404, detail="no such asset")
+    return {"versions": asset_versions_service.versions(asset_id),
+            "head": asset_versions_service.head(asset_id),
+            "retention": asset_versions_service.retention()}
+
+
+@app.post("/assets/{asset_id}/revert")
+async def revert_asset(asset_id: str, request: Request) -> dict:
+    """Restore an earlier version by appending it as a new one."""
+    from .assets import versions as asset_versions_service
+    body = await _json(request)
+    try:
+        version = int(body.get("version"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="version must be an integer")
+    try:
+        return asset_versions_service.revert(asset_id, version,
+                                             turn_id=body.get("turn_id"))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 # ── Tasks ────────────────────────────────────────────────────────────────────
 # v2.task_state has been built, tested and feeding the model's context through
 # v2/context.py since it landed, and no route ever exposed it — so a user could

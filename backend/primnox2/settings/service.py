@@ -45,6 +45,7 @@ ENV_KEYS = {
     "diagnostics.trace": "PRIMNOX2_TRACE",
     "privacy.mirror_enabled": "PRIMNOX2_PRIVACY_MIRROR",
     "model.thinking_enabled": "PRIMNOX2_THINKING",
+    "assets.version_retention": "PRIMNOX2_ASSET_VERSION_RETENTION",
 }
 
 # Values a setting is allowed to take, where the set is closed. Free text would
@@ -69,6 +70,12 @@ ALLOWED = {
     # report. Turning it off is for people who run OmniRoute themselves, under
     # a supervisor or on another machine.
     "provider.omniroute_autostart": {"on", "off"},
+    # "keep" retains superseded files so a regeneration can be undone;
+    # "history" keeps the record of what changed but treats the old bytes as
+    # disposable. Defaults to "keep" in versions.retention() — losing the
+    # ability to undo on a silent default is the same class of data loss this
+    # feature exists to fix, so the safe default is the one that costs disk.
+    "assets.version_retention": {"keep", "history"},
 }
 
 SECRET_KEYS = {"provider.api_key"}

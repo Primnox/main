@@ -178,6 +178,32 @@ CREATE TABLE IF NOT EXISTS asset_embeddings (
     created_at  INTEGER NOT NULL
 );
 
+-- Asset lineage. A workspace gets version history and revert; an asset got
+-- neither, so "regenerate that deck" silently replaced the old one with no way
+-- back. This closes that asymmetry.
+--
+-- It stores no bytes, unlike workspace_files, and does not need to: assets are
+-- content-addressed and deduplicated by sha256, so a regenerated deck is
+-- already a distinct row at its own path. Superseding is therefore a matter of
+-- recording the order, not of copying anything.
+--
+-- asset_id is deliberately NOT unique. Reverting appends a new version that
+-- points back at an existing asset — history is append-only, the same rule
+-- workspace_versions follows, so "undo that" is itself undoable.
+CREATE TABLE IF NOT EXISTS asset_versions (
+    lineage_id         TEXT    NOT NULL,
+    version            INTEGER NOT NULL,
+    asset_id           TEXT    NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    summary            TEXT,
+    created_by_turn_id TEXT    REFERENCES turns(id) ON DELETE SET NULL,
+    created_at         INTEGER NOT NULL,
+    PRIMARY KEY (lineage_id, version)
+);
+
+-- Asset → lineage. Not unique: an asset appears twice in its lineage once it
+-- has been reverted to.
+CREATE INDEX IF NOT EXISTS idx_asset_versions_asset ON asset_versions(asset_id);
+
 -- Turn ↔ asset references. A turn references assets; it does not own them.
 CREATE TABLE IF NOT EXISTS turn_assets (
     turn_id   TEXT NOT NULL REFERENCES turns(id)   ON DELETE CASCADE,
