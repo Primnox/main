@@ -798,6 +798,85 @@ async def diff_workspace(workspace_id: str, a: int, b: int) -> dict:
     return workspaces.diff(workspace_id, a, b)
 
 
+# ── Tasks ────────────────────────────────────────────────────────────────────
+# v2.task_state has been built, tested and feeding the model's context through
+# v2/context.py since it landed, and no route ever exposed it — so a user could
+# not see the work the assistant believed it was in the middle of. These read it
+# out. They add no capability the module does not already have: notably there is
+# no pause, because `blocked` there means work stopped for a reason outside the
+# task rather than because somebody asked it to wait, and `resume()` answers
+# "what was I doing" rather than unpausing anything.
+#
+# Imported inside each handler, matching kernel/scheduler.py and tools/builtins.py:
+# v2 is a sibling package rather than a subpackage, and importing it at module
+# scope pulls the whole substrate in on app import.
+
+
+@app.get("/tasks")
+async def list_tasks(project: str | None = None, session: str | None = None,
+                     limit: int = 20) -> dict:
+    """Unfinished tasks, most recently touched first."""
+    from v2 import task_state
+    return {"tasks": task_state.open_tasks(project=project, session=session,
+                                           limit=max(1, min(limit, 100)))}
+
+
+@app.get("/tasks/resume")
+async def resume_task(project: str | None = None, session: str | None = None) -> dict:
+    """The one task "continue what I was doing" resolves to, or none.
+
+    Declared before /tasks/{task_id} on purpose — FastAPI matches in order, and
+    the other way round "resume" is read as a task id and 404s.
+    """
+    from v2 import task_state
+    return {"task": task_state.resume(project=project, session=session)}
+
+
+@app.get("/tasks/{task_id}")
+async def get_task(task_id: str) -> dict:
+    from v2 import task_state
+    task = task_state.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="no such task")
+    return task
+
+
+@app.post("/tasks/{task_id}/retarget")
+async def retarget_task(task_id: str, request: Request) -> dict:
+    """Change what the task is for. Findings survive; the pending plan does not."""
+    from v2 import task_state
+    body = await _json(request)
+    goal = body.get("goal")
+    if goal is not None and not str(goal).strip():
+        raise HTTPException(status_code=400, detail="goal cannot be empty")
+    constraints = body.get("constraints")
+    if constraints is not None and not isinstance(constraints, list):
+        raise HTTPException(status_code=400, detail="constraints must be a list")
+    task = task_state.retarget(task_id, goal=goal, constraints=constraints,
+                               drop_pending=bool(body.get("drop_pending", True)))
+    if task is None:
+        raise HTTPException(status_code=404, detail="no such task")
+    return task
+
+
+@app.post("/tasks/{task_id}/finish")
+async def finish_task(task_id: str, request: Request) -> dict:
+    """Close a task. Omit `status` to let it be derived from what actually ran —
+    task_state refuses an explicit "completed" while work is still unresolved,
+    and that refusal surfaces here as a 400 rather than being swallowed."""
+    from v2 import task_state
+    from v2.task_state import ValidationError
+    body = await _json(request)
+    try:
+        task = task_state.finish(task_id, body.get("status"),
+                                 outcome=body.get("outcome"))
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if task is None:
+        raise HTTPException(status_code=404, detail="no such task")
+    return task
+
+
 # ── Permissions ──────────────────────────────────────────────────────────────
 @app.post("/permissions/{request_id}")
 async def resolve_permission(request_id: str, request: Request) -> dict:
