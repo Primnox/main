@@ -18,6 +18,7 @@ import { StoryGallery } from './components/RecoveryBlock.stories'
 import { ComposerDemo } from './components/proto/navigation-composer'
 import FamiliarityDesignProto from './components/proto/familiarity-design'
 import { LongRunningAgentsDemo } from './components/proto/long-running-agents/Demo'
+import { BenchmarkRoadmapDemo } from './components/proto/benchmark-roadmap'
 
 // The thirteen research units each built a prototype in isolation, on its own
 // port, against its own mock data. That was right for producing them and wrong
@@ -25,10 +26,10 @@ import { LongRunningAgentsDemo } from './components/proto/long-running-agents/De
 // This gallery is the comparison surface — one server, one theme, one place to
 // see whether the units actually agree with each other.
 //
-// Units 4 and 13 have no entry here on purpose. Unit 4 delivered a backend
-// classifier rather than the response-primitive rule it was asked for, and
-// Unit 13 delivered documents only. Listing them with an empty panel would
-// imply a prototype exists.
+// Unit 4 has no entry here on purpose: it delivered a backend classifier
+// rather than the response-primitive rule it was asked for, and listing it
+// with an empty panel would imply a prototype exists. Unit 13 delivered
+// documents only on its first run and has an entry since its rerun.
 
 interface Proto {
   id: string
@@ -117,6 +118,13 @@ const PROTOS: Proto[] = [
     title: 'Familiarity & design',
     blurb: 'The same components dark and light — the one DESIGN.md verdict that changed.',
     render: () => <FamiliarityDesignProto />,
+  },
+  {
+    id: 'benchmark-roadmap',
+    unit: 13,
+    title: 'Benchmark & roadmap',
+    blurb: '26 unverified cells, six rows where mainstream wins, and what to build first.',
+    render: () => <BenchmarkRoadmapDemo />,
   },
 ]
 
