@@ -120,8 +120,16 @@
 
 /* tactical-light — accessibility accommodation. Substrate inverted for users who
    need light UI for medical reasons (migraines, photophobia, low vision). Every
-   other archetype decision is preserved: monospace, zero radius, one accent. */
-[data-theme="tactical-light"] {
+   other archetype decision is preserved: monospace, zero radius, one accent.
+
+   Both light substrates share this block, and they have to: an attribute
+   selector does not inherit from another attribute selector, so when
+   tactical-light-dim listed only its own deltas it silently fell back to
+   :root — which is the DARK palette. That shipped #EAEAEA text on a #FAFAFA
+   ground at 1.15:1, i.e. invisible. The dim variant overrides its handful of
+   tokens further down; everything else has to be established here. */
+[data-theme="tactical-light"],
+[data-theme="tactical-light-dim"] {
   --bg: #F5F5F5;
   --text: #1A1A1A;
   --muted: rgba(26,26,26,0.62);

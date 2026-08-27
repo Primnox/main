@@ -1,19 +1,32 @@
-/* The world, and its one variant.
+/* The world, and its substrate variants.
  *
- * There were ten palettes here, ported from primnox.github.io — six dark, four
- * light. They are gone, and their absence is the point: ten palettes is the
- * opposite of committing to an aesthetic, and a product that ships both a
- * light and a dark substrate has made every component decide twice and commit
- * to neither.
+ * There were ten palettes here, ported from primnox.github.io. They are gone,
+ * and their absence is the point: ten palettes is the opposite of committing
+ * to an aesthetic. What replaced them was Tactical Telemetry and one dim
+ * variant — #0A0A0A and #121212 are both named in the archetype, and the
+ * difference between them is the room you are sitting in, not a change of
+ * identity.
  *
- * What is left is Tactical Telemetry and a substrate variant. #0A0A0A and
- * #121212 are both named in the archetype; the difference between them is the
- * room you are sitting in, not a change of identity. Every other decision —
- * white phosphor, hazard red as the only accent, zero radius, monospace — is
- * identical across both, which is what makes this a variant rather than a
- * second theme.
+ * The light pair is a later, narrower concession, and the reasoning matters
+ * because this file used to argue the opposite. The old argument was that
+ * shipping both a light and a dark substrate makes every component decide
+ * twice and commit to neither. That is a real cost and it still applies. What
+ * outweighs it is that dark-only is not a taste question for everyone:
+ * photophobia, migraine and some low-vision conditions make a light ground a
+ * medical requirement rather than a preference, and DESIGN.md holds WCAG 2.1
+ * AA as a defect line. Claiming that line while shipping no reachable light
+ * ground was the actual inconsistency.
+ *
+ * So this is an accessibility accommodation, not a style pivot. Every other
+ * decision — hazard red as the only accent, zero radius, monospace, one
+ * accent — is identical across all four, which is what keeps these variants
+ * rather than four themes. Do not add a fifth on grounds of taste.
  */
-export type ThemeName = 'tactical' | 'tactical-dim';
+export type ThemeName =
+  | 'tactical'
+  | 'tactical-dim'
+  | 'tactical-light'
+  | 'tactical-light-dim';
 
 export type Theme = {
   name: ThemeName;
@@ -28,6 +41,10 @@ export const THEMES: Theme[] = [
     swatch: { bg: '#0A0A0A', primary: '#E61919', accent: '#4AF626' } },
   { name: 'tactical-dim', label: 'Tactical Dim', light: false,
     swatch: { bg: '#121212', primary: '#E61919', accent: '#4AF626' } },
+  { name: 'tactical-light', label: 'Tactical Light', light: true,
+    swatch: { bg: '#F5F5F5', primary: '#E61919', accent: '#4AF626' } },
+  { name: 'tactical-light-dim', label: 'Tactical Paper', light: true,
+    swatch: { bg: '#FAFAFA', primary: '#E61919', accent: '#4AF626' } },
 ];
 
 export const DEFAULT_THEME: ThemeName = 'tactical';

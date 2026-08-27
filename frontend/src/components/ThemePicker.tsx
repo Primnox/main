@@ -3,7 +3,7 @@ import { Check } from 'lucide-react';
 import { THEMES, applyTheme, storedTheme, type ThemeName } from '../lib/themes';
 import { SectionHeader } from './ui';
 
-/* Ten palettes as ten swatches.
+/* Four substrates as four swatches — two dark, two light.
  *
  * Each is a real <button>, not a div with a click handler, so it is reachable
  * by Tab and gets the global focus ring for free. The accessible name carries
@@ -25,7 +25,7 @@ export function ThemePicker() {
   return (
     <section className="space-y-4">
       <SectionHeader title="Appearance" level={3}
-        note="Ten palettes, the same ones the website uses. Applied immediately and remembered." />
+        note="One system, four substrates. Applied immediately and remembered." />
 
       <ul role="list" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {THEMES.map(t => {
@@ -67,9 +67,14 @@ export function ThemePicker() {
 
 /* The same choice as a single cycling control, for the rail's foot.
  *
- * A 10-swatch grid does not fit a 64px rail, and a dropdown there would cover
- * the conversation list. Cycling keeps it to one button; the full grid stays in
+ * A swatch grid does not fit a 64px rail, and a dropdown there would cover the
+ * conversation list. Cycling keeps it to one button; the full grid stays in
  * Settings for picking deliberately rather than stepping through.
+ *
+ * Cycling order runs dark → dim → light → paper, so the two substrates a user
+ * is switching between for room brightness are adjacent, and crossing into the
+ * light pair takes a deliberate second press rather than happening by accident
+ * on the way back round.
  */
 export function ThemeCycle() {
   const [current, setCurrent] = useState<ThemeName>(() => storedTheme());
