@@ -416,6 +416,10 @@ def create_turn(conversation_id: str, text: str, *,
         ephemeral.put_turn({
             "turn_id": tid, "conversation_id": conversation_id, "seq": seq,
             "status": "queued", "error": None, "assistant_message": None,
+            # Carried so a failed incognito turn can still say which attempt it
+            # was. The durable path reads this from turns.retry_of_turn_id;
+            # there is no such table here, so the record has to hold it.
+            "retry_of": retry_of,
             "user_message": {"text": text, "partial": False, "blocks": [],
                              "created_at": ts},
         })
@@ -564,6 +568,41 @@ def complete(turn_id: str, text: str, blocks: list | None = None, usage: dict | 
     bus.deferred_fanout(pending)
 
 
+def attempt_number(turn_id: str, conn=None) -> int:
+    """How many times the user has asked for this work, counting this turn.
+
+    1 is the original ask, 2 the first retry, and so on. A retry creates a new
+    turn pointing at the one it replaces (§5.2.3), so the count is the depth of
+    that chain and needs no column of its own.
+
+    This is deliberately NOT the scheduler's `max_attempts` or the provider
+    attempt budget in models/failures.py. Those bound automatic work inside a
+    single turn. This counts deliberate human presses of Retry, which nothing
+    caps — so it is reported without a denominator. The UI used to render
+    "Attempt 1/3" against a limit that does not exist for this kind of retry.
+
+    The walk is bounded because a chain is only as long as the user is patient,
+    but the guard is there anyway: retry_of_turn_id is a nullable self-reference
+    and a cycle would otherwise hang the request that reads it.
+    """
+    c = conn if conn is not None else db.connect()
+    seen: set[str] = set()
+    depth = 1
+    current = turn_id
+    while len(seen) < 64:
+        seen.add(current)
+        row = c.execute(
+            "SELECT retry_of_turn_id FROM turns WHERE id = ?", (current,),
+        ).fetchone()
+        if row is None or not row["retry_of_turn_id"]:
+            return depth
+        current = row["retry_of_turn_id"]
+        if current in seen:
+            return depth
+        depth += 1
+    return depth
+
+
 def fail(turn_id: str, code: str, message: str, retryable: bool, partial_text: str = "") -> None:
     """CRS §10.1 — a failure is `turn.failed`, never an assistant message.
 
@@ -575,14 +614,17 @@ def fail(turn_id: str, code: str, message: str, retryable: bool, partial_text: s
         record = ephemeral.turn(turn_id)
         if record["status"] in TERMINAL:
             return
-        fields: dict = {"status": "failed",
-                        "error": {"code": code, "message": message,
-                                  "retryable": retryable}}
+        # An incognito turn is not in `turns`, so the chain walk would find
+        # nothing. ephemeral records carry retry_of directly.
+        attempt = ephemeral.attempt_number(turn_id)
+        error = {"code": code, "message": message,
+                 "retryable": retryable, "attempt": attempt}
+        fields: dict = {"status": "failed", "error": error}
         if partial_text:
             fields["assistant_message"] = {"text": partial_text, "partial": True,
                                            "blocks": [], "created_at": now_ms()}
         ephemeral.update_turn(turn_id, **fields)
-        bus.emit("turn.failed", {"code": code, "message": message, "retryable": retryable},
+        bus.emit("turn.failed", dict(error),
                  conversation_id=record["conversation_id"], turn_id=turn_id,
                  incognito=True)
         return
@@ -604,7 +646,9 @@ def fail(turn_id: str, code: str, message: str, retryable: bool, partial_text: s
             )
         pending.append(
             bus.emit(
-                "turn.failed", {"code": code, "message": message, "retryable": retryable},
+                "turn.failed",
+                {"code": code, "message": message, "retryable": retryable,
+                 "attempt": attempt_number(turn_id, c)},
                 conversation_id=row["conversation_id"], turn_id=turn_id, conn=c,
             )
         )

@@ -156,11 +156,13 @@ export function TurnBlock({ turn }: { turn: Turn }) {
                 error={turn.error}
                 onRetry={() => api.retry(turn.id)}
                 onDismiss={() => setRecoveryDismissed(true)}
-                // No `attempt` here. Turn carries no retry count, so any number
-                // passed would be invented in the view — and the invented one
-                // said "Attempt 1/3" to somebody on their third retry, which is
-                // worse than saying nothing. RecoveryBlock omits the label when
-                // the count is unknown. Restore this once the backend emits it.
+                // The count comes off the error, not out of the view. It is the
+                // depth of the retry chain the backend walked, so a third retry
+                // says "Attempt 3" — and no denominator, because a user retry
+                // makes a new turn and nothing caps how many.
+                context={turn.error.attempt !== undefined
+                  ? { attempt: turn.error.attempt }
+                  : undefined}
               />
             </div>
           )}

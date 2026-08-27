@@ -16,7 +16,17 @@ export type TurnStatus =
 
 export const TERMINAL: TurnStatus[] = ['completed', 'failed', 'cancelled'];
 
-export type TurnError = { code: string; message: string; retryable: boolean };
+/** `attempt` counts deliberate presses of Retry, 1 being the original ask. It
+ *  has no ceiling — a user retry makes a new turn (§5.2.3) and nothing caps how
+ *  many — so there is no companion max. It is optional because an older backend
+ *  will not send it, and a missing count must render as no count rather than
+ *  as one. */
+export type TurnError = {
+  code: string;
+  message: string;
+  retryable: boolean;
+  attempt?: number;
+};
 
 export type ToolCall = {
   name: string;
@@ -242,7 +252,8 @@ export function reduce(state: ConversationState, e: CrsEvent): ConversationState
         turns: upsert(s.turns, id, t => ({
           ...t,
           status: 'failed',
-          error: { code: e.payload.code, message: e.payload.message, retryable: !!e.payload.retryable },
+          error: { code: e.payload.code, message: e.payload.message, retryable: !!e.payload.retryable,
+                   attempt: typeof e.payload.attempt === 'number' ? e.payload.attempt : undefined },
         })),
       };
 

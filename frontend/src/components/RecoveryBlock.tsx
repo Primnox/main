@@ -126,15 +126,19 @@ export function RecoveryBlock({
   const colorClass = COLOR_BY_CATEGORY[category];
   const icon = ICON_BY_CATEGORY[category];
 
-  // Defaulting to 1/3 was the same fabrication as hardcoding it at the call
-  // site: an unknown attempt count rendered as a confident "Attempt 1/3".
-  // Unknown stays undefined, the label is omitted, and the retry gate falls
-  // back to whether the error is retryable at all — which is the signal that
-  // was actually classified, rather than one inferred from a made-up counter.
+  // Defaulting to 1/3 was a fabrication: an unknown attempt count rendered as
+  // a confident "Attempt 1/3" against a limit that does not exist for user
+  // retries. Unknown now stays undefined and the label is omitted.
+  //
+  // `maxAttempts` is still honoured where a caller genuinely has one — the
+  // provider budget in models/failures.py is a real ceiling — but the backend's
+  // turn.failed carries `attempt` alone, because pressing Retry makes a new
+  // turn and nothing caps how many times a person may do that.
   const attempt = context?.attempt;
   const maxAttempts = context?.maxAttempts;
-  const attemptKnown = attempt !== undefined && maxAttempts !== undefined;
-  const attemptsRemain = !attemptKnown || attempt < maxAttempts;
+  const attemptKnown = attempt !== undefined;
+  const attemptsRemain =
+    attempt === undefined || maxAttempts === undefined || attempt < maxAttempts;
 
   const handleRetry = () => {
     if (suggestedWait) {
@@ -210,7 +214,7 @@ export function RecoveryBlock({
                 {retrying ? (
                   <>Retry in <CountdownTimer from={retryCountdown} onComplete={handleRetryCountdownComplete} /></>
                 ) : (
-                  <>Attempt {attempt}/{maxAttempts}</>
+                  <>Attempt {attempt}{maxAttempts !== undefined && <>/{maxAttempts}</>}</>
                 )}
               </p>
             )}

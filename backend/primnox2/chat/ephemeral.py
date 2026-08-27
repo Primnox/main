@@ -117,6 +117,31 @@ def turn(turn_id: str) -> dict | None:
         return dict(record) if record else None
 
 
+def attempt_number(turn_id: str) -> int:
+    """Depth of the retry chain, counting this turn. See turns.attempt_number.
+
+    The durable version walks turns.retry_of_turn_id; an incognito turn has no
+    row, so the link lives on the record itself. Chains break at whatever is
+    still in memory — forgetting a conversation drops its turns — and a broken
+    link stops the walk rather than raising, because an undercount is a far
+    smaller wrong than a failed render of the error the user is trying to read.
+    """
+    with _lock:
+        seen: set[str] = set()
+        depth = 1
+        current = turn_id
+        while len(seen) < 64:
+            seen.add(current)
+            record = _turns.get(current)
+            if record is None or not record.get("retry_of"):
+                return depth
+            current = record["retry_of"]
+            if current in seen:
+                return depth
+            depth += 1
+        return depth
+
+
 def update_turn(turn_id: str, **fields: Any) -> dict | None:
     with _lock:
         record = _turns.get(turn_id)
