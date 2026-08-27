@@ -19,6 +19,7 @@ import { StoryGallery } from './components/RecoveryBlock.stories'
 import { ComposerDemo } from './components/proto/navigation-composer'
 import FamiliarityDesignProto from './components/proto/familiarity-design'
 import { LongRunningAgentsDemo } from './components/proto/long-running-agents/Demo'
+import { BenchmarkRoadmapDemo } from './components/proto/benchmark-roadmap'
 
 // The thirteen research units each built a prototype in isolation, on its own
 // port, against its own mock data. That was right for producing them and wrong
@@ -26,10 +27,10 @@ import { LongRunningAgentsDemo } from './components/proto/long-running-agents/De
 // This gallery is the comparison surface — one server, one theme, one place to
 // see whether the units actually agree with each other.
 //
-// Unit 13 has no entry here on purpose: it delivered documents only, and
-// listing it with an empty panel would imply a prototype exists. Unit 4 was
-// re-run — its first attempt produced a backend classifier instead of the
-// response-primitive rule it was asked for — and now has one.
+// All thirteen units are represented. Units 4 and 13 arrived late: the first
+// attempt at 4 produced a backend classifier instead of the response-primitive
+// rule, and 13 benchmarked productivity suites instead of AI products. Both
+// were re-run against the actual brief.
 
 interface Proto {
   id: string
@@ -44,7 +45,9 @@ const PROTOS: Proto[] = [
     id: 'mainstream-assistants',
     unit: 1,
     title: 'Mainstream assistants',
-    blurb: 'Copy, regenerate, suggested prompts — the gaps against ChatGPT/Claude/Gemini.',
+    // Not "copy and search are missing" — unit 13 found both already shipped
+    // (TurnBlock.tsx:138, App.tsx:479). What is missing is narrower.
+    blurb: 'Regenerate, suggested prompts, and a copy button no touch user can reach.',
     render: () => <MainstreamShowcase />,
   },
   {
@@ -126,6 +129,13 @@ const PROTOS: Proto[] = [
     blurb: 'The same components dark and light — the one DESIGN.md verdict that changed.',
     render: () => <FamiliarityDesignProto />,
   },
+  {
+    id: 'benchmark-roadmap',
+    unit: 13,
+    title: 'Benchmark & roadmap',
+    blurb: '26 unverified cells, six rows where mainstream wins, and what to build first.',
+    render: () => <BenchmarkRoadmapDemo />,
+  },
 ]
 
 function Gallery() {
@@ -143,7 +153,7 @@ function Gallery() {
             UI research
           </div>
           <div className="mt-1 text-sm">
-            {PROTOS.length} prototypes · 13 units
+            {PROTOS.length} prototypes
           </div>
         </div>
 
