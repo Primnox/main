@@ -126,9 +126,15 @@ export function RecoveryBlock({
   const colorClass = COLOR_BY_CATEGORY[category];
   const icon = ICON_BY_CATEGORY[category];
 
-  const attempt = context?.attempt ?? 1;
-  const maxAttempts = context?.maxAttempts ?? 3;
-  const attemptLabel = `${attempt}/${maxAttempts}`;
+  // Defaulting to 1/3 was the same fabrication as hardcoding it at the call
+  // site: an unknown attempt count rendered as a confident "Attempt 1/3".
+  // Unknown stays undefined, the label is omitted, and the retry gate falls
+  // back to whether the error is retryable at all — which is the signal that
+  // was actually classified, rather than one inferred from a made-up counter.
+  const attempt = context?.attempt;
+  const maxAttempts = context?.maxAttempts;
+  const attemptKnown = attempt !== undefined && maxAttempts !== undefined;
+  const attemptsRemain = !attemptKnown || attempt < maxAttempts;
 
   const handleRetry = () => {
     if (suggestedWait) {
@@ -199,12 +205,12 @@ export function RecoveryBlock({
             <p className="text-sm font-medium leading-snug">
               {recoveryMessage(classified, context)}
             </p>
-            {(retrying || (classified.retryable && attempt < maxAttempts)) && (
+            {(retrying || (classified.retryable && attemptKnown && attemptsRemain)) && (
               <p className="text-[11px] opacity-70 mt-0.5">
                 {retrying ? (
                   <>Retry in <CountdownTimer from={retryCountdown} onComplete={handleRetryCountdownComplete} /></>
                 ) : (
-                  <>Attempt {attemptLabel}</>
+                  <>Attempt {attempt}/{maxAttempts}</>
                 )}
               </p>
             )}
@@ -227,7 +233,7 @@ export function RecoveryBlock({
             </div>
           ) : (
             <>
-              {classified.retryable && onRetry && attempt <= maxAttempts && (
+              {classified.retryable && onRetry && attemptsRemain && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();

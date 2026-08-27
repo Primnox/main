@@ -133,7 +133,7 @@ export function TurnBlock({ turn }: { turn: Turn }) {
                   answer hands over half a sentence, and the button appearing
                   mid-stream reads as the reply having ended. */}
               {!live && (
-                <div className="mt-1.5 -ml-2 opacity-0 group-hover/reply:opacity-100
+                <div className="px-reveal-on-hover mt-1.5 -ml-2 opacity-0 group-hover/reply:opacity-100
                                 focus-within:opacity-100 transition-opacity duration-150">
                   <CopyButton text={turn.assistantText} label="Copy reply" />
                 </div>
@@ -156,10 +156,11 @@ export function TurnBlock({ turn }: { turn: Turn }) {
                 error={turn.error}
                 onRetry={() => api.retry(turn.id)}
                 onDismiss={() => setRecoveryDismissed(true)}
-                context={{
-                  attempt: 1,
-                  maxAttempts: 3,
-                }}
+                // No `attempt` here. Turn carries no retry count, so any number
+                // passed would be invented in the view — and the invented one
+                // said "Attempt 1/3" to somebody on their third retry, which is
+                // worse than saying nothing. RecoveryBlock omits the label when
+                // the count is unknown. Restore this once the backend emits it.
               />
             </div>
           )}

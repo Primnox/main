@@ -403,6 +403,18 @@
   box-shadow: var(--shadow-focus);
 }
 
+/* Controls that fade in on hover need a third case, because `opacity-0` plus a
+   `group-hover:` reveal covers pointer and — via `focus-within:` — keyboard,
+   and silently excludes touch. A touch device has no hover state to enter and
+   does not focus a container before tapping inside it, so the control is not
+   merely hard to reach: it is unreachable, and the affordance may as well not
+   exist. Anything hover-revealed carries this alongside its reveal. */
+@media (hover: none) {
+  .px-reveal-on-hover {
+    opacity: 1;
+  }
+}
+
 /* Reduced motion means FEWER and GENTLER animations, not zero.
    `transition-duration: 0.01ms` on everything was the blunt version of this
    rule: it also removed hover feedback, focus rings easing in, and the fade
