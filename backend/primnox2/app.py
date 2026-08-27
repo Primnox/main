@@ -830,6 +830,52 @@ async def revert_asset(asset_id: str, request: Request) -> dict:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+# ── Facts ────────────────────────────────────────────────────────────────────
+# v2.world_model records every durable belief with where it came from, how it
+# was arrived at, how confident it is and what it replaced. The UI has never
+# shown any of it, so a fact the assistant states looks the same whether the
+# user said it, a file proved it, or a model guessed it. These routes carry the
+# provenance out so a claim can be rendered next to its evidence.
+#
+# include_sensitive stays opt-in, matching current_facts()' own default. A
+# privacy-first product must not widen the default just because the caller is
+# now HTTP rather than a Python import.
+
+
+@app.get("/facts")
+async def list_facts(project: str | None = None, subject: str | None = None,
+                     slot: str | None = None, kind: str | None = None,
+                     include_sensitive: bool = False, limit: int = 50) -> dict:
+    """Facts believed true right now, strongest first. Superseded ones excluded."""
+    from v2 import world_model
+    return {"facts": world_model.current_facts(
+        project=project, subject=subject, slot=slot, kind=kind,
+        include_sensitive=include_sensitive, limit=max(1, min(limit, 200)))}
+
+
+@app.get("/facts/search")
+async def search_facts(q: str, project: str | None = None, kind: str | None = None,
+                       include_superseded: bool = False,
+                       include_sensitive: bool = False, limit: int = 8) -> dict:
+    """Declared before /facts/{fact_id} — FastAPI matches in order, and the
+    other way round "search" is read as a fact id."""
+    from v2 import world_model
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="q is required")
+    return {"facts": world_model.search_facts(
+        q, project=project, kind=kind, include_superseded=include_superseded,
+        include_sensitive=include_sensitive, limit=max(1, min(limit, 100)))}
+
+
+@app.get("/facts/{fact_id}")
+async def get_fact(fact_id: str) -> dict:
+    from v2 import world_model
+    fact = world_model.get_fact(fact_id)
+    if fact is None:
+        raise HTTPException(status_code=404, detail="no such fact")
+    return fact
+
+
 # ── Tasks ────────────────────────────────────────────────────────────────────
 # v2.task_state has been built, tested and feeding the model's context through
 # v2/context.py since it landed, and no route ever exposed it — so a user could
