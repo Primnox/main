@@ -19,13 +19,24 @@ plus the classifier head — the head has to move because the decision being
 corrected IS the head's, and rank-8 updates to attention alone would be asking
 the model to re-weight evidence it is not allowed to relabel.
 
-CPU. There is no GPU here (torch 2.12.0+cpu, 6 threads), which bounds the run
-rather than blocking it: a rank-8 adapter over ~9k short sequences is minutes,
-not hours.
+THIS NEEDS A GPU. Measured on torch 2.12.0+cpu with 6 threads: 70 SECONDS per
+step, on a batch of 8 sequences averaging 17 tokens. Two epochs over this
+corpus is roughly 2,000 steps, so a real run is about a day — which is not a
+slow run, it is a run nobody will ever finish. The base model is 184M params
+and every step still walks the whole encoder backwards; LoRA shrinks the
+weights being updated, not the graph being differentiated.
+
+On any CUDA device the same run is minutes. Nothing else about the script
+changes: it resolves the base model from the hub when the vendored copy is
+absent, so a fresh clone is enough.
 
 Usage:
-    python scripts/pii_adapter_train.py --data data/pii_adapter.jsonl \
-        --out backend/models/pii-adapter --epochs 2
+    python scripts/pii_adapter_data.py --rows 8000        # only if data/ is empty
+    python scripts/pii_adapter_train.py --epochs 2 --batch 32
+
+Then evaluate against the failure set before trusting it — the corpus is
+synthetic-adjacent and a model that has learned "greetings are never names"
+too well will start leaking the short real ones (Li, Xi, Wu, Bo).
 """
 from __future__ import annotations
 
@@ -38,7 +49,13 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-BASE_MODEL = ROOT / "backend" / "models" / "pii"
+# The vendored copy when it is there, the hub id when it is not. `backend/models/`
+# is gitignored, so a fresh clone — which is what a GPU box is — has no local
+# weights and would otherwise fail on a path that only exists on the machine
+# the corpus happened to be built on.
+_LOCAL_MODEL = ROOT / "backend" / "models" / "pii"
+HUB_MODEL = "Isotonic/deberta-v3-base_finetuned_ai4privacy_v2"
+BASE_MODEL = str(_LOCAL_MODEL) if (_LOCAL_MODEL / "config.json").exists() else HUB_MODEL
 MAX_LEN = 256
 
 
@@ -119,8 +136,8 @@ def main() -> int:
     rows = load_rows(ROOT / args.data)
     print("corpus rows:", len(rows))
 
-    tokenizer = AutoTokenizer.from_pretrained(str(BASE_MODEL))
-    config = AutoConfig.from_pretrained(str(BASE_MODEL))
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
+    config = AutoConfig.from_pretrained(BASE_MODEL)
     label2id = {name: int(idx) for idx, name in config.id2label.items()}
 
     encoded = encode(rows, tokenizer, label2id)
@@ -129,7 +146,7 @@ def main() -> int:
     holdout, train_rows = encoded[:split], encoded[split:]
     print("train %d | holdout %d" % (len(train_rows), len(holdout)))
 
-    model = AutoModelForTokenClassification.from_pretrained(str(BASE_MODEL))
+    model = AutoModelForTokenClassification.from_pretrained(BASE_MODEL)
     lora = LoraConfig(
         task_type=TaskType.TOKEN_CLS,
         r=args.rank,
