@@ -137,6 +137,24 @@ _NER_MIN_SCORE_BY_LABEL: dict[str, float] = {
     "AMOUNT": 0.90,
     "BUILDINGNUMBER": 0.90,
     "MASKEDNUMBER": 0.90,
+    # The single most destructive label on technical text, and it had no gate
+    # at all — so it ran at the 0.40 default and shredded anything tabular.
+    #
+    # Measured on a markdown table of model specs, every one of these was
+    # KEPT and replaced with a placeholder before the text reached the model:
+    #   ' | ~' 0.857   'BERT' 0.686   ' MB' 0.697   ' GB' 0.694
+    #   'a-v3 | 184M |' 0.812         ' Apache 2.0' 0.932
+    # Pasting one comparison table produced 33 redactions and the reply came
+    # back citing invented numbers, because the model was reading around
+    # thirty-three holes. `AMOUNT` in the same paste was correctly dropped —
+    # it had a gate. This label just never got one.
+    #
+    # 0.99 rather than 0.90 because the separation is at the very top of the
+    # range and it is unusually clean: real user-agent strings score exactly
+    # 1.0 ("Mozilla/5.0 (Windows NT 10.0...)" and the iPhone equivalent both
+    # 1.000), while the worst technical false positive measured is 0.961
+    # ('torch==2.4.0 numpy>=1.26'). Nothing real is lost at this gate.
+    "USERAGENT": 0.99,
 }
 
 _REDACT_LABELS = {
@@ -166,6 +184,44 @@ _NEVER_SCRUB = {
     "gemini", "google", "ollama", "llama", "mixtral", "qwen", "gemma", "deepseek",
     "ai", "assistant", "user", "system", "bot",
 }
+
+# NO GREETING LIST LIVES HERE, AND ONE SHOULD NOT BE ADDED.
+#
+# The model labels "namaste" FIRSTNAME. The obvious patch is to list it, and
+# that patch does not terminate — measured against this model, all of these
+# are confident false positives too:
+#
+#   namaste 0.999   shukriya 0.999   dhanyavaad 0.998   yaar 0.995
+#   hiya 0.999      bhai 0.994       salaam 0.934       ciao 0.999
+#   hola 0.993      aloha 0.967      arigato 0.999      howdy 0.991
+#
+# That is one afternoon of guessing in two languages. The set is every
+# greeting, interjection and loanword in every language a user might type,
+# which is not a set anybody finishes enumerating.
+#
+# The two cheaper fixes do not work either, and it is worth recording why so
+# they are not re-attempted:
+#
+#   A SCORE GATE CANNOT SEPARATE THEM. The spurious hits score 0.99+, which
+#   is exactly where the real names score — "aniketh" 0.999, "priya" 0.998,
+#   "sundar" 1.0. There is no threshold between the two populations because
+#   the model is not uncertain; it is confidently wrong.
+#
+#   CAPITALISATION CANNOT EITHER. "Namaste" is clean while "namaste" is not,
+#   which suggests keying on case — but "my name is aniketh" scores 0.999 on
+#   a genuine name, and people type their own names in lowercase constantly.
+#   Ignoring lowercase names would leak the commonest case of the exact thing
+#   this module exists to catch.
+#
+# What is left is the model itself: this one is English-centric and treats an
+# unfamiliar non-English token as a name. The real fix is a multilingual PII
+# model, not a vocabulary bolted to an English one. Until then the behaviour
+# is over-redaction, which the gate comment above already argues is the safe
+# direction to fail in — a scrubbed greeting is rehydrated before the user
+# sees the reply.
+#
+# `_is_word_fragment` below is deliberately NOT this. It removes a structural
+# artefact of the tokenizer using a rule, and needs no vocabulary at all.
 
 
 def _resolve_model_source() -> str:
@@ -249,7 +305,75 @@ def _ensure_model_loading() -> None:
 
 # Max chars to send per inference call — model has a 512-token limit.
 # 1500 chars is a safe upper bound for 512 tokens in mixed text.
+#
+# IT IS NOT. That comment was true for English prose and false for everything
+# else, because it compares a count of CHARACTERS against a limit measured in
+# TOKENS. Measured, 1500 characters produces:
+#
+#     english prose   333 tokens   ok
+#     devanagari     1000 tokens   2x over
+#     code           1058 tokens   2x over
+#     json           1429 tokens   2.8x over
+#
+# So the inputs most likely to carry a pasted secret — code, config, API
+# payloads — are exactly the ones that overrun the window, and the overrun is
+# silent: `_detect_spans` catches the failure, logs one warning and `continue`s
+# to the next chunk, leaving only the regex backstop. The backstop has no
+# pattern for names or cities, so those leak verbatim with the UI still
+# reporting a clean scrub.
+#
+# Kept as the fallback bound for when the tokenizer is unavailable.
 _CHUNK_SIZE = 1500
+
+# Tokens per inference call. 448 of the model's 512 leaves room for the
+# special tokens the pipeline adds, and for the overlap below.
+_MAX_TOKENS = 448
+
+# Windows overlap so an entity cannot be destroyed by falling across a cut.
+# Measured before this existed: an email starting at char 1492 was detected as
+# 'ianiketh@gmail.com' — the boundary ate "pan", and the three leading
+# characters went to the provider in clear. 64 tokens is longer than any
+# single entity this model emits, and the span merge in `_detect_spans`
+# already coalesces the duplicates the overlap produces.
+_OVERLAP_TOKENS = 64
+
+
+def _token_windows(text: str) -> "list[tuple[int, str]]":
+    """Split `text` into (char_offset, chunk) windows that fit the model.
+
+    Divides on the tokenizer's own count rather than on character length, so
+    the window is bounded by the thing the model actually limits. Falls back
+    to fixed-size character slicing when no tokenizer is reachable, which is
+    the old behaviour and still better than nothing.
+    """
+    tokenizer = getattr(_pipeline, "tokenizer", None)
+    if tokenizer is None:
+        return [(i, text[i:i + _CHUNK_SIZE])
+                for i in range(0, len(text), _CHUNK_SIZE)]
+    try:
+        encoded = tokenizer(text, add_special_tokens=False,
+                            return_offsets_mapping=True, truncation=False)
+        offsets = [o for o in encoded["offset_mapping"] if o[1] > o[0]]
+    except Exception:  # pragma: no cover - defensive
+        return [(i, text[i:i + _CHUNK_SIZE])
+                for i in range(0, len(text), _CHUNK_SIZE)]
+
+    if not offsets:
+        return []
+    if len(offsets) <= _MAX_TOKENS:
+        return [(0, text)]
+
+    windows: list[tuple[int, str]] = []
+    step = _MAX_TOKENS - _OVERLAP_TOKENS
+    for i in range(0, len(offsets), step):
+        piece = offsets[i:i + _MAX_TOKENS]
+        if not piece:
+            break
+        start, end = piece[0][0], piece[-1][1]
+        windows.append((start, text[start:end]))
+        if i + _MAX_TOKENS >= len(offsets):
+            break
+    return windows
 
 
 def _model_redact(text: str) -> str:
@@ -366,25 +490,74 @@ _LEFTOVER_PLACEHOLDER_RE = re.compile(r"§[A-Z]+_\d+§")
 _DANGLING_PLACEHOLDER_RE = re.compile(r"§[A-Z]+_?\d*$")
 
 
+# Labels where the tokenizer's leftovers show up as "names". Scoped to these
+# rather than applied to every label: an ACCOUNTNUMBER or a CREDITCARDNUMBER
+# can legitimately sit inside a longer run of digits, and rejecting those for
+# not aligning to a word boundary would be a leak.
+_NAME_LABELS = {"FIRSTNAME", "LASTNAME", "MIDDLENAME"}
+
+
+def _is_word_fragment(text: str, start: int, end: int) -> bool:
+    """Whether a span is a piece of a word rather than a word.
+
+    The SentencePiece tokenizer splits words into subwords, and the merge step
+    above puts the pieces of a real name back together ("A"/"nike"/"th" ->
+    "Aniketh"). What it cannot do is notice when the pieces never formed a name
+    in the first place: the tail of an ordinary word arrives labelled
+    FIRSTNAME, survives the merge alone, and gets redacted.
+
+    Measured: "bye" -> ('e', FIRSTNAME), and "howdy, can you help me?" ->
+    ('dy', FIRSTNAME). Neither is reachable from _NEVER_SCRUB, because that
+    matches the span's own text and the span is "e", not "bye" — which is the
+    argument against fixing this class with a word list at all. There is no
+    finite list of words whose last two letters a tokenizer might mislabel.
+
+    A real name occupies a whole word: the character before it and the
+    character after it are not letters. A fragment is flanked by the rest of
+    its word. That is the whole test, and it needs no vocabulary.
+
+    Length is deliberately NOT the test. "Li", "Xi", "Wu" and "Bo" are real
+    names, so a minimum-length rule would leak exactly the short names it was
+    meant to be safe around.
+    """
+    before_is_letter = start > 0 and text[start - 1].isalpha()
+    after_is_letter = end < len(text) and text[end].isalpha()
+    return before_is_letter or after_is_letter
+
+
 def _detect_spans(text: str) -> list[dict]:
     """Return non-overlapping PII spans [{start, end, label, text}] for `text`,
     using the DeBERTa model when ready, always backstopped by regex."""
     spans: list[dict] = []
 
     if _pipeline is not None:
-        for i in range(0, len(text), _CHUNK_SIZE):
-            chunk = text[i : i + _CHUNK_SIZE]
+        for i, chunk in _token_windows(text):
             try:
                 entities = _pipeline(chunk)  # type: ignore[misc]
             except Exception as exc:
-                log.warning(f"PII model inference error: {exc}")
+                # Still swallowed — a redactor that raises would cost the user
+                # their turn — but no longer silent. This branch means the
+                # model saw NOTHING for this window and only the regex
+                # backstop applies to it, which has no pattern for names or
+                # places. That is a leak, and it needs to be greppable.
+                log.error("PII MODEL SKIPPED %d chars at offset %d (%s) — "
+                          "names and places in this window were NOT redacted",
+                          len(chunk), i, exc)
                 continue
+            # The score is CARRIED, not applied here. Gating a subword piece
+            # before the merge below reassembles it decapitates the entity:
+            # "pin 4432" arrives as PIN ' 44' (0.948) and PIN '32' (0.875),
+            # the 0.90 gate drops the second piece, the merge has nothing left
+            # to join, and the redaction covers "44" while "32" goes to the
+            # provider in clear. The gate belongs on the whole entity — see
+            # `_gate_of` after the merge.
             for e in entities:
                 label = e.get("entity_group", "").upper()
-                gate = _NER_MIN_SCORE_BY_LABEL.get(label, _NER_MIN_SCORE)
-                if label in _REDACT_LABELS and e.get("score", 0) >= gate:
+                if label in _REDACT_LABELS:
                     s, en = i + e["start"], i + e["end"]
-                    spans.append({"start": s, "end": en, "label": e["entity_group"].upper(), "text": text[s:en]})
+                    spans.append({"start": s, "end": en, "label": label,
+                                  "text": text[s:en],
+                                  "score": float(e.get("score") or 0.0)})
 
     # Regex backstop (also runs while the model loads — closes the startup gap
     # for the patterns it covers).
@@ -394,7 +567,10 @@ def _detect_spans(text: str) -> list[dict]:
                 s, en = m.start(1), m.end(1)
             else:
                 s, en = m.start(), m.end()
-            spans.append({"start": s, "end": en, "label": label, "text": text[s:en]})
+            # Score 1.0: a regex match is deterministic, so it is never the
+            # thing a confidence gate should be second-guessing.
+            spans.append({"start": s, "end": en, "label": label,
+                          "text": text[s:en], "score": 1.0})
 
     if not spans:
         return []
@@ -410,11 +586,19 @@ def _detect_spans(text: str) -> list[dict]:
             prev = merged[-1]
             if sp["label"] == prev["label"]:
                 prev["end"] = max(prev["end"], sp["end"])  # extend the entity
+                # The entity is as confident as its most confident piece. Max
+                # rather than mean: a trailing subword is routinely less certain
+                # than the token that identified the entity ('44' 0.948 then
+                # '32' 0.875), and averaging would let a long tail talk a real
+                # detection back down below its gate.
+                prev["score"] = max(prev["score"], sp["score"])
                 continue
             if sp["end"] <= prev["end"]:
                 continue  # fully covered by a different label — drop
-            sp = {"start": prev["end"], "end": sp["end"], "label": sp["label"]}  # clip
-        merged.append({"start": sp["start"], "end": sp["end"], "label": sp["label"]})
+            sp = {"start": prev["end"], "end": sp["end"], "label": sp["label"],
+                  "score": sp["score"]}  # clip
+        merged.append({"start": sp["start"], "end": sp["end"],
+                       "label": sp["label"], "score": sp["score"]})
 
     out: list[dict] = []
     for sp in merged:
@@ -423,8 +607,15 @@ def _detect_spans(text: str) -> list[dict]:
             s += 1
         while en > s and text[en - 1].isspace():
             en -= 1
-        if s < en and text[s:en].strip().lower() not in _NEVER_SCRUB:
-            out.append({"start": s, "end": en, "label": sp["label"], "text": text[s:en]})
+        if s >= en or text[s:en].strip().lower() in _NEVER_SCRUB:
+            continue
+        # The gate, applied to the reassembled entity rather than to the
+        # subword pieces it was built from.
+        if sp["score"] < _NER_MIN_SCORE_BY_LABEL.get(sp["label"], _NER_MIN_SCORE):
+            continue
+        if sp["label"] in _NAME_LABELS and _is_word_fragment(text, s, en):
+            continue
+        out.append({"start": s, "end": en, "label": sp["label"], "text": text[s:en]})
     return out
 
 
