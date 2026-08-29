@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Circle, Clock, X } from 'lucide-react';
 import { api, type TaskRecord } from '../lib/crs';
 
@@ -56,6 +56,28 @@ function counts(task: TaskRecord) {
 export function TaskIndicator() {
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Escape closes the panel, and focus goes back to the control that opened
+  // it. This carried role="dialog" from the day it landed while ignoring the
+  // one key every dialog is expected to answer, which is worse than not
+  // claiming the role at all: the role is a promise to a screen reader about
+  // how the thing behaves. Returning focus matters for the same reason — a
+  // keyboard user who dismisses the panel and lands back at the top of the
+  // document has been punished for closing it.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    // Capture phase: the panel lives in the title bar, so a dialog or overlay
+    // elsewhere on the page must not swallow the key first.
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [open]);
 
   useEffect(() => {
     let live = true;
@@ -108,6 +130,7 @@ export function TaskIndicator() {
   return (
     <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
