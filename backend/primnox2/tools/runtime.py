@@ -437,6 +437,61 @@ def _sole_string_parameter(name: str) -> str | None:
     return key if spec.parameters[key].get("type", "string") == "string" else None
 
 
+def correction_for(name: str, reason: str) -> str:
+    """What to tell a model whose tool block would not parse.
+
+    There used to be ONE correction for every tool, and it read:
+
+        Your tool block was malformed (…). Send the code with no JSON at all,
+        like this: <tool name="…">```…code…```</tool>
+
+    That is right for `run_python` and wrong for everything else. A structured
+    tool cannot be expressed as a bare fence — `create_workspace` needs `kind`,
+    `title` AND `files` — so the correction was instructing the model into a
+    shape that cannot work, and it stopped trying. Measured against a live
+    model asked for a technical specification: it opened `create_workspace`,
+    the JSON broke on the document's own quotes, the correction told it to drop
+    the JSON, and the reply came back "you haven't actually asked me to do
+    anything yet". No Canvas was ever created, on a request that is nothing but
+    a request for one.
+
+    So the advice now follows the tool. A sole-string tool keeps the fence,
+    which is the escaping fix it was written for. A structured tool is shown
+    its own required keys instead, because its problem is never the envelope —
+    it is a newline or a quote inside one of the values.
+    """
+    key = _sole_string_parameter(name)
+    if key:
+        return (f'[tool error] The <tool name="{name}"> block could not be '
+                f'read ({reason}). Send the {key} with no JSON at all:\n'
+                f'<tool name="{name}">\n```\n…{key}…\n```\n</tool>')
+
+    spec = get(name)
+    if spec is None:
+        return (f'[tool error] The <tool name="{name}"> block could not be '
+                f'read ({reason}), and there is no such tool. Use one of the '
+                f'tools you were given, or answer without a tool.')
+
+    skeleton = {}
+    for param in spec.required() or list(spec.parameters)[:3]:
+        meta = spec.parameters.get(param, {})
+        kind = meta.get("type", "string")
+        skeleton[param] = ({} if kind == "object"
+                           else [] if kind == "array"
+                           else 0 if kind in ("integer", "number")
+                           else f"…{param}…")
+    return (f'[tool error] The <tool name="{name}"> block could not be read '
+            f'({reason}). It takes a JSON object, so the fenced form will not '
+            f'work here. Send exactly this shape, on its own lines:\n'
+            # ensure_ascii=False: the placeholders reach the model as they are
+            # written rather than as …, which is noise in a prompt that is
+            # itself trying to teach exact syntax.
+            f'<tool name="{name}">\n{json.dumps(skeleton, ensure_ascii=False)}\n</tool>\n'
+            f'Every newline inside a value must be written \\n and every '
+            f'double quote \\" — an unescaped one ends the string early, which '
+            f'is what went wrong.')
+
+
 def _parse_body(name: str, body: str) -> dict:
     """Turn a tool block's contents into arguments.
 

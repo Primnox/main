@@ -363,6 +363,11 @@ class Scheduler:
             return
 
         visible_total: list[str] = []
+        # The same stream BEFORE the tool-block filter ran over it. Kept
+        # because "nothing to show" has two causes that need different words:
+        # a provider that sent no text at all, and a model that sent only
+        # protocol markup. Without this they were reported as the same thing.
+        raw_total: list[str] = []
         # Accumulated across every model call in the turn. A tool turn makes
         # several, and reporting only the last one would understate what the
         # turn actually cost by a factor of the number of steps.
@@ -419,6 +424,7 @@ class Scheduler:
                                                messages, visible_total, totals)
             if stopped:
                 return
+            raw_total.append(reply)
 
             plan = tools.parse_plan(reply)
             if plan:
@@ -448,10 +454,26 @@ class Scheduler:
                         "so nothing was run.]")
                     break
                 messages.append({"role": "assistant", "content": reply})
+                # Two things had to change here, and the second matters more.
+                #
+                # The advice now fits the tool — see `correction_for`. The old
+                # text told every tool to drop its JSON, which is the right fix
+                # for run_python and impossible for create_workspace.
+                #
+                # And the correction re-states what was actually asked. This
+                # channel carries tool results too, so it is the `user` role by
+                # convention, and a model reading "Your tool block was
+                # malformed" in that slot answers the PERSON it thinks said it:
+                # measured, "I see you're trying to call a tool but the JSON
+                # formatting failed… I notice you haven't actually asked me to
+                # do anything yet" — the request had scrolled out of the last
+                # user position and the model genuinely no longer knew what it
+                # was doing. Prefixing "[tool error]" marks it as machinery,
+                # and repeating the request puts the goal back where the model
+                # looks for it.
                 messages.append({"role": "user", "content":
-                                 f'Your tool block was malformed ({call["malformed"]}). '
-                                 f'Send the code with no JSON at all, like this:\n'
-                                 f'<tool name="{call["name"]}">\n```\n…code…\n```\n</tool>'})
+                                 tools.correction_for(call["name"], call["malformed"])
+                                 + f'\n\nThe request is still: {payload["text"]}'})
                 continue
 
             turns.set_status(turn_id, "tool_running")
@@ -490,16 +512,44 @@ class Scheduler:
 
         final = "".join(visible_total).strip()
         if not final:
-            # A turn that completes with nothing to show is not a success. It
-            # happens when the model emits an unterminated tool block: the
-            # stream filter correctly withholds the markup, and there is no
-            # prose behind it, so the user gets a turn that finished and said
-            # nothing. Measured on qwen2.5:7b — 2 of 8 turns. A failure with a
-            # reason and a Retry beats a blank reply (§10.1).
-            turns.fail(turn_id, "empty_reply",
-                       "The model replied with an unfinished tool call and no "
-                       "text. Nothing was lost — try again.", retryable=True)
-            self._finish(job["id"], "failed", error="no visible text")
+            # A turn that completes with nothing to show is not a success. A
+            # failure with a reason and a Retry beats a blank reply (§10.1) —
+            # but the reason has to be one we actually checked.
+            #
+            # This used to say "unfinished tool call" unconditionally. That is
+            # only ONE of the two ways a turn arrives here, and it is not the
+            # common one: when every provider is rate-limited or cooling down,
+            # the gateway's failover ends on a clean StopIteration (an empty
+            # 200, `status=ok empty=True`), no exception reaches `_classify`,
+            # and the user was told their model had emitted malformed markup.
+            # Measured against a live gateway returning HTTP 429 "all
+            # credentials are cooling down" — five turns in a row, every one of
+            # them blaming the model for a quota problem. That sends somebody
+            # debugging a tool-call bug that does not exist.
+            #
+            # So the two cases are told apart by whether ANY raw text arrived.
+            # The tool-block wording is kept for the case it was written for —
+            # markup came through and the filter correctly withheld all of it
+            # (measured on qwen2.5:7b, 2 of 8 turns).
+            if "".join(raw_total).strip():
+                message = ("The model replied with an unfinished tool call and no "
+                           "text. Nothing was lost — try again.")
+                reason = "markup only, no prose"
+            else:
+                message = ("The provider accepted the request and sent no text back. "
+                           "That is usually a rate limit or a model that is "
+                           "temporarily unavailable — check Settings if it repeats. "
+                           "Nothing was lost — try again.")
+                reason = "provider returned zero tokens"
+            # Logged, because it was not. A turn could fail on every attempt
+            # with the server log showing nothing but a 200 on POST /turns,
+            # which makes the one failure worth investigating invisible.
+            _routing_log.warning("turn %s produced no visible text (%s) after "
+                                 "%d model call(s) via %s",
+                                 turn_id, reason, totals.get("model_calls", 0),
+                                 totals.get("model") or "unknown model")
+            turns.fail(turn_id, "empty_reply", message, retryable=True)
+            self._finish(job["id"], "failed", error=reason)
             return
 
         turns.complete(turn_id, final, usage=totals)
