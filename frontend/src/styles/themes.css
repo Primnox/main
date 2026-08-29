@@ -46,6 +46,14 @@
   --muted: rgba(234,234,234,0.62);
   --border: rgba(234,234,234,0.18);
 
+  /* Alpha rescaling, read by themed() in tailwind.config.js. The dark
+     substrate is the one every opacity step was measured against, so it is
+     the identity: min(a * 1, 100% - (100% - a) * 1) === a. These exist here
+     rather than only in the light block so the contract is visible from the
+     theme that does not use it. */
+  --ink-gain: 1;
+  --ink-shrink: 1;
+
   /* Hazard red, in the two values the archetype itself names — and the split
      between them is a measurement, not a preference.
        #E61919 measures 4.26:1 on this substrate. Fine for a rule, a fill or a
@@ -132,8 +140,36 @@
 [data-theme="tactical-light-dim"] {
   --bg: #F5F5F5;
   --text: #1A1A1A;
-  --muted: rgba(26,26,26,0.62);
+  /* 0.73, not the dark side's 0.62. Same reason the gain below exists: 0.62
+     measures 4.73:1 on the bare light ground but only 4.41:1 once the text
+     sits on a plate, because an elevated surface on a light theme moves
+     TOWARD the ink. 0.73 is the dark 0.62 run through the same curve the
+     Tailwind alphas take, so muted text stays muted by the same rule rather
+     than by a second hand-picked number. */
+  --muted: rgba(26,26,26,0.73);
   --border: rgba(26,26,26,0.18);
+
+  /* The rescaling the light substrate needs. Derived, not tuned: AA on the
+     deepest surface step (--text 12% over --bg) needs 0.635 alpha where the
+     dark side needed 0.50, so the gain is 1.30 with headroom. The shrink is
+     set so the two curves cross at exactly the /50 step that carries most of
+     the interface. Measured after: /50 clears 4.5:1 on every light ground,
+     and /85 lands at 0.895 instead of clamping to solid. */
+  --ink-gain: 1.30;
+  --ink-shrink: 0.70;
+
+  /* The readable half of the hazard-red split, re-measured for this ground.
+     :root picks #FF2A2A for --primary/--accent precisely BECAUSE it is the
+     value that clears AA for text (5.30:1) while #E61919 stays structural —
+     that split is a measurement against #0A0A0A, and it inverts here: on
+     #F5F5F5, #FF2A2A falls to 2.96:1. The rail's leg numbers read through
+     --accent (via --dr-reckoning), so they were failing AA on the light pair
+     for the same reason the error text was. Same hue, same rule, value moved
+     along the ramp to suit the substrate. The structural p-line/a-pill
+     families below are untouched: contrast does not apply to a rule or a
+     fill, so they keep the deeper red on every theme. */
+  --primary: #C41010;
+  --accent: #C41010;
 
   --hover: rgba(26,26,26,0.045);
   --surface: rgba(26,26,26,0.04);
@@ -143,7 +179,9 @@
   --scroll: rgba(26,26,26,0.22);
   --cursor-ring: rgba(230,25,25,0.6);
   --sel-fg: #F5F5F5;
-  --you: rgba(26,26,26,0.6);
+  /* Your own turns are text too, so they take the curve rather than the
+     dark side's 0.6 literal. */
+  --you: rgba(26,26,26,0.72);
 
   --p-faint: rgba(230,25,25,0.06);
   --p-fill: rgba(230,25,25,0.08);
@@ -351,6 +389,22 @@
 [data-theme="tactical-light"],
 [data-theme="tactical-light-dim"] {
   color-scheme: light;
+
+  /* Error red, re-measured for a light ground. The rule above — "error stays
+     red in every theme" — is about HUE, and it holds: this is the same hazard
+     red, moved along its own ramp the way #E61919 and #FF2A2A already are.
+     What does not survive the substrate flip is the VALUE. #FF2A2A was picked
+     because it measures 5.30:1 on #0A0A0A; the same ink on #F5F5F5 measures
+     2.96:1, so every error message in the product failed AA on the light pair
+     — the readable text in the one component whose entire job is to be read.
+     #C41010 measures 5.62:1 on #F5F5F5 and 5.90:1 on #FAFAFA.
+
+     Declared HERE, after the Material-3 bridge, and not in the light block
+     up top: `:root` and `[data-theme=…]` have equal specificity, so the
+     bridge's `--color-error` would win on source order alone and this would
+     silently do nothing. */
+  --color-error: #C41010;
+  --color-on-error: #F5F5F5;
 }
 [data-theme="tactical-light"] ::selection,
 [data-theme="tactical-light-dim"] ::selection {

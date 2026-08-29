@@ -12,11 +12,36 @@
    Declaring each colour as a function lets us mix the alpha in ourselves.
    `opacityValue` arrives either as a literal (`0.3`, from `/30`) or as a
    `var(--tw-*-opacity)` reference (when no modifier is present), and calc()
-   handles both. */
+   handles both.
+
+   WHY THE ALPHA IS RESCALED PER SUBSTRATE. Alpha does not carry the same
+   contrast on a light ground as on a dark one, and the asymmetry is in the
+   sRGB gamma curve rather than in any colour we chose. `text-on-surface/50`
+   measures 4.61:1 on #0A0A0A and 3.21:1 on #F5F5F5 — and no --text value
+   rescues it, because pure black at 50% tops out at 3.94:1 on ANY light
+   ground. The opacity floor in DESIGN.md was calibrated on the dark substrate
+   only, so every one of the 237 `/50` call sites silently failed AA the
+   moment a light theme became reachable. The alpha itself has to scale.
+
+   Two knobs, and the shape matters:
+
+     --ink-gain    multiplies the alpha. Fixes the middle of the range, where
+                   AA actually breaks. Alone it would push /85 past 100%,
+                   collapsing the top of the hierarchy into flat ink.
+     --ink-shrink  scales the DEFICIT from opaque instead. Alone it would drag
+                   a 10% hairline to 37% and turn every rule into a border.
+
+   min() of the two takes whichever is gentler at each end: the gain governs
+   low alphas, the shrink caps high ones, and they cross in the middle where
+   the fix is needed. At the dark default both are 1, which reduces to
+   min(a, a) = a — the dark substrate is arithmetically untouched. */
 const themed = (name) => ({ opacityValue }) =>
   opacityValue === undefined
     ? `var(${name})`
-    : `color-mix(in srgb, var(${name}) calc(${opacityValue} * 100%), transparent)`;
+    : `color-mix(in srgb, var(${name}) calc(min(` +
+      `${opacityValue} * 100% * var(--ink-gain, 1), ` +
+      `100% - (100% - ${opacityValue} * 100%) * var(--ink-shrink, 1)` +
+      `)), transparent)`;
 
 export default {
   content: [
