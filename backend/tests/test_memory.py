@@ -161,7 +161,9 @@ def test_the_graph_reaches_the_prompt_without_the_model_asking(fresh_db, convers
 
 def test_the_conversation_graph_reaches_the_prompt(conversation):
     live.drop_all()
-    turns.create_turn(conversation, "We'll use `EventSourcing` for the audit trail.")
+    # Completed, because the graph now learns only from turns that settled.
+    tid = turns.create_turn(conversation, "We'll use `EventSourcing` for the audit trail.")["turn_id"]
+    turns.complete(tid, "Agreed.")
     bundle = context.build(conversation, "remind me of the approach")
 
     assert "conversation" in bundle.retrieved

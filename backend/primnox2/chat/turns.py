@@ -398,7 +398,6 @@ def create_turn(conversation_id: str, text: str, *,
     unimplementable.
     """
     tid, mid, ts = new_id(TURN), new_id(MSG), now_ms()
-    _observe_live(conversation_id, text, "user")
 
     # Name the conversation after the words that started it. Nothing called
     # rename_conversation except the manual-rename endpoint, so every
@@ -529,8 +528,48 @@ def _observe_live(conversation_id: str | None, text: str, role: str) -> None:
         pass
 
 
+def _user_text_of(turn_id: str) -> str:
+    """The text the user sent for this turn, read back after the fact."""
+    if ephemeral.has_turn(turn_id):
+        record = ephemeral.turn(turn_id) or {}
+        return str((record.get("user_message") or {}).get("text") or "")
+    row = db.connect().execute(
+        "SELECT text FROM messages WHERE turn_id = ? AND role = 'user'"
+        " ORDER BY created_at LIMIT 1", (turn_id,)).fetchone()
+    return row["text"] if row else ""
+
+
+def _observe_settled_turn(turn_id: str, assistant_text: str) -> None:
+    """Feed the Live Conversation Graph once the turn is known to have landed.
+
+    WHY THIS IS NOT DONE IN `create_turn`. It was, and the graph and the
+    history then disagreed about what had actually happened. `context.build`
+    selects history with `status IN ('completed','cancelled')`, so a failed
+    turn is correctly forgotten there — but the graph had already eaten its
+    text at creation time, turned it into a DECISION node, and `render()`
+    puts those in the system block as "Decisions so far". A system message
+    outranks history: it does not describe the past, it instructs.
+
+    Measured: five turns failed against a rate-limited provider, each one
+    asking for a document with a heading, a numbered list and a table. The
+    next message was the single word "namaste" — and the model, told in its
+    system block that the user had already decided to build that document,
+    replied by asking which format to render it in and then produced a PDF.
+    Nothing in the visible conversation explained why.
+
+    So the graph now learns on the same terms history does: after the turn
+    settles, user message first so the ordering it records is the ordering
+    that happened.
+    """
+    conversation_id = conversation_of(turn_id)
+    if not conversation_id:
+        return
+    _observe_live(conversation_id, _user_text_of(turn_id), "user")
+    _observe_live(conversation_id, assistant_text, "assistant")
+
+
 def complete(turn_id: str, text: str, blocks: list | None = None, usage: dict | None = None) -> None:
-    _observe_live(conversation_of(turn_id), text, "assistant")
+    _observe_settled_turn(turn_id, text)
     if ephemeral.has_turn(turn_id):
         record = ephemeral.turn(turn_id)
         if record["status"] in TERMINAL:
@@ -701,7 +740,12 @@ def finish_cancelled(turn_id: str, partial_text: str) -> None:
 
     Discarding it is prohibited: losing the half-written answer is the one
     thing a stop button must never do.
+
+    Observed for the graph as well, on the same terms: `context.build` counts
+    a cancelled turn as history, so the graph agreeing with it is the whole
+    point of `_observe_settled_turn`. A turn the user stopped still happened.
     """
+    _observe_settled_turn(turn_id, partial_text)
     if ephemeral.has_turn(turn_id):
         record = ephemeral.turn(turn_id)
         if record["status"] in TERMINAL:

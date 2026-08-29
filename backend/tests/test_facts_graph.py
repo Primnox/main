@@ -42,7 +42,10 @@ def client():
 
 def _seed() -> str:
     cid = turns.create_conversation("Payments design")["id"]
-    turns.create_turn(cid, "We'll use `PaymentGateway` with WAL mode.")
+    # Completed: the graph learns from settled turns only, so a seed that only
+    # creates one produces an empty graph.
+    tid = turns.create_turn(cid, "We'll use `PaymentGateway` with WAL mode.")["turn_id"]
+    turns.complete(tid, "Sounds good.")
     live.save(cid)
     memory.remember("I prefer concise answers.", conversation_id=cid)
     return cid
@@ -73,12 +76,14 @@ def test_an_entity_in_one_chat_is_noise_and_two_is_knowledge(clean):
     """A thing mentioned once is a passing remark. The threshold is what stops
     the canvas filling with every capitalised word the user ever typed."""
     one = turns.create_conversation("Only once")["id"]
-    turns.create_turn(one, "Something about `OneOffThing` here.")
+    t1 = turns.create_turn(one, "Something about `OneOffThing` here.")["turn_id"]
+    turns.complete(t1, "Noted.")
     live.save(one)
     assert not any(n["label"] == "OneOffThing" for n in facts.build()["nodes"])
 
     two = turns.create_conversation("Again")["id"]
-    turns.create_turn(two, "More about `OneOffThing`.")
+    t2 = turns.create_turn(two, "More about `OneOffThing`.")["turn_id"]
+    turns.complete(t2, "Noted again.")
     live.save(two)
     assert any(n["label"] == "OneOffThing" for n in facts.build()["nodes"])
 

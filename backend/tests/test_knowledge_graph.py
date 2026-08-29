@@ -359,12 +359,41 @@ def test_creating_a_turn_feeds_the_live_graph(conversation):
     the feature does nothing.
     """
     live.drop_all()
-    turns.create_turn(conversation, "Please look at `PaymentGateway` in api/pay.py")
+    # The turn has to SETTLE before the graph learns from it — creating one is
+    # no longer enough, because a turn that fails must leave no trace. See
+    # test_a_failed_turn_does_not_reach_the_live_graph below.
+    tid = turns.create_turn(conversation, "Please look at `PaymentGateway` in api/pay.py")["turn_id"]
+    turns.complete(tid, "Looking now.")
 
     g = live.for_conversation(conversation)
     labels = {n["label"] for n in g.nodes.values()}
     assert "PaymentGateway" in labels
     assert "api/pay.py" in labels
+    live.drop_all()
+
+
+def test_a_failed_turn_does_not_reach_the_live_graph(conversation):
+    """A turn that failed did not happen, and the graph must agree.
+
+    `context.build` selects history with status IN ('completed','cancelled'),
+    so a failed turn is already forgotten there. The graph used to eat the
+    text at creation time regardless, turn it into a DECISION node, and
+    `render()` puts those in the system block as "Decisions so far" — which
+    instructs rather than describes.
+
+    Measured before the fix: five turns failed against a rate-limited
+    provider, each asking for a document with a heading, a list and a table.
+    The next message was the single word "namaste", and the model — told in
+    its system block that this had already been decided — produced a PDF.
+    """
+    live.drop_all()
+    tid = turns.create_turn(
+        conversation, "Use a numbered list and a table comparing `BTreeIndex` options")["turn_id"]
+    turns.fail(tid, "empty_reply", "nothing came back", retryable=True)
+
+    g = live.for_conversation(conversation)
+    assert not g.nodes, f"a failed turn leaked into the graph: {g.nodes}"
+    assert "BTreeIndex" not in g.render()
     live.drop_all()
 
 
@@ -380,7 +409,8 @@ def test_completing_a_turn_feeds_the_live_graph(conversation):
 
 def test_deleting_a_conversation_drops_its_live_graph():
     cid = turns.create_conversation("disposable")["id"]
-    turns.create_turn(cid, "Discussing `TransientThing` here")
+    tid = turns.create_turn(cid, "Discussing `TransientThing` here")["turn_id"]
+    turns.complete(tid, "Noted.")
     assert live.for_conversation(cid).nodes
 
     turns.delete_conversation(cid)
