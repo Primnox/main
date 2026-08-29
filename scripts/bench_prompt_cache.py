@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
 import time
@@ -46,9 +47,31 @@ def config() -> dict:
 
     Reading the commented lines is deliberate: switching .env over to run one
     benchmark would leave somebody's editor in a state they did not choose.
+
+    THE ENVIRONMENT WINS, AND LOOPBACK IS ALLOWED THERE. Both rules below
+    encoded "a real provider is remote and carries a key", which stopped being
+    true when OmniRoute became the primary provider: it is a LOCAL gateway
+    fronting real cloud models, so it is reachable on 127.0.0.1 and needs no
+    key of its own. Under the old rules every billing benchmark in this
+    directory refused to run on the machine's actual setup — `config()` threw
+    on a missing .env, and the loopback filter discarded the one endpoint
+    there was. Reading the environment also keeps this the credential-free
+    path: a gateway that needs no key needs no secret written to disk.
     """
+    env_base = os.environ.get("PRIMNOX_BASE_URL", "").strip()
+    if env_base:
+        return {
+            "PRIMNOX_BASE_URL": env_base,
+            "PRIMNOX_API_KEY": os.environ.get("PRIMNOX_API_KEY", "").strip(),
+            "PRIMNOX_MODEL": os.environ.get("PRIMNOX_MODEL", "").strip(),
+        }
+
+    env_file = ROOT / ".env"
+    if not env_file.exists():
+        return {"PRIMNOX_BASE_URL": "", "PRIMNOX_API_KEY": "", "PRIMNOX_MODEL": ""}
+
     found: dict[str, list[str]] = {}
-    for line in (ROOT / ".env").read_text(encoding="utf-8").splitlines():
+    for line in env_file.read_text(encoding="utf-8").splitlines():
         line = line.strip().lstrip("#").strip()
         if "=" not in line:
             continue
