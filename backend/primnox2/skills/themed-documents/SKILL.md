@@ -1,10 +1,13 @@
 ---
 name: themed-documents
 description: making a PDF, slide deck, Word document or styled chart
-triggers: pdf, deck, slide, presentation, powerpoint, pptx, docx, word document, report, chart, graph, plot, document, write-up, briefing
+triggers: pdf, deck, slide, presentation, powerpoint, pptx, docx, word document, report, chart, graph, plot, document, write-up, briefing, essay, spec, specification, notes, study notes, plan, proposal, outline, comparison, guide, memo, summary, analysis, architecture, documentation
 ---
 
-Your reply must begin with `<tool name="run_python">` and contain only the code.
+Your reply must be a tool call. Choose which: deck, PDF, Word or chart is
+`<tool name="run_python">` with only the code; a report, spec, notes or plan
+they will edit is `create_workspace` with markdown. A named format wins.
+Do not answer in prose and do not ask first — build it, then offer to adjust.
 
 Copy this, change the words, send it:
 
