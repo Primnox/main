@@ -599,6 +599,15 @@ def _await_omniroute(timeout: float) -> bool:
 OMNIROUTE_BOOT_SECONDS = 180.0
 
 
+def _omniroute_port() -> int:
+    """The port OMNIROUTE_HOST names, which is the one we must start it on."""
+    from urllib.parse import urlsplit
+    try:
+        return urlsplit(OMNIROUTE_HOST).port or 20128
+    except ValueError:
+        return 20128
+
+
 def _omniroute_argv() -> list[str] | None:
     """What to actually execute, preferring node over npm's shim.
 
@@ -726,6 +735,22 @@ def ensure_omniroute_running(*, wait: float = OMNIROUTE_BOOT_SECONDS) -> dict:
         _boot_lock_path().write_text(str(os.getpid()), encoding="utf-8")
     except OSError:
         pass
+
+    # TELL IT WHICH PORT. Without this the spawn inherits the environment and
+    # OmniRoute falls back to its own default — which is 4109, the port THIS
+    # app listens on. So the autostart could never work: it started a gateway
+    # on top of Primnox (both bind, one on 0.0.0.0 and one on 127.0.0.1, so
+    # neither errors), then polled OMNIROUTE_HOST at :20128, saw nothing, and
+    # reported "spawned but not answering". Observed exactly that — node on
+    # 0.0.0.0:4109 next to uvicorn on 127.0.0.1:4109, and every turn failing
+    # with the breaker open.
+    #
+    # The port is derived from OMNIROUTE_HOST rather than hardcoded, so the two
+    # cannot drift: the address we start it on is by construction the address
+    # we look for it on.
+    env = dict(os.environ)
+    env["PORT"] = str(_omniroute_port())
+    kwargs["env"] = env
 
     try:
         proc = subprocess.Popen(argv, **kwargs)
