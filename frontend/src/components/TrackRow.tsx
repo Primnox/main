@@ -92,8 +92,8 @@ export function TrackRow({
           onClick={() => onFix(turn.id)}
           aria-pressed={isFix}
           title={isFix
-            ? `Leg ${ordinalLabel(index)} is the current fix`
-            : `Mark leg ${ordinalLabel(index)} as a fix`}
+            ? `Turn ${ordinalLabel(index)} is your checkpoint — everything below is measured as drift from here`
+            : `Mark turn ${ordinalLabel(index)} as your checkpoint (a "fix") — a known-good point to measure from`}
           className="group absolute -left-px top-[0.6rem] flex items-center gap-2
                      rounded-sm pl-0 pr-1 outline-none
                      focus-visible:ring-2 focus-visible:ring-dr-fix/60"
@@ -127,10 +127,10 @@ export function TrackRow({
             </span>
           )}
           <span className="sr-only">
-            Leg {ordinalLabel(index)}, {DESCRIPTION_BY_STATE[state]}.
+            Turn {ordinalLabel(index)}, {DESCRIPTION_BY_STATE[state]}.
             {isFix
-              ? ' This is the current fix.'
-              : ` ${drift > 0 ? `${drift} leg${drift > 1 ? 's' : ''} since the last fix. ` : ''}Mark it as a fix.`}
+              ? ' This is your confirmed checkpoint.'
+              : ` ${drift > 0 ? `${drift} turn${drift > 1 ? 's' : ''} since your last checkpoint. ` : ''}Mark this as a checkpoint (a "fix") to reset that count.`}
           </span>
         </button>
       </div>

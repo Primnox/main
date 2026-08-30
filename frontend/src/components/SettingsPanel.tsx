@@ -34,17 +34,21 @@ import { Button, Choice, Field, SectionHeader } from './ui';
  */
 type SettingsTab = 'appearance' | 'tuning' | 'provider' | 'privacy' | 'vault' | 'sandbox' | 'diagnostics';
 
-export function SettingsPanel({ onClose, embedded }: {
+export function SettingsPanel({ onClose, embedded, initialTab }: {
   onClose?: () => void;
   /** A section beside the rail, not an overlay over the app. */
   embedded?: boolean;
+  /** Deep-link straight to a tab — the composer's model chip opens here on
+      'provider' rather than dropping the user on Appearance and making them
+      hunt for the one tab they came for. */
+  initialTab?: SettingsTab;
 }) {
   const [data, setData] = useState<any>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [key, setKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [tab, setTab] = useState<SettingsTab>('appearance');
+  const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'appearance');
 
   const load = useCallback(() => {
     fetch(`${API}/settings`).then(r => r.json()).then(d => {

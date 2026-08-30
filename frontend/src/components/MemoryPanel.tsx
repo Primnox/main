@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Brain, Search, Trash2, X } from 'lucide-react';
 import { API } from '../lib/crs';
 import { FactList } from './FactList';
-import { Chip, Field } from './ui';
+import { Chip, Field, ListSkeleton } from './ui';
 
 /* ── Permanent memory ───────────────────────────────────────────────────────
    What Primnox knows about you, as opposed to what it knows about your files.
@@ -14,7 +14,11 @@ export function MemoryPanel({ onClose, embedded }: {
   /** A section beside the rail, not an overlay over the app. */
   embedded?: boolean;
 }) {
-  const [rows, setRows] = useState<any[]>([]);
+  // `null` until the first load resolves — distinct from `[]`, which means
+  // "loaded, genuinely nothing here." Collapsing the two showed the "nothing
+  // remembered yet" empty state for a beat on every open, before the real
+  // list (if any) popped in over it.
+  const [rows, setRows] = useState<any[] | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [query, setQuery] = useState('');
@@ -149,14 +153,15 @@ export function MemoryPanel({ onClose, embedded }: {
             <p className="px-eyebrow">
               {query ? `Matching “${query}”` : 'Everything it knows'}
             </p>
-            {rows.length === 0 && (
+            {rows === null && <ListSkeleton count={3} />}
+            {rows !== null && rows.length === 0 && (
               <p className="text-sm text-on-surface/50 py-6">
                 {query
                   ? 'Nothing matches.'
                   : 'Nothing remembered yet. Tell Primnox something worth keeping in a chat — “remember that I prefer short answers” — and it appears here.'}
               </p>
             )}
-            {rows.map(m => (
+            {rows?.map(m => (
               <div key={m.id}
                 className="group flex items-start gap-3 px-4 py-3 rounded-xl border border-on-surface/[0.07] hover:border-on-surface/[0.16] transition duration-150">
                 <div className="min-w-0 flex-1">
@@ -188,7 +193,7 @@ export function MemoryPanel({ onClose, embedded }: {
             ))}
           </section>
 
-          {rows.length > 0 && (
+          {!!rows?.length && (
             <section className="pt-4 border-t border-on-surface/[0.07]">
               {confirmWipe ? (
                 <div className="flex items-center gap-2">

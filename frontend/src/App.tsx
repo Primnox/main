@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertTriangle, ArrowUp, Check, ChevronRight, EyeOff, FileText, Folder, FolderPlus, Loader2, PanelLeftOpen, PanelRight, Paperclip, Pencil, Pin, Plus, Search, Share2, Square, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Check, ChevronRight, EyeOff, FileText, Folder, FolderPlus, Loader2, PanelLeftOpen, PanelRight, Paperclip, Pencil, Pin, Plus, RefreshCw, Search, Share2, Square, Trash2, X } from 'lucide-react';
 import { CrsSocket, TERMINAL, api, emptyState, reduce, turnsFromHistory, type ConversationState, type CrsEvent } from './lib/crs';
 import { CanvasContext, ChatsContext, ViewerContext, type ChatActions, type OpenAsset } from './lib/contexts';
 import { groupByDay } from './lib/groupByDay';
@@ -11,7 +11,7 @@ import { Canvas } from './components/Canvas';
 import { ChatRow } from './components/ChatRow';
 import { ContextRail } from './components/ContextRail';
 import { ContextSidebar } from './components/ContextSidebar';
-import { Panel } from './components/ui';
+import { ListSkeleton, Panel } from './components/ui';
 import { GraphPanel } from './components/GraphPanel';
 import { MemoryPanel } from './components/MemoryPanel';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -43,10 +43,24 @@ import { TurnBlock } from './components/TurnBlock';
 export default function App() {
   const [state, setState] = useState<ConversationState>(emptyState());
   const [conversations, setConversations] = useState<any[]>([]);
+  // Separate from `conversations` itself rather than switching that to
+  // `| null`: the list feeds several derived useMemos (pinned/unpinned/
+  // loose) that already assume an array, and this only needs to answer one
+  // question — has the FIRST load resolved yet — never resets on a refetch,
+  // so refreshing the list doesn't flash the skeleton back over real rows.
+  const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const [draft, setDraft] = useState('');
   const [health, setHealth] = useState<any>(null);
   const [attachments, setAttachments] = useState<{ id: string; name: string; status: string }[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  // A thread that failed for one systemic reason (a backend restart, a dead
+  // route) can carry dozens of turns in the same terminal state, each with
+  // its own single-turn Retry button and no way to act on them together — a
+  // returning user facing that wall of red is more likely to abandon the
+  // conversation than click Retry 100 times. `null` = idle; a number while a
+  // bulk retry is in flight, so the button can show progress rather than
+  // just spinning blind for however long a hundred sequential retries take.
+  const [bulkRetryProgress, setBulkRetryProgress] = useState<{ done: number; total: number } | null>(null);
   // Separate from `railOpen`: below xl the rail is a drawer, and a drawer that
   // remembered "open" from a wide session would cover the transcript on load.
   const [narrowRailOpen, setNarrowRailOpen] = useState(false);
@@ -124,6 +138,11 @@ export default function App() {
      at once — and did, stacking Settings over Memory over the graph, each with
      its own close button and no way to tell what was underneath. */
   const [section, setSection] = useState<Section>('chat');
+  /* Which Settings tab to land on. The composer's model chip needs to open
+     straight to Provider rather than Appearance — a plain boolean couldn't
+     say that, and it is the one deep link anything in the app currently
+     needs, so it stays a single piece of state rather than a route table. */
+  const [settingsTab, setSettingsTab] = useState<'appearance' | 'provider'>('appearance');
   /* Whether the conversation list is showing, at every width — a drawer below
      `md`, an inline column above it. Remembered like the context panel's own
      `primnox2.rail`, so a collapsed sidebar stays collapsed across restarts
@@ -157,6 +176,26 @@ export default function App() {
   const apply = useCallback((e: CrsEvent) => setState(s => reduce(s, e)), []);
 
   const openConversation = useCallback(async (id: string) => {
+    // A "New chat" click creates the row immediately (see newChat), on the
+    // reasonable assumption you were about to use it. Plenty of the time you
+    // weren't — you clicked it to see what was there, or changed your mind
+    // and picked an existing thread instead — and the empty row stayed
+    // forever, because nothing ever revisited that assumption. Every one of
+    // those is permanent clutter with no content behind it: "New Chat",
+    // "New Chat", "New Chat" going back weeks, indistinguishable in the list.
+    //
+    // Only fires when actually LEAVING one empty conversation for a
+    // DIFFERENT one — never the one being switched TO (it may become the
+    // next empty-and-abandoned one, and that is fine, this runs again next
+    // time), never the very first conversation opened at mount (nothing was
+    // "left" yet), and never incognito (that already has its own explicit
+    // close flow — this is about silent, automatic cleanup of a mistake, not
+    // extending "leaves no trace" to a channel with real, deliberate history).
+    const leaving = stateRef.current;
+    if (leaving.id && leaving.id !== id && leaving.turns.length === 0 && !leaving.incognito) {
+      api.closeConversation(leaving.id).then(refreshList).catch(() => undefined);
+    }
+
     // §3.3.3 — a state read. Opening a conversation never replays events.
     const { turns, head, incognito, gone } = await api.history(id);
     setState(s => ({
@@ -170,6 +209,7 @@ export default function App() {
     const { conversations, folders } = await api.listConversations();
     setConversations(conversations);
     setFolders(folders ?? []);
+    setConversationsLoaded(true);
     return conversations;
   }, []);
 
@@ -240,7 +280,7 @@ export default function App() {
   const send = async () => {
     if (sendingRef.current) return;          // a send is already in flight
     const text = draftRef.current.trim();
-    if (!text || !state.id || state.gone) return;
+    if (!text || state.gone) return;
 
     // Claim the send and clear the draft synchronously, before any await, so
     // the next keystroke in this same tick sees an empty composer and bails.
@@ -250,7 +290,27 @@ export default function App() {
     setDraft('');
     setAttachments([]);
     try {
-      await api.send(state.id, text, ids);
+      // The mount-time bootstrap (below) picks or creates a conversation
+      // asynchronously, and nothing in the composer disables itself for that
+      // gap — `state.gone` does, `!state.id` never did. A fast typist's
+      // very first message could land here before it resolved, and the old
+      // guard just `return`ed: the draft was already cleared above, so the
+      // message silently vanished with no error and nothing to retry.
+      // Self-heal instead — create one on the spot, the same call the
+      // bootstrap itself makes — so the first keystroke of a session always
+      // has somewhere to go.
+      const existing = stateRef.current.id;
+      let id: string;
+      if (existing) {
+        id = existing;
+      } else {
+        const c = await api.createConversation();
+        await refreshList();
+        setState(s => ({ ...s, id: c.id, turns: [], incognito: false, gone: false }));
+        socketRef.current?.resubscribe();
+        id = c.id;
+      }
+      await api.send(id, text, ids);
       refreshList();
     } catch {
       setDraft(text);                        // a failed send gives the words back
@@ -259,6 +319,24 @@ export default function App() {
     } finally {
       sendingRef.current = false;
     }
+  };
+
+  /* One request at a time, deliberately not Promise.all — the backend already
+     serializes model work per conversation (a bounded pool, per scheduler.py),
+     so firing every retry at once would just queue behind itself while also
+     opening N simultaneous connections for no benefit. Sequential also gives
+     the progress counter below something honest to report, and means a
+     conversation the user navigates away from mid-batch stops cleanly at
+     whichever turn was in flight rather than mid-fan-out. */
+  const retryAllFailed = async () => {
+    const targets = state.turns.filter(t => t.status === 'failed' && t.error?.retryable !== false);
+    if (!targets.length) return;
+    setBulkRetryProgress({ done: 0, total: targets.length });
+    for (const [i, turn] of targets.entries()) {
+      try { await api.retry(turn.id); } catch { /* one failure must not stop the batch */ }
+      setBulkRetryProgress({ done: i + 1, total: targets.length });
+    }
+    setBulkRetryProgress(null);
   };
 
   /* Upload returns as soon as the bytes are hashed; extraction runs as a job,
@@ -511,6 +589,13 @@ export default function App() {
                 </p>
               )}
             </>
+          ) : !conversationsLoaded ? (
+            // First load only — see the note by conversationsLoaded's
+            // declaration. Nothing-yet and a real, populated list look
+            // identical for one React state update; without this, a
+            // returning user with forty threads sees "Nothing yet" flash
+            // before they pop in.
+            <ListSkeleton count={5} lines={1} />
           ) : (
           <>
           {pinned.length > 0 && (
@@ -684,7 +769,7 @@ export default function App() {
           and moving between two of them meant closing one first. */}
       {section === 'knowledge' && <GraphPanel embedded />}
       {section === 'memory' && <MemoryPanel embedded />}
-      {section === 'settings' && <SettingsPanel embedded />}
+      {section === 'settings' && <SettingsPanel embedded initialTab={settingsTab} />}
 
       {/* ── Transcript ────────────────────────────────────────────────── */}
       {section === 'chat' && (
@@ -807,6 +892,39 @@ export default function App() {
               </div>
             )}
 
+            {/* Only appears once the wall of red is actually a wall — one
+                failed turn already has its own Retry right there in the
+                track, and a banner for exactly one would be chrome nobody
+                asked for. Two or more is the point this stops being a single
+                hiccup and starts being a conversation the user is about to
+                give up on. */}
+            {(() => {
+              const failedRetryable = state.turns.filter(
+                t => t.status === 'failed' && t.error?.retryable !== false);
+              if (failedRetryable.length < 2) return null;
+              return (
+                <div className="mb-4 flex items-center gap-3 rounded-xl border border-error/25
+                                 bg-error/[0.06] px-4 py-3">
+                  <AlertTriangle size={15} className="shrink-0 text-error" />
+                  <p className="px-body text-sm flex-1">
+                    {bulkRetryProgress
+                      ? `Retrying ${bulkRetryProgress.done} of ${bulkRetryProgress.total}…`
+                      : `${failedRetryable.length} turns in this conversation failed the same way.`}
+                  </p>
+                  <button type="button" onClick={retryAllFailed} disabled={!!bulkRetryProgress}
+                    className="px-interactive shrink-0 flex items-center gap-1.5 rounded-lg
+                               px-3 py-1.5 text-[12px] font-medium bg-error/10 text-error
+                               hover:bg-error/[0.16] transition duration-150
+                               disabled:opacity-60 disabled:cursor-not-allowed">
+                    {bulkRetryProgress
+                      ? <Loader2 size={12} className="px-spin" />
+                      : <RefreshCw size={12} />}
+                    {bulkRetryProgress ? 'Retrying…' : `Retry all ${failedRetryable.length}`}
+                  </button>
+                </div>
+              );
+            })()}
+
             {/* The track. Every turn is a leg on one continuous rail, and the
                 rail is the grid's first column rather than decoration beside
                 it — see TrackRow. This replaces the centred transcript the
@@ -889,7 +1007,18 @@ export default function App() {
                       {a.name}
                       {a.status === 'ingesting' && <Loader2 size={9} className="px-spin opacity-60" />}
                       {a.status === 'failed' && <AlertTriangle size={9} className="text-error" />}
-                      <button onClick={() => setAttachments(list => list.filter(x => x.id !== a.id))}
+                      <button onClick={() => {
+                          setAttachments(list => list.filter(x => x.id !== a.id));
+                          // `upload()` already persisted this server-side —
+                          // clearing it from the pending list here used to be
+                          // the whole story, leaving the file (and its
+                          // extracted-text chunks) on disk forever with
+                          // nothing ever pointing at it again. Fire-and-forget:
+                          // a no-op here is not an error (see deleteAsset's
+                          // own comment), and the composer has already moved
+                          // on regardless of how this settles.
+                          api.deleteAsset(a.id).catch(() => undefined);
+                        }}
                         aria-label={`Remove ${a.name}`}
                         className="opacity-40 hover:opacity-100 transition-opacity">
                         <X size={10} />
@@ -941,13 +1070,24 @@ export default function App() {
                   className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface/50 hover:text-on-surface hover:bg-on-surface/[0.06] transition duration-150 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface/50 disabled:cursor-not-allowed">
                   <Paperclip size={15} />
                 </button>
-                <span className="px-label px-1">
-                  {state.incognito
-                    ? 'incognito · no history, no files, no code'
-                    : health?.model
+                {state.incognito ? (
+                  <span className="px-label px-1">incognito · no history, no files, no code</span>
+                ) : (
+                  // A real control, not label text styled to look like one —
+                  // it used to be a <span> with no onClick at all, which reads
+                  // exactly like a model picker until you click it and nothing
+                  // happens. The one place to actually change the route is
+                  // Settings → Provider, so that is where this goes.
+                  <button
+                    type="button"
+                    onClick={() => { setSettingsTab('provider'); setSection('settings'); }}
+                    title="Change the model or provider"
+                    className="px-label px-1 rounded hover:text-on-surface hover:bg-on-surface/[0.06] transition duration-150 cursor-pointer">
+                    {health?.model
                       ? `${health.model.model} · ${health.model.local ? 'local' : 'cloud'}`
                       : 'connecting…'}
-                </span>
+                  </button>
+                )}
                 <div className="flex-1" />
                 {/* Stop and Send coexist. Turns are independent objects, so a
                     new message while one is still running is legitimate — and

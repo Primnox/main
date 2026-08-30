@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type Fact } from '../lib/crs';
+import { ListSkeleton } from './ui';
 
 /* What Primnox has worked out, and where each piece came from.
  *
@@ -46,7 +47,10 @@ export function FactList({ limit = 40 }: { limit?: number }) {
     return () => { live = false; };
   }, [limit]);
 
-  if (facts === null) return null;
+  // Already distinguished null-vs-empty before this file used a skeleton —
+  // it just rendered nothing for the gap, which read as the panel doing
+  // nothing rather than as loading.
+  if (facts === null) return <ListSkeleton count={3} lines={1} />;
 
   if (failed) {
     return (

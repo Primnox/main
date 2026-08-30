@@ -13,3 +13,4 @@ export { Field, Choice } from './Field';
 export { Chip } from './Chip';
 export { Slider } from './Slider';
 export { SectionHeader, EmptyState } from './Section';
+export { Skeleton, RowSkeleton, ListSkeleton } from './Skeleton';

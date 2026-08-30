@@ -149,7 +149,20 @@ function RailButton({
   active?: boolean; current?: boolean; onClick: () => void; hint?: string;
 }) {
   return (
-    <button type="button" onClick={onClick}
+    <button type="button"
+      onClick={e => {
+        onClick();
+        // The rail expands on `focus-within` so Tab-ing through it shows the
+        // labels a keyboard user needs — see the note above this component.
+        // A mouse click ALSO focuses the button, which the same rule reads
+        // identically, so a mouse user got the keyboard affordance they
+        // never asked for: the rail stayed expanded, overlapping whatever
+        // section they just navigated to, until they clicked something
+        // else. Blurring after a pointer click leaves keyboard Tab
+        // navigation (which never calls onClick without also focusing)
+        // completely alone.
+        e.currentTarget.blur();
+      }}
       aria-label={label} title={hint ?? label}
       aria-current={current ? 'page' : undefined}
       className={`px-interactive w-full flex items-center gap-3 rounded-xl py-2.5 px-[11px]

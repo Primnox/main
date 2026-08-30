@@ -3,7 +3,7 @@ import {
   Check, Download, Loader2, Pin, RefreshCw, StickyNote, Trash2, Upload, Zap,
 } from 'lucide-react';
 import { API, api, type ModelHealth } from '../lib/crs';
-import { Button, EmptyState, SectionHeader } from './ui';
+import { Button, EmptyState, ListSkeleton, SectionHeader } from './ui';
 import { GuideInline } from './GuideInline';
 
 /* The providers you actually configured.
@@ -54,18 +54,6 @@ function statusOf(open: boolean, tested: TestResult | undefined, hasKey: boolean
   }
   if (needsKey && !hasKey) return { tone: 'bg-warn', label: 'no key' };
   return { tone: 'bg-on-surface/25', label: 'not tested' };
-}
-
-function RowSkeleton() {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-on-surface/[0.07] px-4 py-3">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-on-surface/15" />
-      <span className="min-w-0 flex-1 space-y-1.5">
-        <span className="block h-3 w-32 rounded bg-on-surface/[0.07]" />
-        <span className="block h-2.5 w-52 rounded bg-on-surface/[0.05]" />
-      </span>
-    </div>
-  );
 }
 
 export function ModelProfiles({ onChanged }: { onChanged: () => void }) {
@@ -251,7 +239,7 @@ export function ModelProfiles({ onChanged }: { onChanged: () => void }) {
         </div>
       )}
 
-      {!data && <div className="space-y-1.5" aria-busy="true"><RowSkeleton /><RowSkeleton /></div>}
+      {!data && <ListSkeleton count={2} />}
 
       {data && sorted.length === 0 && (
         <EmptyState title="Nothing configured">
