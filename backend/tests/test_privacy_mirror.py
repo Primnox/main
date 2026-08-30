@@ -80,6 +80,231 @@ def test_known_city_is_scrubbed_by_gazetteer():
     assert "Tokyo" not in out
 
 
+# ── Country-name exemption ────────────────────────────────────────────────────
+#
+# The defect this closes, found 2026-08-30 live: "what's the capital of
+# australia" scrubbed "australia" as STATE, and the model — holding only a
+# placeholder — guessed it must mean a US state and asked "California or
+# Texas?" instead of answering an ordinary geography question. Unlike the
+# FIRSTNAME/greeting problem this file's sibling test avoids patching with a
+# vocabulary list (see mirror.py's own comment on why that one doesn't
+# terminate), a country is a small, finite, officially enumerated set that
+# does not grow between conversations — this one does terminate.
+
+def test_the_exemption_set_has_the_country_that_broke_live_but_not_a_real_state():
+    """A pure data check: the set that closes the live defect is present,
+    and a genuine US state — which the STATE label exists to catch — is not
+    accidentally exempted alongside it."""
+    assert "australia" in mirror._COUNTRY_NAMES
+    assert "california" not in mirror._COUNTRY_NAMES
+    assert "texas" not in mirror._COUNTRY_NAMES
+    # The bare abbreviations are deliberately excluded — see the comment
+    # beside them — because they collide with ordinary English words.
+    assert "us" not in mirror._COUNTRY_NAMES
+    assert "uk" not in mirror._COUNTRY_NAMES
+
+
+def test_a_country_mislabelled_state_by_the_model_is_not_redacted(monkeypatch):
+    """End-to-end reproduction of the live failure: the NER model is mocked
+    to return exactly the mislabelling that was actually measured
+    (`australia` tagged STATE at high confidence, well above the default
+    gate) — proving the exemption fires against the real code path
+    (`_detect_spans`'s label-agnostic filter), not just the data set."""
+    text = "what's the capital of australia"
+    start = text.index("australia")
+    end = start + len("australia")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "STATE", "start": start, "end": end, "score": 0.97}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert "australia" in out
+    assert "§STATE" not in out
+
+
+def test_a_historical_empire_mislabelled_state_is_not_redacted(monkeypatch):
+    """The defect this closes, found live the same afternoon: "the history of
+    the roman empire" scrubbed "roman empire" as STATE, and the model asked
+    if it meant a US state."""
+    text = "write an essay about the history of the roman empire"
+    start = text.index("roman empire")
+    end = start + len("roman empire")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "STATE", "start": start, "end": end, "score": 0.95}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert "roman empire" in out
+
+
+def test_a_genuine_state_mislabelling_still_redacts(monkeypatch):
+    """The exemption must not swallow the label it is scoped around not to
+    touch — a real US state, tagged STATE, still gets scrubbed."""
+    text = "I grew up in california"
+    start = text.index("california")
+    end = start + len("california")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "STATE", "start": start, "end": end, "score": 0.97}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert "california" not in out
+
+
+def test_ordinary_reportlab_code_is_not_shredded_as_ipv6(monkeypatch):
+    """Measured live: asked to generate a real PDF, the model wrote ordinary
+    reportlab code, and re-scrubbing it on the next step tagged hex-color
+    assignments and margin keyword args IPV6 at 0.85-0.89 — no gate existed
+    for this label, so it ran at the 0.40 default. 14 of 16 redactions
+    across two real doc-generation turns were this one label, and unlike
+    most over-redaction it wasn't free: the model reads its own mangled
+    code back on the next step and reasons from holes."""
+    text = 'NAVY = HexColor("#1F2A44")\nleftMargin=0.9 * inch'
+    start = text.index('"#1F2A44"')
+    end = start + len('"#1F2A44"')
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "IPV6", "start": start, "end": end, "score": 0.87}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert out == text
+
+
+def test_a_genuine_high_confidence_ipv6_still_redacts(monkeypatch):
+    """The new gate must not swallow the label it is scoped around not to
+    touch — a real IPv6-shaped detection at high confidence still scrubs."""
+    text = "the diagnostic endpoint is fe80::1ff:fe23:4567:890a"
+    start = text.index("fe80")
+    end = len(text)
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "IPV6", "start": start, "end": end, "score": 0.97}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert "fe80::1ff:fe23:4567:890a" not in out
+
+
+def test_a_project_codename_is_not_shredded_as_a_street(monkeypatch):
+    """Measured live: "what's the risk rating on the zircon falcon project
+    again?" — the model's own CURRENT question, not resent history — got
+    "zircon falcon" tagged STREET at 0.70. The question then read as
+    "the §STREET_1§ project", and the model, holding a street placeholder
+    it could not connect to the (unscrubbed) "Zircon-Falcon" memory
+    context, stopped to ask a clarifying question instead of answering the
+    one thing the user was directly asking about."""
+    text = "what's the risk rating on the zircon falcon project again?"
+    start = text.index("zircon falcon")
+    end = start + len("zircon falcon")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "STREET", "start": start, "end": end, "score": 0.70}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert out == text
+
+
+def test_a_genuine_high_confidence_street_still_redacts(monkeypatch):
+    """The new gate must not swallow the label it is scoped around not to
+    touch — a real street address, tagged STREET at high confidence
+    (measured: 'Baker Street' scores 0.9997), still gets scrubbed."""
+    text = "I live at 221B Baker Street"
+    start = text.index("Baker Street")
+    end = start + len("Baker Street")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "STREET", "start": start, "end": end, "score": 0.9997}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert "Baker Street" not in out
+
+
+# ── EYECOLOR: context-anchored, not score-gated ──────────────────────────────
+
+def test_a_color_word_with_no_eye_nearby_is_not_flagged(monkeypatch):
+    """Measured live: 'the blue theme' (0.996) and 'my eyes are blue'
+    (0.997) are nearly indistinguishable by score — the model tags color
+    words generically. What separates them is the word "eye" itself."""
+    text = "she prefers the blue theme"
+    start = text.index("blue")
+    end = start + len("blue")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "EYECOLOR", "start": start, "end": end, "score": 0.996}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert out == text
+
+
+def test_a_genuine_eye_color_mention_still_redacts(monkeypatch):
+    """The anchor check must not swallow the label it is scoped around not
+    to touch — a real eye-color mention, with 'eyes' right there, still
+    gets scrubbed even at a lower score than the spurious case above."""
+    text = "my eyes are blue"
+    start = text.index("blue")
+    end = start + len("blue")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "EYECOLOR", "start": start, "end": end, "score": 0.90}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert "blue" not in out
+
+
+# ── CREDITCARDISSUER: closed vocabulary, not score-gated ─────────────────────
+
+def test_a_project_codename_is_not_flagged_as_a_card_issuer(monkeypatch):
+    """Measured live: a project codename ('Titan') scored 0.923 under this
+    label — HIGHER than the real 'Mastercard' (0.567) below — so no score
+    threshold can tell them apart. Only the text itself can."""
+    text = "the Titan initiative needs more headcount"
+    start = text.index("Titan")
+    end = start + len("Titan")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "CREDITCARDISSUER", "start": start, "end": end, "score": 0.923}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert out == text
+
+
+def test_a_genuine_card_issuer_still_redacts_even_at_low_confidence(monkeypatch):
+    """The closed-vocabulary check must not swallow a real network name —
+    measured live, 'Mastercard' scores only 0.567 (well under any threshold
+    that would exclude the spurious 'Titan' at 0.923), and still must
+    redact because it IS one of the known networks."""
+    text = "I paid with Mastercard"
+    start = text.index("Mastercard")
+    end = start + len("Mastercard")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "CREDITCARDISSUER", "start": start, "end": end, "score": 0.567}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert "Mastercard" not in out
+
+
 def test_same_value_reuses_one_placeholder():
     """A repeated value must map to the SAME placeholder within a session —
     otherwise the cloud model sees inconsistent tokens for what is actually
@@ -143,6 +368,125 @@ def test_longer_placeholder_ids_not_clobbered_by_shorter_prefix():
     out = sess.rehydrate(scrubbed_all)
     for i in range(11):
         assert f"user{i}@example.com" in out
+
+
+# ── Numeric-sequence guard ───────────────────────────────────────────────────
+#
+# Regression tests for a real false-positive class found 2026-08-30 by manual
+# testing a plain-language TCP congestion-control explanation: the DeBERTa
+# model confidently (>=0.90) tagged a slow-start doubling sequence as MAC, a
+# bridge-weight-limit analogy's decimal steps as IPV4, and a bracketed
+# window-size list as NEARBYGPSCOORDINATE. Pure text/regex logic, so these run
+# without the model — same reasoning as the fragment-check tests above.
+
+def test_arrow_chain_is_not_flagged_as_pii():
+    idx_text = "the window doubles: 1→2→4→8→16 each round-trip"
+    idx = idx_text.index("1")
+    assert mirror._is_numeric_sequence_fragment(idx_text, idx, idx + 1)
+
+
+def test_decimal_step_sequence_is_not_flagged_as_pii():
+    """The exact false positive: '8.1, 8.2, 8.3' tagged IPV4 by the model."""
+    text = "load it up: 8.1, 8.2, 8.3 tons, getting nervous"
+    idx = text.index("8.2")
+    assert mirror._is_numeric_sequence_fragment(text, idx, idx + 3)
+
+
+def test_bracketed_number_list_is_not_flagged_as_pii():
+    text = "window sizes were [1,2,4,8,16,32] across the run"
+    idx = text.index("1")
+    assert mirror._is_numeric_sequence_fragment(text, idx, idx + 1)
+
+
+def test_real_ipv4_is_still_flagged_by_the_regex_backstop():
+    """The fix must not swallow genuine IPv4 addresses — a dotted quad has no
+    3+-way arrow/comma chain around it, so the guard must leave it alone and
+    the regex pattern (tested elsewhere) must still catch it."""
+    sess = mirror.ScrubSession()
+    out = sess.scrub("connect to 10.0.0.42 on port 8080")
+    assert "10.0.0.42" not in out
+
+
+def test_two_number_pair_is_not_treated_as_a_sequence():
+    """A real GPS pair is two comma-joined floats — exactly one separator.
+    The guard requires 3+ numbers (2+ separators) so it must not fire here,
+    otherwise a real coordinate pair would be waved through unredacted."""
+    text = "meet at 37.7749, -122.4194 please"
+    idx = text.index("37.7749")
+    assert not mirror._is_numeric_sequence_fragment(text, idx, idx + 7)
+
+
+def test_single_bare_number_is_not_treated_as_a_sequence():
+    text = "scale replicas to 12 for now"
+    idx = text.index("12")
+    assert not mirror._is_numeric_sequence_fragment(text, idx, idx + 2)
+
+
+# ── Internal <prefix>_<hex> ids are not PII ──────────────────────────────────
+
+def test_a_workspace_id_is_not_flagged_as_pii():
+    """The exact false positive, measured live: a create_workspace tool
+    result echoing 'ws_01a0515b846c7001abba5c4597054345' back into the
+    transcript got tagged IBAN on the next model call. Scrubbing this
+    doesn't hide anything about the user — it breaks update_workspace,
+    which needs the SAME id back on a later turn."""
+    text = "workspace ws_01a0515b846c7001abba5c4597054345 v1: main.md"
+    idx = text.index("ws_")
+    assert mirror._is_internal_id_fragment(text, idx, idx + len("ws_01a0515b846c7001abba5c4597054345"))
+
+
+def test_a_result_store_id_is_not_flagged_as_pii():
+    text = "see res_ab12cd34ef567890 for the full output"
+    idx = text.index("res_")
+    assert mirror._is_internal_id_fragment(text, idx, idx + len("res_ab12cd34ef567890"))
+
+
+def test_only_the_hex_tail_of_an_id_is_still_recognised():
+    """The model sometimes tags only part of the id — the giveaway prefix
+    can sit outside a short span, which is why this is windowed rather
+    than checked against the span's own text alone."""
+    text = "workspace ws_01a0515b846c7001abba5c4597054345 v1: main.md"
+    idx = text.index("846c7001")
+    assert mirror._is_internal_id_fragment(text, idx, idx + 8)
+
+
+def test_a_bare_prefix_word_alone_is_not_treated_as_an_id():
+    text = "please review the ws changes before merging"
+    idx = text.index("ws ")
+    assert not mirror._is_internal_id_fragment(text, idx, idx + 2)
+
+
+def test_a_real_iban_shaped_string_is_still_flagged(monkeypatch):
+    """The fix must not swallow a genuine account number just because it is
+    long and alphanumeric — only Primnox's own <prefix>_<hex> shape is
+    exempt, and an IBAN has no underscore in it at all."""
+    text = "my IBAN is DE89370400440532013000, please use it"
+    start = text.index("DE89370400440532013000")
+    end = start + len("DE89370400440532013000")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "IBAN", "start": start, "end": end, "score": 0.99}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert "DE89370400440532013000" not in out
+
+
+def test_the_end_to_end_scrub_leaves_a_workspace_id_untouched(monkeypatch):
+    """Reproduction of the live failure: the model tags the id IBAN at high
+    confidence and _detect_spans's shape filter must still let it through."""
+    text = "workspace ws_01a0515b846c7001abba5c4597054345 v1: main.md"
+    start = text.index("ws_01a0515b846c7001abba5c4597054345")
+    end = start + len("ws_01a0515b846c7001abba5c4597054345")
+
+    def fake_pipeline(chunk):
+        return [{"entity_group": "IBAN", "start": start, "end": end, "score": 0.95}]
+
+    monkeypatch.setattr(mirror, "_pipeline", fake_pipeline)
+    sess = mirror.ScrubSession()
+    out = sess.scrub(text)
+    assert out == text
 
 
 # ── StreamRehydrator: chunked/streamed rehydration ───────────────────────────

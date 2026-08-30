@@ -155,6 +155,39 @@ _NER_MIN_SCORE_BY_LABEL: dict[str, float] = {
     # 1.000), while the worst technical false positive measured is 0.961
     # ('torch==2.4.0 numpy>=1.26'). Nothing real is lost at this gate.
     "USERAGENT": 0.99,
+    # Measured live, 2026-08-30: asked to generate a real PPTX/PDF, the model
+    # wrote ordinary reportlab/pptx code, and re-scrubbing that code on the
+    # next step (same mechanism as the assistant's-own-output problem
+    # documented at _is_internal_id_fragment) shredded it as IPV6 at 0.85–0.89
+    # confidence — comfortably above the 0.80 default gate, so this had no
+    # protection at all until now:
+    #   'HexColor("#1F2A44"'        0.865   'leftMargin=0.9 * inch'   0.852
+    #   'topMargin=0.85 * inch'     0.892   a bare 'Margin'           0.877
+    # Fourteen of sixteen redactions across two ordinary code-generation
+    # turns were this one label. It is not free even though rehydration
+    # restores the real code before it runs (confirmed: execution succeeded
+    # both times) — the model reads its OWN mangled code back on the next
+    # step and reasons from holes, the same failure this file already
+    # documents for AMOUNT above. Gate at 0.90, the same round number used
+    # for every other ungated label above — the highest spurious score
+    # measured is 0.892, comfortably under it.
+    "IPV6": 0.90,
+    # Measured live, 2026-08-30: asked "what's the risk rating on the zircon
+    # falcon project again?" (a project codename, not an address), the
+    # model's OWN CURRENT message — not resent history, the live turn — got
+    # "zircon falcon" tagged STREET at 0.70. The user's question then read
+    # as "what's the risk rating on the §STREET_1§ project", and the model,
+    # unable to connect a street placeholder to the "Zircon-Falcon project"
+    # named in its (unscrubbed, system-role) memory context, stopped to ask
+    # a clarifying question instead of just answering — the turn the user
+    # was already directly asking about, broken by the layer meant to be
+    # invisible when nothing sensitive is actually there.
+    #   'zircon falcon' (spurious)        0.7013
+    #   'Baker Street' / 'Maple Avenue' /
+    #   'Sunset Boulevard' / 'Elm Street' (real)   0.9994-0.9997
+    # Separation is as clean as USERAGENT's — 0.90 sits well clear on both
+    # sides, so it stays the standard gate rather than reaching for 0.99.
+    "STREET": 0.90,
 }
 
 _REDACT_LABELS = {
@@ -183,6 +216,94 @@ _NEVER_SCRUB = {
     "primnox", "nox", "claude", "anthropic", "groq", "openai", "gpt", "chatgpt",
     "gemini", "google", "ollama", "llama", "mixtral", "qwen", "gemma", "deepseek",
     "ai", "assistant", "user", "system", "bot",
+}
+
+# Measured 2026-08-30: "what's the capital of australia" scrubbed "australia"
+# as STATE (no confidence gate exists for that label — it falls through to
+# the 0.40 default), and the model, holding only a placeholder, guessed it
+# must mean a US state and asked "which one, California or Texas?" — an
+# ordinary geography question failed outright.
+#
+# This is NOT the same shape as the greeting/FIRSTNAME problem above, and the
+# argument against a vocabulary fix there does not transfer here. A greeting
+# is "every interjection and loanword in every language a user might type" —
+# genuinely unbounded, no authority publishes the list, it grows with every
+# language anyone tries. A country is a UN member state or one of a handful
+# of well-known non-member territories: a finite, stable, OFFICIALLY
+# ENUMERATED set that does not grow between conversations. This list finishes.
+#
+# Unconditional like _NEVER_SCRUB above, not gated to the STATE label: a
+# country name mislabelled CITY or LOCATION would break the same way, and a
+# country is not sensitive personal data under any label the model might
+# reach for.
+_COUNTRY_NAMES = {
+    "afghanistan", "albania", "algeria", "andorra", "angola",
+    "antigua and barbuda", "argentina", "armenia", "australia", "austria",
+    "azerbaijan", "bahamas", "bahrain", "bangladesh", "barbados", "belarus",
+    "belgium", "belize", "benin", "bhutan", "bolivia",
+    "bosnia and herzegovina", "botswana", "brazil", "brunei", "bulgaria",
+    "burkina faso", "burundi", "cambodia", "cameroon", "canada",
+    "cape verde", "central african republic", "chad", "chile", "china",
+    "colombia", "comoros", "costa rica", "croatia", "cuba", "cyprus",
+    "czechia", "czech republic", "denmark", "djibouti", "dominica",
+    "dominican republic", "ecuador", "egypt", "el salvador",
+    "equatorial guinea", "eritrea", "estonia", "eswatini", "ethiopia",
+    "fiji", "finland", "france", "gabon", "gambia", "georgia", "germany",
+    "ghana", "greece", "grenada", "guatemala", "guinea", "guinea-bissau",
+    "guyana", "haiti", "honduras", "hungary", "iceland", "india",
+    "indonesia", "iran", "iraq", "ireland", "israel", "italy", "jamaica",
+    "japan", "jordan", "kazakhstan", "kenya", "kiribati", "kosovo",
+    "kuwait", "kyrgyzstan", "laos", "latvia", "lebanon", "lesotho",
+    "liberia", "libya", "liechtenstein", "lithuania", "luxembourg",
+    "madagascar", "malawi", "malaysia", "maldives", "mali", "malta",
+    "marshall islands", "mauritania", "mauritius", "mexico", "micronesia",
+    "moldova", "monaco", "mongolia", "montenegro", "morocco", "mozambique",
+    "myanmar", "namibia", "nauru", "nepal", "netherlands", "new zealand",
+    "nicaragua", "niger", "nigeria", "north korea", "north macedonia",
+    "norway", "oman", "pakistan", "palau", "palestine", "panama",
+    "papua new guinea", "paraguay", "peru", "philippines", "poland",
+    "portugal", "qatar", "romania", "russia", "rwanda",
+    "saint kitts and nevis", "saint lucia",
+    "saint vincent and the grenadines", "samoa", "san marino",
+    "sao tome and principe", "saudi arabia", "senegal", "serbia",
+    "seychelles", "sierra leone", "singapore", "slovakia", "slovenia",
+    "solomon islands", "somalia", "south africa", "south korea",
+    "south sudan", "spain", "sri lanka", "sudan", "suriname", "sweden",
+    "switzerland", "syria", "taiwan", "tajikistan", "tanzania", "thailand",
+    "timor-leste", "togo", "tonga", "trinidad and tobago", "tunisia",
+    "turkey", "turkmenistan", "tuvalu", "uganda", "ukraine",
+    "united arab emirates", "united kingdom", "united states", "uruguay",
+    "uzbekistan", "vanuatu", "vatican city", "venezuela", "vietnam",
+    "yemen", "zambia", "zimbabwe",
+    # Short/common forms real people actually type, alongside the formal
+    # name above. Deliberately NOT "us" or "uk" — both are common enough as
+    # ordinary English words (the pronoun "us", the fragment "uk" inside
+    # other tokens) that exempting the bare two letters risks more than the
+    # country abbreviation is worth; "usa" and "uae" don't have that problem.
+    "usa", "uae", "ivory coast", "cote d'ivoire",
+    "democratic republic of congo", "republic of congo", "congo",
+    "burma", "holland",
+}
+
+# Measured 2026-08-30, the same afternoon as the country list above: "write
+# an essay about the history of the roman empire" scrubbed "roman empire" as
+# STATE too, and the model asked whether it meant a US state. A historical
+# empire is a different, wider category than a sovereign country — there is
+# no UN list to lean on, and a genuinely complete set (every empire, kingdom,
+# caliphate, dynasty a student might ask about) is not bounded the way
+# _COUNTRY_NAMES is. This is deliberately NOT that: it is the handful most
+# likely to come up in an ordinary conversation or homework question, not an
+# attempt at completeness — closer in spirit to the greeting list this file
+# argues against than to the country list above, kept small on purpose.
+# Widen it if a specific miss is measured, the same way the country list grew
+# from one real failure; don't pre-populate it further from a history
+# syllabus.
+_HISTORICAL_POLITY_NAMES = {
+    "roman empire", "byzantine empire", "ottoman empire", "british empire",
+    "persian empire", "mongol empire", "holy roman empire",
+    "austro-hungarian empire", "russian empire", "han dynasty",
+    "ming dynasty", "qing dynasty", "aztec empire", "inca empire",
+    "ancient rome", "ancient greece", "ancient egypt",
 }
 
 # NO GREETING LIST LIVES HERE, AND ONE SHOULD NOT BE ADDED.
@@ -525,6 +646,150 @@ def _is_word_fragment(text: str, start: int, end: int) -> bool:
     return before_is_letter or after_is_letter
 
 
+# Measured 2026-08-30 against a plain-language explanation of TCP slow start
+# and a bridge-weight-limit analogy — no PII in either, both technical/teaching
+# text. The model confidently (>=0.90, clean of the AGE/AMOUNT-style separation
+# problem the comment above documents) mislabelled:
+#
+#   '1→2→4→8→16'        MAC              (a doubling sequence)
+#   '32→33→34→...→48'   MASKEDNUMBER     (the SAME already-gated label —
+#                                          the 0.90 gate does not save this)
+#   '8.2', '8.'          IPV4            (steps in "8.1, 8.2, 8.3 tons")
+#   '[1,2,4,8,16,32]'    NEARBYGPSCOORDINATE
+#
+# No score gate fixes this: per-label thresholds punish every real detection
+# of that label equally, and these already sit above where a real MAC or GPS
+# coordinate would. What actually distinguishes them is SHAPE, exactly the
+# same argument _is_word_fragment makes: a real MAC is six colon/hyphen-joined
+# hex pairs, a real IPv4 is four dot-joined octets, a real GPS pair is two
+# comma-joined floats. None of those is a chain of THREE OR MORE numbers
+# strung together with →, ->, or a bare comma — that shape is a step
+# sequence, a version list, or an index list, in every language this model
+# has been fed technical text in. Needs no vocabulary, same as the fragment
+# check: it is asking what kind of thing the text next to the span looks
+# like, not what language or domain it is in.
+_NUMERIC_SEQUENCE_RE = re.compile(
+    r'\d+(?:\.\d+)?(?:\s*(?:→|->|,)\s*\d+(?:\.\d+)?){2,}'
+)
+
+
+def _is_numeric_sequence_fragment(text: str, start: int, end: int) -> bool:
+    """Whether a span sits inside a 3+-number chain (steps, versions, indices).
+
+    Checked against a window around the span rather than the span alone,
+    because the giveaway is the SEPARATOR pattern around it ('→', '->', ',')
+    repeating three-plus times — a lone '8.2' cannot tell you that on its own,
+    but '8.1, 8.2, 8.3' can.
+    """
+    window_start = max(0, start - 40)
+    window_end = min(len(text), end + 40)
+    window = text[window_start:window_end]
+    for m in _NUMERIC_SEQUENCE_RE.finditer(window):
+        m_start, m_end = window_start + m.start(), window_start + m.end()
+        if m_start <= start and end <= m_end:
+            return True
+    return False
+
+
+# Measured 2026-08-30, live: a create_workspace tool result echoed its own
+# handle — 'ws_01a0515b846c7001abba5c4597054345' — into the transcript, and
+# on the very next model call that got tagged and scrubbed as IBAN (score
+# above the gate: a prefix word then a long alphanumeric run reads enough
+# like an account number to fool the model). This is the one false-positive
+# class in this file that does not just cost prompt clarity, it breaks a
+# feature: update_workspace needs the SAME id back on a later turn, and a
+# model that only ever sees §IBAN_1§ has no real id left — it has to
+# invent one. Every id primnox2/ids.py and v2/ids.py mint is
+# <prefix>_<hex>, a shape ordinary prose does not take by coincidence, so —
+# same approach as the numeric-sequence check above — this is matched on
+# shape, not by guessing at every entity label that might claim it.
+_INTERNAL_ID_RE = re.compile(
+    r'\b(?:conv|turn|msg|job|evt|ws|asset|node|edge|clus'
+    r'|ent|rel|epi|mem|res|task|art|cred|aud|idx)_[0-9a-f]{16}(?:[0-9a-f]{16})?\b'
+)
+
+
+def _is_internal_id_fragment(text: str, start: int, end: int) -> bool:
+    """Whether a span sits inside one of Primnox's own <prefix>_<hex> ids.
+
+    Windowed for the same reason as _is_numeric_sequence_fragment: the model
+    sometimes tags only part of the id (the hex tail, say), and the giveaway
+    — the <prefix>_ before it — can sit outside a span that short.
+    """
+    window_start = max(0, start - 40)
+    window_end = min(len(text), end + 40)
+    window = text[window_start:window_end]
+    for m in _INTERNAL_ID_RE.finditer(window):
+        m_start, m_end = window_start + m.start(), window_start + m.end()
+        if m_start <= start and end <= m_end:
+            return True
+    return False
+
+
+# Audited 2026-08-30 against realistic conversation/technical/business text
+# looking for the next AMOUNT-shaped defect (an ungated label misfiring on
+# ordinary words). Found EYECOLOR and CREDITCARDISSUER both firing at 0.9+ on
+# text that is neither — and neither has a usable score gate, unlike IPV6 or
+# STREET above: 'the blue theme' (0.996) sits right next to 'my eyes are
+# blue' (0.997), and 'Titan' as a project codename (0.923) sits ABOVE the
+# real 'Mastercard' (0.567). A confidence threshold here would trade a false
+# positive for a false negative — real PII missed — which this file's own
+# stated priority says is strictly worse. Both get a DIFFERENT kind of
+# check instead, matching what actually distinguishes them.
+#
+# EYECOLOR: this model tags color words generically, with no apparent
+# sensitivity to what the color describes. What a real eye-color mention
+# has that a paint job, a car or a UI theme does not is the word "eye"
+# somewhere near it — the whole point of the label is that it is ABOUT
+# eyes. Anchor-checked, not score-gated, same shape as the numeric-sequence
+# and internal-id checks above: ask what is NEXT TO the span, not how
+# confident the model was in the span alone.
+_EYECOLOR_ANCHOR_RE = re.compile(r'\beyes?\b|\biris(?:es)?\b', re.IGNORECASE)
+
+
+def _is_unanchored_eyecolor(text: str, start: int, end: int) -> bool:
+    """Whether an EYECOLOR span has no "eye(s)"/"iris" nearby.
+
+    Measured: 'she prefers the blue theme', 'paint the wall blue' and 'the
+    car is red' all score 0.95-0.996 under this label with nothing eye-
+    related in the sentence at all — the model appears to fire on the
+    color word alone. 'my eyes are blue' / 'he has brown eyes' / 'her eyes
+    are green' all name an eye within a few words, every time.
+    """
+    window_start = max(0, start - 30)
+    window_end = min(len(text), end + 30)
+    return not _EYECOLOR_ANCHOR_RE.search(text[window_start:window_end])
+
+
+# CREDITCARDISSUER: unlike EYECOLOR, this is not a shape problem — it is
+# that real card networks are a small, closed, well-known set, the same
+# kind of thing that makes the country-names exemption above safe. The
+# difference is direction: _COUNTRY_NAMES says "never scrub this text";
+# this list says the opposite — CREDITCARDISSUER only means something when
+# the matched text actually names one of these, so anything else under
+# this label is treated as noise regardless of the model's confidence in
+# it. New networks appear rarely enough (this list already covers the
+# regional ones — RuPay, Elo, Mir, Troy) that missing one for a few months
+# costs far less than "Titan"/"Merlin" reliably scoring as a bank brand.
+_KNOWN_CARD_ISSUERS = {
+    "visa", "mastercard", "master card", "american express", "amex",
+    "discover", "diners club", "jcb", "unionpay", "union pay", "maestro",
+    "rupay", "interac", "elo", "hipercard", "cartes bancaires", "verve",
+    "troy", "mir", "bc card", "napas", "girocard",
+}
+
+
+def _is_unrecognised_card_issuer(text: str, start: int, end: int) -> bool:
+    """Whether a CREDITCARDISSUER span's own text is not a real network name.
+
+    Measured: a project codename ('Titan') scored 0.923 under this label —
+    higher than the real 'Mastercard' (0.567) — so the score cannot tell
+    them apart. The text itself can: 'Titan' is not a card network, no
+    matter how confidently it was tagged as one.
+    """
+    return text[start:end].strip().lower() not in _KNOWN_CARD_ISSUERS
+
+
 def _detect_spans(text: str) -> list[dict]:
     """Return non-overlapping PII spans [{start, end, label, text}] for `text`,
     using the DeBERTa model when ready, always backstopped by regex."""
@@ -607,13 +872,25 @@ def _detect_spans(text: str) -> list[dict]:
             s += 1
         while en > s and text[en - 1].isspace():
             en -= 1
-        if s >= en or text[s:en].strip().lower() in _NEVER_SCRUB:
+        if s >= en:
+            continue
+        span_text = text[s:en].strip().lower()
+        if (span_text in _NEVER_SCRUB or span_text in _COUNTRY_NAMES
+                or span_text in _HISTORICAL_POLITY_NAMES):
             continue
         # The gate, applied to the reassembled entity rather than to the
         # subword pieces it was built from.
         if sp["score"] < _NER_MIN_SCORE_BY_LABEL.get(sp["label"], _NER_MIN_SCORE):
             continue
         if sp["label"] in _NAME_LABELS and _is_word_fragment(text, s, en):
+            continue
+        if _is_numeric_sequence_fragment(text, s, en):
+            continue
+        if _is_internal_id_fragment(text, s, en):
+            continue
+        if sp["label"] == "EYECOLOR" and _is_unanchored_eyecolor(text, s, en):
+            continue
+        if sp["label"] == "CREDITCARDISSUER" and _is_unrecognised_card_issuer(text, s, en):
             continue
         out.append({"start": s, "end": en, "label": sp["label"], "text": text[s:en]})
     return out
