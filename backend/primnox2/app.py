@@ -686,6 +686,21 @@ async def get_asset(asset_id: str) -> dict:
     return asset
 
 
+@app.delete("/assets/{asset_id}")
+async def delete_asset(asset_id: str) -> dict:
+    """Remove an upload that was attached to a composer and then removed
+    before the message was ever sent — see assets.delete()'s docstring for
+    why "not referenced by any turn" is the exact, sufficient condition.
+
+    Returns `{"deleted": false}` rather than a 409 when the asset is already
+    referenced or already gone: a composer's remove button calling this is
+    tidying up, not asserting anything about server state the client can be
+    wrong about, and a client that is a moment out of date must not surface
+    an error for what is, from the user's seat, a no-op that already happened.
+    """
+    return {"deleted": assets.delete(asset_id)}
+
+
 @app.get("/assets/{asset_id}/preview")
 async def preview_asset(asset_id: str) -> dict:
     """A read-only description of an asset, shaped for display.

@@ -302,6 +302,48 @@ def pending_for_turn(turn_id: str) -> list[str]:
     return [r["id"] for r in rows]
 
 
+def delete(asset_id: str) -> bool:
+    """Remove an asset that was uploaded but never sent.
+
+    Only the un-sent case: `attach()` writes a `turn_assets` row when a
+    message is actually submitted, and content addressing means there is
+    exactly one row per unique sha256 (a second upload of the same bytes
+    returns the existing id, per the module docstring) — so "no turn_assets
+    row" is an honest, cheap check for "nothing depends on this asset yet",
+    not an approximation of it.
+
+    Attach a message to it before this runs and it stops being deletable —
+    intentional: a turn that referenced an asset needs it to keep meaning
+    what it meant when it was sent. Returns False rather than raising, so a
+    UI's "remove attachment" action can call this best-effort without a
+    turn's history becoming reason to show the user an error over a chip
+    they were just trying to clear.
+
+    Composer state (what's pending in a browser tab that has not sent yet)
+    is not visible here — two tabs could theoretically upload the identical
+    file at once, one removes before the other sends, and this would delete
+    out from under the second. Narrow and accepted: this is a single-user
+    desktop app, not a shared multi-tenant one, and the alternative is a
+    certain, permanent leak on every ordinary "wrong file, remove it" click.
+    """
+    row = db.connect().execute(
+        "SELECT path FROM assets WHERE id=?", (asset_id,)).fetchone()
+    if row is None:
+        return False
+    referenced = db.connect().execute(
+        "SELECT 1 FROM turn_assets WHERE asset_id=? LIMIT 1", (asset_id,)).fetchone()
+    if referenced is not None:
+        return False
+    with db.tx() as c:
+        c.execute("DELETE FROM asset_chunks WHERE asset_id=?", (asset_id,))
+        c.execute("DELETE FROM assets WHERE id=?", (asset_id,))
+    try:
+        Path(row["path"]).unlink(missing_ok=True)
+    except OSError:
+        pass  # DB row is gone either way; a stray file on disk is the safe side to fail on
+    return True
+
+
 def list_assets(limit: int = 200) -> list[dict]:
     rows = db.connect().execute(
         "SELECT id,kind,source,original_name,bytes,status,created_at FROM assets"

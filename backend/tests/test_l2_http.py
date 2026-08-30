@@ -200,3 +200,55 @@ def test_identical_uploads_deduplicate(client):
 
 def test_unknown_asset_is_404(client):
     assert client.get("/assets/asset_nope").status_code == 404
+
+
+# ── delete: an upload attached to a composer, then removed before sending ────
+#
+# The defect this closes: the composer's "remove attachment" button
+# (App.tsx) only ever cleared local React state — `api.upload()` had already
+# persisted the file server-side, and nothing called a delete endpoint,
+# because none existed. Every "wrong file, let me remove that" click leaked
+# one asset (DB row, extracted-text chunks, and the file on disk) forever.
+
+def test_deleting_an_unsent_upload_actually_removes_it(client):
+    payload = b"never actually sent"
+    up = client.post("/assets", files={"file": ("scratch.txt", io.BytesIO(payload), "text/plain")})
+    asset_id = up.json()["id"]
+
+    deleted = client.delete(f"/assets/{asset_id}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": True}
+
+    assert client.get(f"/assets/{asset_id}").status_code == 404
+
+
+def test_deleting_an_asset_a_turn_already_references_is_refused(client):
+    """Once a message was actually sent with this attachment, the turn's
+    meaning depends on it — the delete must be a no-op, not an error, so a
+    composer that raced a remove-click against an in-flight send doesn't
+    surface a scary failure for something that correctly did nothing."""
+    from primnox2.assets import service as assets
+    from primnox2.chat import turns
+
+    conversation_id = turns.create_conversation("delete-guard test")["id"]
+    turn = turns.create_turn(conversation_id, "see attached")
+
+    payload = b"this one gets attached to a turn"
+    up = client.post("/assets", files={"file": ("sent.txt", io.BytesIO(payload), "text/plain")})
+    asset_id = up.json()["id"]
+    assets.attach(turn["turn_id"], asset_id)
+
+    deleted = client.delete(f"/assets/{asset_id}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": False}
+
+    # Still there — the point of the guard.
+    assert client.get(f"/assets/{asset_id}").status_code == 200
+
+
+def test_deleting_an_unknown_asset_is_a_quiet_no_op(client):
+    """Not a 404 — the composer's remove button calling this a moment after
+    the asset was already cleaned up some other way is not an error state."""
+    deleted = client.delete("/assets/asset_never_existed")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": False}

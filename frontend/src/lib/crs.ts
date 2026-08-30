@@ -691,6 +691,10 @@ export const api = {
     return fetch(`${API}/assets`, { method: 'POST', body }).then(json);
   },
   asset: (id: string) => fetch(`${API}/assets/${id}`).then(json),
+  /** Only actually removes it if nothing was ever sent with it attached —
+      see the backend's assets.delete() docstring. Safe to call whenever an
+      attachment leaves the composer unsent; a no-op is not an error here. */
+  deleteAsset: (id: string) => fetch(`${API}/assets/${id}`, { method: 'DELETE' }).then(json),
   /** A description of an asset shaped for display. Read-only: there is no
       counterpart that writes, here or on the server. */
   preview: (id: string) => fetch(`${API}/assets/${id}/preview`).then(json),
