@@ -266,6 +266,44 @@ def test_saving_the_same_fact_twice_reports_it_rather_than_failing(clean_memory,
     assert len(memory.live()) == 1
 
 
+def test_a_scrubbed_placeholder_is_rehydrated_before_being_stored(clean_memory, conversation):
+    """The defect this closes, found 2026-08-30: a user says 'professor kalani',
+    Privacy Mirror scrubs it to §FIRSTNAME_1§ before the cloud model ever sees
+    it, and the model — having genuinely never seen the real name — calls
+    remember() with only the placeholder (or a paraphrase around it) to work
+    with. The fact then sits in local storage, permanently unresolvable, on
+    every future recall, even to the user it's about — even though the real
+    value was never actually secret from THIS process the whole time, only
+    from the cloud model. `ctx.rehydrate` closes that gap: a local write gets
+    the real value restored, because storing it locally never sent it anywhere."""
+    from primnox2.tools import registry, runtime  # noqa: F401
+
+    ctx = registry.ToolContext(
+        conversation_id=conversation,
+        rehydrate=lambda text: text.replace("§FIRSTNAME_1§", "kalani"))
+    out = registry.get("remember").handler(
+        {"text": "Professor for CS 350 is §FIRSTNAME_1§."}, ctx)
+
+    assert out["status"] == "success"
+    assert memory.live()[0]["text"] == "Professor for CS 350 is kalani."
+    assert "§" not in memory.live()[0]["text"]
+
+
+def test_with_no_active_rehydrate_a_placeholder_is_stored_as_is(clean_memory, conversation):
+    """The pre-fix behaviour, kept as a named contrast rather than deleted: with
+    no scrub map for the current step (privacy mirror off, a local provider,
+    or nothing was scrubbed), there is nothing to reverse and the tool must not
+    invent a substitution — `ctx.rehydrate` being None is a valid, common state,
+    not an error."""
+    from primnox2.tools import registry, runtime  # noqa: F401
+
+    ctx = registry.ToolContext(conversation_id=conversation)  # rehydrate defaults to None
+    registry.get("remember").handler(
+        {"text": "Professor for CS 350 is §FIRSTNAME_1§."}, ctx)
+
+    assert memory.live()[0]["text"] == "Professor for CS 350 is §FIRSTNAME_1§."
+
+
 def test_the_model_is_told_the_tool_exists(clean_memory):
     """A tool nobody mentions is a tool nobody calls."""
     from primnox2.tools import runtime
@@ -274,6 +312,22 @@ def test_the_model_is_told_the_tool_exists(clean_memory):
     assert "remember" in prompt
     assert "remember" in {s.name for s in __import__(
         "primnox2.tools.registry", fromlist=["x"]).all_specs()}
+
+
+def test_the_prompt_names_casual_remember_phrasing_as_asked_by_user(clean_memory):
+    """The defect this closes, found 2026-08-30 by live testing: a message
+    ending in a casual 'remember that' got filed as INFERRED, not EXPLICIT —
+    the same fact stated with 'please remember this explicitly' correctly
+    got EXPLICIT. The gap was the prompt only said 'asked outright', which a
+    free-tier model reads as needing formal, foregrounded phrasing. Real
+    users tack 'remember that' onto the end of an unrelated sentence far
+    more often than they open with a formal request — the prompt has to say
+    that counts too, not just imply it."""
+    from primnox2.tools import runtime
+
+    prompt = runtime.system_prompt()
+    assert "remember that" in prompt
+    assert "asked_by_user=true" in prompt
 
 
 # ── bulk import ──────────────────────────────────────────────────────────────

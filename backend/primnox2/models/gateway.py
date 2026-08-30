@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -220,6 +221,80 @@ class EchoProvider:
             time.sleep(0.03)
 
 
+# Comfortably longer than any legitimate slow-but-real reply measured
+# against a free-tier channel under load (worst case seen: ~78s for a
+# multi-step tool turn on a small model) — this exists to bound a provider
+# that has gone genuinely silent, not to rush one that is merely slow.
+_STREAM_DEADLINE_S = 180.0
+
+
+def _bounded_stream(resp, deadline_s: float = _STREAM_DEADLINE_S):
+    """Yield lines from an HTTP streaming response, force-closing it if the
+    TOTAL time since the request opened exceeds `deadline_s`.
+
+    Measured 2026-08-30: a turn sat in `thinking` for 250+ seconds with no
+    resolution, and cancelling it (`{"ok": true}` from the API) did nothing
+    — the worker thread was blocked inside `for raw in resp:`, which only
+    advances when the provider sends a byte. `urlopen(..., timeout=120)`
+    bounds each individual socket read, not the request as a whole: a
+    provider that trickles even one byte every so often (a keep-alive
+    newline, a slow-but-alive connection) resets that per-read clock
+    indefinitely without ever finishing, and there was no separate ceiling
+    on the total.
+
+    A watchdog thread is the fix because nothing else can be: the blocking
+    read is synchronous C code the interpreter cannot interrupt from
+    outside except by acting on the socket itself. Closing `resp` from
+    another thread unblocks the read one way or another — as an exception
+    on some platforms/timings, as a quiet early EOF on others (see below
+    for why both are handled the same way).
+
+    This does not by itself fix a user's Stop button doing nothing against
+    a silent connection (that needs the cancel flag threaded down to here
+    too, a larger change) — it bounds the failure so a hung turn cannot
+    outlive this deadline regardless of whether anyone clicks anything.
+
+    Whether a force-close makes the blocked read RAISE or just return an
+    early, quiet EOF is platform- and timing-dependent — Windows and Linux
+    disagree, and even one platform is not perfectly consistent about it.
+    Guessing wrong in the "quiet EOF" direction would be worse than doing
+    nothing: a truncated reply would look exactly like a short, complete
+    one and get shown as if the provider had genuinely finished. So
+    `watchdog_fired` is checked unconditionally after the loop too, not
+    only from an exception handler — whichever way the close surfaces,
+    the watchdog having fired is what makes this a timeout, not how it
+    surfaced.
+    """
+    watchdog_fired = False
+
+    def _watchdog():
+        nonlocal watchdog_fired
+        watchdog_fired = True
+        try:
+            resp.close()
+        except Exception:                                  # noqa: BLE001
+            pass  # the read this unblocks will raise; that IS the point
+
+    timer = threading.Timer(deadline_s, _watchdog)
+    timer.daemon = True                                     # never blocks process exit
+    timer.start()
+    try:
+        for raw in resp:
+            if watchdog_fired:
+                break                                       # a byte and the close raced; don't trust it
+            yield raw
+    except Exception:
+        if not watchdog_fired:
+            raise
+        # fall through — reported as a TimeoutError below either way
+    finally:
+        timer.cancel()
+    if watchdog_fired:
+        raise TimeoutError(
+            f"provider sent no complete reply within {deadline_s:.0f}s "
+            "(connection force-closed; see _bounded_stream)")
+
+
 class OpenAICompatProvider:
     """Anything speaking the OpenAI chat-completions wire format.
 
@@ -283,7 +358,7 @@ class OpenAICompatProvider:
             },
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
-            for raw in resp:
+            for raw in _bounded_stream(resp):
                 line = raw.decode("utf-8", "replace").strip()
                 if not line.startswith("data:"):
                     continue
@@ -506,7 +581,7 @@ class AnthropicProvider:
             },
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
-            for raw in resp:
+            for raw in _bounded_stream(resp):
                 line = raw.decode("utf-8", "replace").strip()
                 if not line.startswith("data:"):
                     continue

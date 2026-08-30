@@ -115,7 +115,20 @@ class StreamFilter:
             self._CLOSE[f"<{name}>"] = f"</{name}>"
             self._CLOSE[f"{name}({{"] = "})"
         self._OPEN = tuple(self._CLOSE)
-        self._MAX_PARTIAL = max(len(o) for o in self._OPEN) - 1
+        # Every closer, checked for on its own — not just as the thing that
+        # ends a block this filter itself opened.
+        #
+        # Measured 2026-08-30: a degraded free-tier turn's entire visible
+        # reply was the four characters `</tool>` — the CLOSER with no
+        # OPENER ever in the stream, so `self._closing` was never armed and
+        # the tag walked straight through as if it were prose. A model under
+        # strain emitting a stray fragment of its own tool-call syntax is a
+        # model-quality problem this filter cannot prevent, but showing that
+        # fragment to the user raw is a filter problem: this class's whole
+        # job is "the user reads prose, not protocol markup", and an orphan
+        # closer is exactly as much protocol markup as a matched pair is.
+        self._BARE_CLOSERS = tuple(dict.fromkeys(self._CLOSE.values()))
+        self._MAX_PARTIAL = max(len(o) for o in (*self._OPEN, *self._BARE_CLOSERS)) - 1
 
     def feed(self, chunk: str) -> str:
         self._buf += chunk
@@ -131,6 +144,19 @@ class StreamFilter:
 
             hits = [(self._buf.find(o), o) for o in self._OPEN]
             hits = [(i, o) for i, o in hits if i != -1]
+            # A bare closer competes on the same footing as an opener: it is
+            # markup either way, and whichever one the model actually wrote
+            # first is the one that should fire. Ignoring closers here would
+            # let `some prose </tool> more prose <tool>{"x":1}</tool>` treat
+            # the middle span as an (unopened) block instead of stripping the
+            # orphan and continuing straight through it.
+            closer_hits = [(self._buf.find(c), c) for c in self._BARE_CLOSERS]
+            closer_hits = [(i, c) for i, c in closer_hits if i != -1]
+            if closer_hits and (not hits or min(closer_hits) < min(hits)):
+                i, closer = min(closer_hits)
+                out.append(self._buf[:i])
+                self._buf = self._buf[i + len(closer):]
+                continue
             if hits:
                 i, opener = min(hits)
                 out.append(self._buf[:i])
@@ -149,9 +175,12 @@ class StreamFilter:
         return "".join(out)
 
     def _partial_tail(self) -> int:
-        """Length of the trailing text that could still become an opener."""
+        """Length of the trailing text that could still become an opener
+        or a bare closer — the same reason either way: `flush()` must not
+        have already shown a prefix of `</tool>` as plain text one token
+        before this class would have recognised and stripped the whole tag."""
         for n in range(min(self._MAX_PARTIAL, len(self._buf)), 0, -1):
-            if any(o.startswith(self._buf[-n:]) for o in self._OPEN):
+            if any(o.startswith(self._buf[-n:]) for o in (*self._OPEN, *self._BARE_CLOSERS)):
                 return n
         return 0
 
@@ -384,9 +413,15 @@ def system_prompt(*, incognito: bool = False,
     prompt += (
         "\n\nWhen the user tells you to remember something, or states a lasting "
         "fact about themselves — a preference, a name, how they work, a project "
-        "they keep returning to — call `remember`. Set asked_by_user when they "
-        "asked outright. Do NOT remember details of the current task; those "
-        "belong to the conversation, not to the user."
+        "they keep returning to — call `remember`. Set asked_by_user=true "
+        "whenever the message contains a direct instruction to remember or note "
+        "something — 'remember that', 'remember this', 'note that', 'don't "
+        "forget' — even a short one tacked onto the end of an otherwise "
+        "unrelated sentence. It does not need to be the whole message or "
+        "phrased formally to count as asked outright. Only leave it false when "
+        "you are the one deciding a fact is worth keeping and the user never "
+        "said anything about remembering it. Do NOT remember details of the "
+        "current task; those belong to the conversation, not to the user."
     )
     if incognito:
         # Said once, up front. A model that discovers the limit by calling a

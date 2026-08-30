@@ -4,9 +4,12 @@ description: composing slides by routing through a design system, not writing co
 triggers: design a presentation, create a slideshow, build a slide deck, make slides, compose slides, slide layout, presentation layout, slide composition
 ---
 
-Reply with a JSON object only. Do not write the slides out.
+Call `render_slide_json` — do not write the slides out yourself, and do not
+generate this with `run_python`: the layout is rendered by the design
+system, not by code you write.
 
-Fill in this shape and send it:
+Fill in this shape and pass it as `render_slide_json`'s `spec` argument, one
+call per slide:
 
 ```json
 {

@@ -30,6 +30,23 @@ class ToolContext:
     conversation_id: str | None = None
     should_cancel: Callable[[], bool] = lambda: False
     ask_permission: Callable[..., str] | None = None
+    # Reverses Privacy Mirror placeholders (§FIRSTNAME_1§ -> the real value)
+    # using the CURRENT step's scrub map. Set by the scheduler right before
+    # dispatch, from whatever the model's own outbound call actually scrubbed
+    # — never a stale or foreign session's map.
+    #
+    # Exists because a tool argument can carry a placeholder the model only
+    # ever saw as opaque text (it never had the plaintext to reason about, by
+    # design), but a LOCAL write — `remember`, most importantly — never
+    # leaves the device. There is no privacy reason for the on-device fact
+    # store to hold a permanently unresolvable token when the real value was
+    # sitting right here, in this same process, the whole time. A tool that
+    # persists free text should call this on it before writing.
+    #
+    # None when nothing was scrubbed this step (privacy mirror off, a local
+    # provider, or scrub failed) — callers must treat that as "nothing to
+    # reverse", not an error.
+    rehydrate: Callable[[str], str] | None = None
 
 
 @dataclass

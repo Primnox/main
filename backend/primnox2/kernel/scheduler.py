@@ -420,11 +420,33 @@ class Scheduler:
                 bus.emit("token", {"text": "\n\n"},
                          conversation_id=conversation_id, turn_id=turn_id)
 
+            step_scrub_map: list = []
             reply, stopped = self._stream_once(job, turn_id, conversation_id,
-                                               messages, visible_total, totals)
+                                               messages, visible_total, totals,
+                                               scrub_map_out=step_scrub_map)
             if stopped:
                 return
             raw_total.append(reply)
+
+            # A tool call about to be dispatched can rehydrate against exactly
+            # what THIS step scrubbed — never a previous step's or a foreign
+            # session's map. Rebuilt every step, and cleared to None when
+            # nothing was scrubbed so a handler can tell "nothing to reverse"
+            # apart from "reversing did nothing" instead of guessing.
+            if step_scrub_map:
+                by_placeholder = {e["placeholder"]: e["original"] for e in step_scrub_map}
+
+                def _rehydrate(text: str, _map=by_placeholder) -> str:
+                    if not text:
+                        return text
+                    for ph in sorted(_map, key=len, reverse=True):
+                        if ph in text:
+                            text = text.replace(ph, _map[ph])
+                    return text
+
+                ctx.rehydrate = _rehydrate
+            else:
+                ctx.rehydrate = None
 
             plan = tools.parse_plan(reply)
             if plan:
@@ -583,12 +605,19 @@ class Scheduler:
 
     def _stream_once(self, job: dict, turn_id: str, conversation_id: str,
                      messages: list[dict], visible_total: list[str],
-                     totals: dict | None = None) -> tuple[str, bool]:
+                     totals: dict | None = None,
+                     scrub_map_out: list | None = None) -> tuple[str, bool]:
         """One model call. Returns (raw reply, turn_ended?).
 
         Protocol markup is kept out of the token stream: the user reads prose,
         not `<tool name=…>`. The raw text is still returned in full, because
         that is what gets parsed.
+
+        `scrub_map_out`, when given, receives this step's Privacy Mirror
+        mapping (same list gateway.stream_completion fills internally) — so
+        the caller can rehydrate a tool-call argument the model composed from
+        the placeholders scrubbed for THIS step, before anything is persisted
+        locally. Left empty when nothing was scrubbed.
         """
         from ..tools.runtime import StreamFilter
 
@@ -630,7 +659,7 @@ class Scheduler:
             bus.emit("thinking", {"text": text}, conversation_id=conversation_id, turn_id=turn_id)
 
         usage: dict = {}
-        scrub_map: list = []
+        scrub_map: list = scrub_map_out if scrub_map_out is not None else []
         # One entry per provider this turn touched. Passed in even though the
         # happy path has exactly one, because the case worth debugging is the
         # one where the answer came from somewhere other than the model the

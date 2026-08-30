@@ -189,6 +189,37 @@ class TestToolIntegration:
         tid = run_turn(conversation, "do a thing")
         assert wait_for_turn(tid) == "completed"
 
+    def test_a_workspace_from_a_stopped_turn_is_still_findable_later(self, conversation):
+        """Measured live: Stop pressed right after create_workspace ran left an
+        assistant message that was blank (CRS §9.3 keeps a cancelled turn's
+        partial text, and there was none — the model said nothing outside the
+        tool call). The workspace was real and fully written, but the NEXT
+        turn's history showed a question with no answer: nothing said a
+        workspace existed, so the model claimed it had never written one.
+
+        This does not go through `scripted()` — the failure is about how a
+        SETTLED turn is read back on a LATER turn, not about one model call,
+        so the turn is put into exactly that state directly and a fresh
+        context.build() (what the next turn would actually see) is asserted
+        against."""
+        tid = turns.create_turn(conversation, "write a long essay")["turn_id"]
+        turns.finish_cancelled(tid, "\n\n")  # blank reply, same shape as the live one
+
+        ws = workspaces.create(
+            "markdown", "Water Cycle Essay", {"essay.md": "# The Water Cycle\n..."},
+            origin_turn_id=tid, conversation_id=conversation,
+        )
+
+        from primnox2.context import service as context
+        next_tid = turns.create_turn(conversation, "how many sections did it have?")["turn_id"]
+        bundle = context.build(conversation, "how many sections did it have?",
+                               turn_id=next_tid, budget=50_000)
+        joined = "\n".join(m["content"] for m in bundle.messages)
+        assert ws["workspace_id"] in joined, \
+            "the next turn has no way to find the workspace it just made"
+        assert "read_workspace" in joined, \
+            "the breadcrumb should point at the tool that reads it back"
+
 
 # ── Streaming, disconnect and replay ─────────────────────────────────────────
 class ClientFold:

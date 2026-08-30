@@ -106,8 +106,8 @@ def _history_rows(conversation_id: str, history_limit: int) -> list[dict]:
                             "seq_in_conversation": turn["seq"]})
         return out[:history_limit * 2]
 
-    return [dict(r) for r in db.connect().execute(
-        "SELECT m.role, m.text, t.seq_in_conversation"
+    rows = [dict(r) for r in db.connect().execute(
+        "SELECT m.role, m.text, t.seq_in_conversation, t.id AS turn_id"
         "  FROM messages m JOIN turns t ON t.id = m.turn_id"
         " WHERE t.conversation_id = ? AND t.status IN ('completed','cancelled')"
         "   AND EXISTS (SELECT 1 FROM messages a"
@@ -117,6 +117,45 @@ def _history_rows(conversation_id: str, history_limit: int) -> list[dict]:
         " LIMIT ?",
         (conversation_id, history_limit * 2),
     ).fetchall()]
+    return _with_workspace_breadcrumbs(rows)
+
+
+def _with_workspace_breadcrumbs(rows: list[dict]) -> list[dict]:
+    """Note which workspace(s) a past assistant turn touched, so a later turn
+    can find them again instead of guessing.
+
+    Measured live: a turn that only called create_workspace — nothing else,
+    because the model had nothing left to say once the tool ran — persists
+    an assistant message that is blank. Whitespace has no signal in it, so
+    the next turn's history shows a question with no answer, and the model
+    either claims the work never happened or invents an id for
+    update_workspace to fail on. workspace_files already knows the real
+    content (read_workspace, above, is the honest way to fetch it) and
+    turn_workspaces already knows which turn made it — this just says so,
+    at the one place history is read for replay, so nothing written to disk
+    has to change and no other reader of `messages.text` is affected.
+    """
+    try:
+        from ..workspaces import service as workspaces
+    except Exception:
+        return rows
+
+    for r in rows:
+        if r.get("role") != "assistant" or not r.get("turn_id"):
+            continue
+        try:
+            touched = workspaces.for_turn(r["turn_id"])
+        except Exception:
+            continue
+        if not touched:
+            continue
+        note = "; ".join(
+            f'workspace {w["id"]} "{w["title"]}" ({w["kind"]}, v{w["current_version"]})'
+            for w in touched
+        )
+        breadcrumb = f"[{note} — call read_workspace with this id to see its current content]"
+        r["text"] = (r["text"] + "\n\n" + breadcrumb) if (r["text"] or "").strip() else breadcrumb
+    return rows
 
 
 def build(

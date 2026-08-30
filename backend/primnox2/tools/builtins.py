@@ -305,6 +305,17 @@ def _remember(args: dict, ctx: ToolContext) -> dict:
         return {"status": "error", "summary": "nothing to remember",
                 "output": "A memory needs text."}
 
+    # This write never leaves the device, so it does not need to stay behind
+    # the Privacy Mirror the way the model's own reasoning does. If the fact
+    # carries one of THIS step's placeholders (the model saw only §FIRSTNAME_1§,
+    # never the real name, so that is the honest thing for it to have written),
+    # restore the real value before it is filed — otherwise the fact is
+    # permanently unresolvable on every future recall, in every future
+    # conversation, even to the user it is about. `ctx.rehydrate` is a no-op
+    # on text with no placeholder in it, so this is safe to call unconditionally.
+    if ctx.rehydrate is not None:
+        text = ctx.rehydrate(text)
+
     # Incognito exists to leave no trace. Writing a permanent fact out of a
     # conversation that is never written to disk would be the one thing it
     # promises not to do.
@@ -347,7 +358,15 @@ register(ToolSpec(
                  "description": "ONE fact, as a single short standalone "
                                 "sentence — 'Prefers concise answers.', not a "
                                 "paragraph and not the message it came from. "
-                                "Longer text is refused, not truncated."},
+                                "Longer text is refused, not truncated. If the "
+                                "fact includes something you only saw as a "
+                                "placeholder like §FIRSTNAME_1§, write the "
+                                "placeholder token itself, exactly as it "
+                                "appeared — do NOT paraphrase around it (e.g. "
+                                "'name redacted'). This save never reaches the "
+                                "cloud, so the real value is restored before "
+                                "it is filed; a paraphrase throws that value "
+                                "away permanently instead."},
         "category": {"type": "string", "required": False,
                      "description": "personal, work, project or session."},
         "asked_by_user": {"type": "boolean", "required": False,
@@ -678,7 +697,8 @@ register(ToolSpec(
     description=("Make a NEW versioned workspace for generated work — code, "
                  "docs, apps. Use this when nothing exists yet and you have "
                  "no workspace id. To change something you already made, use "
-                 "update_workspace."),
+                 "update_workspace. To read back what is in one, use "
+                 "read_workspace — read_asset is for the user's own uploads."),
     parameters={
         "kind": {"type": "string", "required": True,
                  "description": "react | python | markdown | html | notebook | doc | shell"},
@@ -689,6 +709,48 @@ register(ToolSpec(
     danger=LOW,
     persistent=True,
     handler=_create_workspace,
+))
+
+
+def _read_workspace(args: dict, ctx: ToolContext) -> dict:
+    """Read back the current content of a workspace by its id.
+
+    Measured live: asked to write a 1500-word essay, the model called
+    create_workspace, then reflexively called read_asset on the workspace id
+    it had just been given — read_asset only knows about the user's own
+    uploads, so that failed with "no such asset", and the essay it had just
+    written was never confirmed. Worse, on a LATER turn asking a question
+    about that essay, nothing in the transcript let the model look the
+    content back up, so it answered from a guess instead of the real text.
+    create_workspace and update_workspace both return a workspace_id for
+    exactly this reason — this is the tool that redeems it.
+    """
+    ws = workspaces.get(args["workspace_id"])
+    if ws is None:
+        return {"status": "error", "summary": "no such workspace", "output": ""}
+    files = ws.get("files") or {}
+    if not files:
+        return {"status": "error", "summary": "empty",
+                "output": "This workspace has no files."}
+    body = "\n\n".join(f"--- {path} ---\n{content}" for path, content in files.items())
+    return {"status": "success",
+            "summary": f'v{ws["version"]}: {len(files)} file(s)',
+            "output": _clip(body)}
+
+
+register(ToolSpec(
+    name="read_workspace",
+    description=("Read back the current content of a workspace YOU created "
+                 "or edited, by the workspace id you were given. Use this "
+                 "to check what you wrote, or before answering a question "
+                 "about it — do not rely on remembering it. read_asset is a "
+                 "different tool, for documents the USER uploaded."),
+    parameters={
+        "workspace_id": {"type": "string", "required": True,
+                         "description": "The workspace id, from create_workspace or update_workspace."},
+    },
+    danger=LOW,
+    handler=_read_workspace,
 ))
 
 
@@ -719,7 +781,9 @@ register(ToolSpec(
     description=("Change a workspace that ALREADY exists, by the id you were "
                  "given. Send only the files you are changing — the rest "
                  "carry forward. If you have no workspace id, there is "
-                 "nothing to update: use create_workspace."),
+                 "nothing to update: use create_workspace. Not sure what is "
+                 "in it right now, or don't trust your memory of the id? "
+                 "Use read_workspace first."),
     parameters={
         "workspace_id": {"type": "string", "required": True, "description": "Workspace to edit."},
         "files": {"type": "object", "required": True,

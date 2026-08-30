@@ -675,6 +675,89 @@ class TestToolCallParsing:
         shown = "".join(f.feed(ch) for ch in raw) + f.flush()
         assert "Here is the rest." in shown
 
+    def test_an_orphan_closer_with_no_opener_is_stripped_not_shown(self):
+        """The defect this closes, found 2026-08-30 live: a degraded
+        free-tier turn's entire visible reply was the four characters
+        `</tool>` — a closer this filter never opened (so `self._closing`
+        was never armed), which walked straight through as if it were
+        ordinary prose. A model under strain emitting a stray fragment of
+        its own call syntax is a model-quality problem this filter cannot
+        prevent; showing that fragment raw to the user is the filter's own
+        job to prevent, exactly as much as a matched pair is."""
+        from primnox2.tools import runtime
+
+        f = runtime.StreamFilter()
+        shown = "".join(f.feed(ch) for ch in "</tool>") + f.flush()
+        assert shown == ""
+
+    def test_an_orphan_closer_mid_reply_is_stripped_and_prose_survives(self):
+        from primnox2.tools import runtime
+
+        f = runtime.StreamFilter()
+        raw = "Saved that for you. </tool> Anything else?"
+        shown = "".join(f.feed(ch) for ch in raw) + f.flush()
+        assert "</tool>" not in shown
+        assert "Saved that for you." in shown
+        assert "Anything else?" in shown
+
+
+# ── Streaming watchdog ────────────────────────────────────────────────────────
+class TestBoundedStream:
+    """The defect this closes, found 2026-08-30 live: a turn sat in
+    `thinking` for 250+ seconds with no resolution, and cancelling it
+    (`{"ok": true}` from the API) did nothing. `urlopen(..., timeout=120)`
+    bounds each individual socket read, not the request as a whole — a
+    provider that trickles even one byte occasionally resets that per-read
+    clock indefinitely without ever finishing. `_bounded_stream` puts a
+    genuine absolute ceiling on total time, independent of per-read
+    timeouts, by force-closing the response from a watchdog thread."""
+
+    class _HangingResponse:
+        """A response whose iterator blocks forever until `.close()` is
+        called — the same shape a real blocked socket read has: nothing
+        else in the process can unblock it except closing the resource."""
+        def __init__(self):
+            self._closed = threading.Event()
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self._closed.wait()          # blocks "forever" until closed
+            raise StopIteration          # what a real close() surfaces as EOF
+
+        def close(self):
+            self._closed.set()
+
+    def test_a_response_that_never_sends_anything_is_force_closed_and_raises(self):
+        from primnox2.models import gateway
+
+        resp = self._HangingResponse()
+        with pytest.raises(TimeoutError):
+            list(gateway._bounded_stream(resp, deadline_s=0.2))
+
+    def test_a_normal_response_is_unaffected_and_the_watchdog_never_fires(self):
+        """The deadline must not cost a healthy, ordinary-speed response
+        anything — this is a safety net for a hang, not a rate limiter."""
+        from primnox2.models import gateway
+
+        lines = [b"line one\n", b"line two\n", b"line three\n"]
+        out = list(gateway._bounded_stream(iter(lines), deadline_s=5.0))
+        assert out == lines
+
+    def test_the_watchdog_thread_is_cancelled_on_normal_completion(self):
+        """A completed stream must not leave a pending timer around — that
+        would be a resource leak on every single successful turn."""
+        from primnox2.models import gateway
+
+        before = threading.active_count()
+        list(gateway._bounded_stream(iter([b"one\n"]), deadline_s=5.0))
+        # The Timer thread is daemonic and cancelled in `finally`; give it
+        # one scheduler tick to actually unwind before counting.
+        import time as _time
+        _time.sleep(0.05)
+        assert threading.active_count() <= before
+
 
 # ── Themed documents ─────────────────────────────────────────────────────────
 class TestDocumentThemes:
