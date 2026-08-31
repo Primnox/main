@@ -153,3 +153,13 @@ frontend/.impeccable/
 # rule — `git add -A` staged it, carrying a commented-out live API key. The
 # rule is anchored here now so the same move cannot expose it again.
 /.env
+
+# Spartan AI config (contains API keys)
+.spartan/ai.env
+
+# ── Primnox Web (web/) ─────────────────────────────────────────
+web/**/node_modules/
+web/**/dist/
+web/**/.env
+web/**/.env.local
+web/client/.vite/

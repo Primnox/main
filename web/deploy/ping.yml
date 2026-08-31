@@ -1,0 +1,22 @@
+name: Keep Render warm
+
+# Resolves Q5: the free Render instance spins down after ~15 min idle and takes
+# ~50 s to wake. A 10-minute ping keeps it warm through any active session.
+# Retire this workflow when the service moves to a paid instance.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit /health
+        run: |
+          url="${{ vars.RENDER_HEALTH_URL }}"
+          if [ -z "$url" ]; then echo "RENDER_HEALTH_URL not set"; exit 1; fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$url" || true)
+          echo "health -> $code"
+          test "$code" = "200"
