@@ -123,17 +123,32 @@ export function ContextRail({ state, liveTurn, health, onClose }:
               <span className="text-[11px] text-on-surface/70">{state.turns.length} turns in context</span></li>
             {/* Says which backend is actually isolating execution — or that
                 none is, rather than implying a sandbox that isn't there. */}
+            {/* Warming is its own state, not a flavour of "unavailable".
+                The first launch after an install spends ~80s inside the
+                AppContainer icacls grant, and reporting that as "execution
+                refused" for the whole of it describes a broken install
+                rather than a one-time setup that is working. */}
             <li className="flex items-start gap-2.5">
-              {health?.sandbox
-                ? <ShieldCheck size={13} className="text-on-surface/50 shrink-0 mt-0.5" />
-                : <ShieldAlert size={13} className="text-error/70 shrink-0 mt-0.5" />}
-              <span className={`text-[11px] ${health?.sandbox ? 'text-on-surface/50' : 'text-error/80'}`}>
-                {health?.sandbox === 'appcontainer' ? 'Sandbox: AppContainer isolation'
+              {health?.sandbox_warming
+                ? <Loader2 size={13} className="text-on-surface/50 shrink-0 mt-0.5 px-spin" />
+                : health?.sandbox
+                  ? <ShieldCheck size={13} className="text-on-surface/50 shrink-0 mt-0.5" />
+                  : <ShieldAlert size={13} className="text-error/70 shrink-0 mt-0.5" />}
+              <span className={`text-[11px] ${health?.sandbox || health?.sandbox_warming ? 'text-on-surface/50' : 'text-error/80'}`}>
+                {health?.sandbox_warming ? 'Sandbox: preparing on first run — this takes about a minute'
+                  : health?.sandbox === 'appcontainer' ? 'Sandbox: AppContainer isolation'
                   : health?.sandbox === 'unsandboxed' ? 'Sandbox: NONE — code runs unisolated'
                   : health ? 'Sandbox: unavailable — execution refused'
                   : 'Checking sandbox…'}
               </span>
             </li>
+            {/* Python is bundled in the app; Node is not, and is resolved from
+                PATH only at the moment JS runs. Without this the first
+                JavaScript execution is where the user discovers it. */}
+            {health && health.node === false && (
+              <li className="flex items-start gap-2.5"><ShieldAlert size={13} className="text-error/70 shrink-0 mt-0.5" />
+                <span className="text-[11px] text-error/80">Node.js not found — JavaScript execution unavailable</span></li>
+            )}
             {health?.model && !health.model.local && (
               <li className="flex items-start gap-2.5"><ShieldAlert size={13} className="text-on-surface/50 shrink-0 mt-0.5" />
                 <span className="text-[11px] text-on-surface/50">Cloud provider — prompts leave this device</span></li>

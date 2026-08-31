@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import threading
 from pathlib import Path
 
@@ -253,6 +254,11 @@ async def _shutdown() -> None:
 
 _sandbox_warm_started = False
 _sandbox_warm_lock = threading.Lock()
+# Set once the warm thread has an answer. `/health` reads this INSTEAD of
+# calling available_backend() while warming, because that call is the ~80s
+# icacls walk itself — a health check that blocks on it turns "provisioning"
+# into "the app is hung", which is exactly what a first-run user would report.
+_sandbox_warm_done = False
 
 
 def _spawn_sandbox_warm_once() -> None:
@@ -283,8 +289,15 @@ def _spawn_sandbox_warm_once() -> None:
 
 
 def _warm_sandbox() -> None:
-    backend = supervisor.available_backend()
-    print(f"[boot] sandbox backend: {backend or 'NONE — execution will be refused'}")
+    global _sandbox_warm_done
+    try:
+        backend = supervisor.available_backend()
+        print(f"[boot] sandbox backend: {backend or 'NONE — execution will be refused'}")
+    finally:
+        # In `finally` so a provisioning failure still ends the "warming"
+        # state. Otherwise the UI would sit on "preparing sandbox" forever
+        # instead of reporting that execution is refused.
+        _sandbox_warm_done = True
 
 
 _omniroute_started = False
@@ -411,10 +424,22 @@ async def ws_endpoint(ws: WebSocket) -> None:
 @app.get("/health")
 async def health() -> dict:
     from .models import gateway
+
+    # While the warm thread is still inside provisioning, report that rather
+    # than calling available_backend() ourselves — see _sandbox_warm_done.
+    # First run costs ~80s of icacls, and a UI that cannot tell "preparing"
+    # from "broken" will show the wrong one for the whole of it.
+    warming = _sandbox_warm_started and not _sandbox_warm_done
     return {
         "ok": True, "crs": CRS_VERSION, "head": bus.head(),
         "model": gateway.describe_active(),
-        "sandbox": supervisor.available_backend(),
+        "sandbox": None if warming else supervisor.available_backend(),
+        "sandbox_warming": warming,
+        # Python execution is bundled; JavaScript is not. `node` is resolved
+        # from PATH at execution time (sandbox/appcontainer.py:_node_executable),
+        # so on a machine without it the node runtime fails at the moment it is
+        # used. Reporting it here lets the UI say so before then.
+        "node": shutil.which("node") is not None,
         "tools": [s.name for s in tool_registry.all_specs()],
     }
 
