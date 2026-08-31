@@ -18,9 +18,15 @@ frontend/dist/
 frontend/dist-electron/
 *.map
 *.spec
-# V2's PyInstaller spec is hand-authored packaging source (hiddenimports,
+# The PyInstaller spec is hand-authored packaging source (hiddenimports,
 # bundled data files), not a regenerated build artifact — keep it tracked.
-!v2/backend/primnox2_backend.spec
+#
+# This exception used to read `!v2/backend/primnox2_backend.spec`. There is no
+# `v2/` directory in this layout, so after the restructure it matched nothing,
+# `*.spec` above swallowed the file, and it was never committed — which is why
+# the release workflow's `pyinstaller` step had no spec to run. Path is now
+# relative to the repo root, where the file actually lives.
+!backend/primnox_backend.spec
 
 node_modules/
 frontend/node_modules/

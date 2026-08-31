@@ -3,7 +3,7 @@
 //! Ported from V1's `src-tauri/src/backend.rs`, whose port-reclaiming and
 //! process-tree-killing logic is unchanged — only the port and the bundled
 //! executable's name differ, because V2's backend is a separate PyInstaller
-//! build (`backend/primnox2_backend.spec`) from V1's. In dev the backend is
+//! build (`backend/primnox_backend.spec`) from V1's. In dev the backend is
 //! already running (started separately via `python backend/run.py`) and
 //! must not be spawned twice.
 
@@ -21,16 +21,16 @@ pub static BACKEND_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 /// Executable name for the current platform.
 pub fn backend_exe_name() -> &'static str {
     if cfg!(target_os = "windows") {
-        "primnox2_backend.exe"
+        "primnox_backend.exe"
     } else {
-        "primnox2_backend"
+        "primnox_backend"
     }
 }
 
 /// Path to the bundled backend inside the app's resource directory.
 pub fn backend_path(resource_dir: &Path) -> PathBuf {
     resource_dir
-        .join("primnox2_backend")
+        .join("primnox_backend")
         .join(backend_exe_name())
 }
 
@@ -40,7 +40,7 @@ pub fn backend_path(resource_dir: &Path) -> PathBuf {
 /// (dev mode), never from an unrelated process that happens to hold 4109.
 pub fn is_our_backend_process(image_name: &str) -> bool {
     let name = image_name.trim().to_ascii_lowercase();
-    name.contains("primnox2_backend") || name.starts_with("python")
+    name.contains("primnox_backend") || name.starts_with("python")
 }
 
 /// Extract listening PIDs for `port` from Windows `netstat -ano -p tcp` output.
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn recognises_our_own_backend() {
-        assert!(is_our_backend_process("primnox2_backend.exe"));
+        assert!(is_our_backend_process("primnox_backend.exe"));
         assert!(is_our_backend_process("PRIMNOX2_BACKEND.EXE"));
         assert!(is_our_backend_process("python.exe"));
         assert!(is_our_backend_process("python3.11"));
@@ -202,6 +202,6 @@ mod tests {
     fn backend_path_is_nested_under_resources() {
         let p = backend_path(Path::new("/opt/app/resources"));
         assert!(p.ends_with(backend_exe_name()));
-        assert!(p.to_string_lossy().contains("primnox2_backend"));
+        assert!(p.to_string_lossy().contains("primnox_backend"));
     }
 }

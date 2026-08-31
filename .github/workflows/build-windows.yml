@@ -75,9 +75,9 @@ jobs:
         shell: pwsh
         run: |
           cd backend
-          pyinstaller primnox2_backend.spec --clean -y
+          pyinstaller primnox_backend.spec --clean -y
           echo "Backend build output:"
-          Get-ChildItem dist/primnox2_backend -Recurse | Measure-Object -Property Length -Sum | ForEach-Object { "  Total size: $([math]::Round($_.Sum/1MB, 1)) MB, $($_.Count) files" }
+          Get-ChildItem dist/primnox_backend -Recurse | Measure-Object -Property Length -Sum | ForEach-Object { "  Total size: $([math]::Round($_.Sum/1MB, 1)) MB, $($_.Count) files" }
 
       # ── Node.js setup + cache ───────────────────────────────────────────
       - name: Set up Node.js ${{ env.NODE_VERSION }}
