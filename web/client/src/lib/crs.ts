@@ -79,8 +79,20 @@ export type Turn = {
   createdAt: number;
 };
 
-/** Map a web runtime turn to the shape the ported components read. Phase 1 has
-    no tools / assets / canvas / thinking / privacy, so those are empty. */
+/** Map a web runtime turn to the shape the ported components read.
+ *
+ * Tools, permissions, assets and workspaces are folded from their own event
+ * kinds and pass straight through. The rest are empty for reasons that differ,
+ * and the difference matters:
+ *
+ *   - `thinking`, `plan`, `questions`, `executions` — CRS/1.0-W defines no
+ *     event that carries them. The components are ported and correct; nothing
+ *     produces their input yet.
+ *   - `privacyScrub` — retired on web by design (§4.2/§4.6). The browser holds
+ *     the plaintext, so there is no scrub step to mirror; `model.egress`
+ *     records egress as counts instead.
+ *   - `computer` — Computer Use is desktop-only.
+ */
 export function toTurn(t: TurnState): Turn {
   return {
     id: t.id,
@@ -91,11 +103,16 @@ export function toTurn(t: TurnState): Turn {
     partial: t.cancelled,
     error: t.error ? { ...t.error } : null,
     plan: null,
-    toolCalls: [],
+    toolCalls: t.toolCalls.map(({ name, status, arguments: args, summary }) => ({
+      name,
+      status,
+      arguments: args,
+      summary,
+    })),
     executions: [],
-    workspaces: [],
-    assets: [],
-    permissions: [],
+    workspaces: t.workspaces.map((w) => ({ ...w })),
+    assets: t.assets.map((a) => ({ ...a })),
+    permissions: t.permissions.map((p) => ({ ...p, options: p.options.map((o) => ({ ...o })) })),
     questions: [],
     computer: [],
     privacyScrub: [],

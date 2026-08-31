@@ -1,3 +1,5 @@
+import type { Components } from 'react-markdown';
+
 import { CopyButton } from '../components/CopyButton';
 import { FlowchartBlock } from '../components/FlowchartBlock';
 
@@ -12,38 +14,38 @@ import { FlowchartBlock } from '../components/FlowchartBlock';
  * is no display type on this surface, and a heading in a reply that shouts is
  * worse than one that simply reads first. More space above than below, so a
  * heading binds to the text it introduces. */
-export const MD: any = {
-  h1: ({ children }: any) => <h1 className="mb-2 mt-5 first:mt-0 text-[15px] font-semibold tracking-tight text-on-surface">{children}</h1>,
-  h2: ({ children }: any) => <h2 className="mb-2 mt-5 first:mt-0 text-[14px] font-semibold tracking-tight text-on-surface">{children}</h2>,
-  h3: ({ children }: any) => <h3 className="mb-1.5 mt-4 first:mt-0 text-[13px] font-semibold text-on-surface/95">{children}</h3>,
-  h4: ({ children }: any) => <h4 className="mb-1.5 mt-4 first:mt-0 text-[13px] font-medium text-on-surface/90">{children}</h4>,
-  h5: ({ children }: any) => <h5 className="mb-1 mt-3 first:mt-0 text-[12px] font-medium text-on-surface/85">{children}</h5>,
-  h6: ({ children }: any) => <h6 className="mb-1 mt-3 first:mt-0 text-[12px] font-medium text-on-surface/75">{children}</h6>,
-  strong: ({ children }: any) => <strong className="font-semibold text-on-surface">{children}</strong>,
-  em: ({ children }: any) => <em className="italic">{children}</em>,
+export const MD: Components = {
+  h1: ({ children }) => <h1 className="mb-2 mt-5 first:mt-0 text-[15px] font-semibold tracking-tight text-on-surface">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-2 mt-5 first:mt-0 text-[14px] font-semibold tracking-tight text-on-surface">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-1.5 mt-4 first:mt-0 text-[13px] font-semibold text-on-surface/95">{children}</h3>,
+  h4: ({ children }) => <h4 className="mb-1.5 mt-4 first:mt-0 text-[13px] font-medium text-on-surface/90">{children}</h4>,
+  h5: ({ children }) => <h5 className="mb-1 mt-3 first:mt-0 text-[12px] font-medium text-on-surface/85">{children}</h5>,
+  h6: ({ children }) => <h6 className="mb-1 mt-3 first:mt-0 text-[12px] font-medium text-on-surface/75">{children}</h6>,
+  strong: ({ children }) => <strong className="font-semibold text-on-surface">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
   /* 1px, not a slab. A thick coloured left border on a quote is the
      category's decoration reflex; a hairline is the world's. */
-  blockquote: ({ children }: any) => (
+  blockquote: ({ children }) => (
     <blockquote className="my-3 border-l border-dr-rule-firm pl-3 text-on-surface/70">{children}</blockquote>
   ),
   hr: () => <hr className="my-4 border-0 border-t border-dr-rule" />,
   /* Tables scroll inside their own container rather than pushing the reply
      sideways - the same rule the code block follows. */
-  table: ({ children }: any) => (
+  table: ({ children }) => (
     <div className="my-3 overflow-x-auto">
       <table className="w-full border-collapse text-[12px]">{children}</table>
     </div>
   ),
-  th: ({ children }: any) => (
+  th: ({ children }) => (
     <th className="border-b border-dr-rule-firm px-2 py-1.5 text-left font-medium text-on-surface">{children}</th>
   ),
-  td: ({ children }: any) => (
+  td: ({ children }) => (
     <td className="border-b border-dr-rule px-2 py-1.5 align-top text-on-surface/85">{children}</td>
   ),
-  p:  ({ children }: any) => <p className="mb-3 last:mb-0 leading-7 text-on-surface/85">{children}</p>,
-  ul: ({ children }: any) => <ul className="mb-3 space-y-1 pl-5 list-disc text-on-surface/85">{children}</ul>,
-  ol: ({ children }: any) => <ol className="mb-3 space-y-1 pl-5 list-decimal text-on-surface/85">{children}</ol>,
-  code: ({ children, className }: any) =>
+  p:  ({ children }) => <p className="mb-3 last:mb-0 leading-7 text-on-surface/85">{children}</p>,
+  ul: ({ children }) => <ul className="mb-3 space-y-1 pl-5 list-disc text-on-surface/85">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-3 space-y-1 pl-5 list-decimal text-on-surface/85">{children}</ol>,
+  code: ({ children, className }) =>
     /^language-mermaid$/.test(className || '') ? (
       // A diagram, not a code block. Mermaid renders a fixed picture; the same
       // nodes through Graphify's viewer get neighbour highlighting, search and
@@ -86,6 +88,6 @@ export const MD: any = {
       <code className="bg-on-surface/10 text-primary px-1.5 py-0.5 rounded-md text-[0.82em] font-mono
                        whitespace-pre-wrap [overflow-wrap:anywhere]">{children}</code>
     ),
-  a: ({ href, children }: any) => <a href={href} className="text-primary underline underline-offset-2">{children}</a>,
+  a: ({ href, children }) => <a href={href} className="text-primary underline underline-offset-2">{children}</a>,
 };
 

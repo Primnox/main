@@ -67,6 +67,12 @@ export interface TurnUsage {
   output_tokens: number;
 }
 
+/** One option on a permission question, as the user sees it. */
+export interface PermissionOption {
+  id: string;
+  label: string;
+}
+
 export interface KnownPayloads {
   'turn.created': { turn: { id: string; seq_in_conversation?: number }; user_text: string };
   'turn.status': { status: TurnStatus; detail?: string };
@@ -76,6 +82,25 @@ export interface KnownPayloads {
   token: { text: string };
   'model.egress': { provider: string; model: string; input_tokens: number };
   'sync.complete': { head: number };
+
+  /* Below: the kinds the reducer folds into turn render state. `call_id`
+     correlates a result with the call it answers — the rendered ToolCall keeps
+     desktop's shape and never carries it, but a fold that matched on `name`
+     alone would cross two concurrent calls to the same tool. */
+  'tool.call': { call_id: string; name: string; arguments?: unknown; summary?: string };
+  'tool.result': { call_id: string; status?: string; summary?: string; error?: string };
+  'permission.request': {
+    id: string;
+    action: string;
+    detail: string;
+    options: PermissionOption[];
+    auto?: boolean;
+  };
+  'permission.resolved': { id: string; resolution: string };
+  'asset.ready': { id: string; name: string; kind?: string };
+  'asset.failed': { id: string; name?: string; error?: string };
+  'workspace.created': { id: string; title: string; kind: string; version?: number };
+  'workspace.updated': { id: string; title?: string; kind?: string; version: number };
 }
 
 type PayloadFor<K extends EventKind> = K extends keyof KnownPayloads

@@ -20,6 +20,38 @@ import {
   isTerminal,
 } from './events';
 
+/** A tool call as the fold tracks it. `callId` correlates `tool.result` back to
+    its `tool.call`; the rendered shape in lib/crs.ts drops it. */
+export interface ToolCallState {
+  callId: string;
+  name: string;
+  status: string;
+  arguments?: unknown;
+  summary?: string;
+}
+
+export interface PermissionState {
+  id: string;
+  action: string;
+  detail: string;
+  options: { id: string; label: string }[];
+  auto: boolean;
+  resolved: string | null;
+}
+
+export interface AssetState {
+  id: string;
+  name: string;
+  kind: string;
+}
+
+export interface WorkspaceState {
+  id: string;
+  title: string;
+  kind: string;
+  version: number;
+}
+
 export interface TurnState {
   id: string;
   conversationId: string;
@@ -32,6 +64,13 @@ export interface TurnState {
   cancelled: boolean;
   /** epoch ms of the `turn.created` event; 0 until it lands */
   createdAt: number;
+  /* Artifacts of the turn. Each is folded from its own event kind rather than
+     inferred — a turn shows the tools it actually reported running, and an
+     empty list means the runtime reported none, not that we lost them. */
+  toolCalls: ToolCallState[];
+  permissions: PermissionState[];
+  assets: AssetState[];
+  workspaces: WorkspaceState[];
 }
 
 export interface ConversationState {
@@ -78,6 +117,10 @@ function ensureTurn(conv: ConversationState, id: string, seqInConversation = 0):
       usage: null,
       cancelled: false,
       createdAt: 0,
+      toolCalls: [],
+      permissions: [],
+      assets: [],
+      workspaces: [],
     };
     conv.turns[id] = t;
     conv.turnOrder.push(id);
@@ -140,8 +183,102 @@ function apply(state: RuntimeState, ev: AnyEvent): void {
       t.status = 'cancelled';
       break;
     }
+    case 'tool.call': {
+      if (!ev.turn_id) break;
+      const t = ensureTurn(conv, ev.turn_id);
+      const p = e.payload;
+      if (!t.toolCalls.some((c) => c.callId === p.call_id)) {
+        t.toolCalls.push({
+          callId: p.call_id,
+          name: p.name,
+          status: 'running',
+          arguments: p.arguments,
+          summary: p.summary,
+        });
+      }
+      break;
+    }
+    case 'tool.result': {
+      if (!ev.turn_id) break;
+      const t = ensureTurn(conv, ev.turn_id);
+      const p = e.payload;
+      const call = t.toolCalls.find((c) => c.callId === p.call_id);
+      // A result with no call is not synthesized into one: the fold never
+      // invents a call the runtime did not announce (CRS §8.4).
+      if (!call) break;
+      call.status = p.status ?? (p.error ? 'error' : 'ok');
+      if (p.summary !== undefined) call.summary = p.summary;
+      else if (p.error) call.summary = p.error;
+      break;
+    }
+    case 'permission.request': {
+      if (!ev.turn_id) break;
+      const t = ensureTurn(conv, ev.turn_id);
+      const p = e.payload;
+      if (!t.permissions.some((x) => x.id === p.id)) {
+        t.permissions.push({
+          id: p.id,
+          action: p.action,
+          detail: p.detail,
+          options: p.options,
+          auto: p.auto ?? false,
+          resolved: null,
+        });
+      }
+      break;
+    }
+    case 'permission.resolved': {
+      if (!ev.turn_id) break;
+      const t = ensureTurn(conv, ev.turn_id);
+      const p = e.payload;
+      const req = t.permissions.find((x) => x.id === p.id);
+      if (req) req.resolved = p.resolution;
+      break;
+    }
+    case 'asset.ready': {
+      if (!ev.turn_id) break;
+      const t = ensureTurn(conv, ev.turn_id);
+      const p = e.payload;
+      if (!t.assets.some((a) => a.id === p.id)) {
+        t.assets.push({ id: p.id, name: p.name, kind: p.kind ?? '' });
+      }
+      break;
+    }
+    case 'workspace.created': {
+      if (!ev.turn_id) break;
+      const t = ensureTurn(conv, ev.turn_id);
+      const p = e.payload;
+      if (!t.workspaces.some((w) => w.id === p.id)) {
+        t.workspaces.push({ id: p.id, title: p.title, kind: p.kind, version: p.version ?? 1 });
+      }
+      break;
+    }
+    case 'workspace.updated': {
+      if (!ev.turn_id) break;
+      const t = ensureTurn(conv, ev.turn_id);
+      const p = e.payload;
+      const w = t.workspaces.find((x) => x.id === p.id);
+      // A turn that only EDITED a document still has to show it, or the edit
+      // reads as having happened to nothing.
+      if (w) {
+        w.version = p.version;
+        if (p.title !== undefined) w.title = p.title;
+        if (p.kind !== undefined) w.kind = p.kind;
+      } else {
+        t.workspaces.push({
+          id: p.id,
+          title: p.title ?? 'Document',
+          kind: p.kind ?? '',
+          version: p.version,
+        });
+      }
+      break;
+    }
     default:
       // Unknown kinds are ignored — the cursor still advances (CRS §3.2).
+      // `job.*`, `memory.written`, `model.egress` and `asset.failed` are
+      // deliberately here: they are ambient or audit records with no surface
+      // on a turn, not state this fold dropped.
       break;
   }
 }

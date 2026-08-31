@@ -38,6 +38,17 @@
         "dev"
       ],
       "port": 5274
+    },
+    {
+      "name": "igloo-engine",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "labs/igloo-engine",
+        "run",
+        "dev"
+      ],
+      "port": 5178
     }
   ]
 }
