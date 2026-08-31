@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertTriangle, ArrowUp, Check, ChevronRight, EyeOff, FileText, Folder, FolderPlus, Loader2, PanelLeftOpen, PanelRight, Paperclip, Pencil, Pin, Plus, RefreshCw, Search, Share2, Square, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Check, ChevronRight, EyeOff, FileText, Folder, FolderPlus, Loader2, PanelLeftOpen, PanelRight, Paperclip, Pencil, PenSquare, Pin, RefreshCw, Search, Share2, Square, Trash2, X } from 'lucide-react';
 import { CrsSocket, TERMINAL, api, emptyState, reduce, turnsFromHistory, type ConversationState, type CrsEvent } from './lib/crs';
 import { CanvasContext, ChatsContext, ViewerContext, type ChatActions, type OpenAsset } from './lib/contexts';
 import { groupByDay } from './lib/groupByDay';
-import { AppRail, type Section } from './components/AppRail';
+import { AccountMenu } from './components/AccountMenu';
 import { TitleBar } from './components/TitleBar';
 import { AssetViewer } from './components/AssetViewer';
 import { Canvas } from './components/Canvas';
@@ -13,7 +13,6 @@ import { ContextRail } from './components/ContextRail';
 import { ContextSidebar } from './components/ContextSidebar';
 import { ListSkeleton, Panel } from './components/ui';
 import { GraphPanel } from './components/GraphPanel';
-import { MemoryPanel } from './components/MemoryPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { TrackRow } from './components/TrackRow';
 import { TurnBlock } from './components/TurnBlock';
@@ -134,10 +133,16 @@ export default function App() {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<string | null>(null);
-  /* One section, not three booleans. Three independent flags could all be true
-     at once — and did, stacking Settings over Memory over the graph, each with
-     its own close button and no way to tell what was underneath. */
-  const [section, setSection] = useState<Section>('chat');
+  /* One enum, not two booleans, for the same reason this used to gate the
+     WHOLE main content area (transcript vs. Knowledge vs. Memory vs.
+     Settings): two independent flags could both be true at once, stacking
+     one overlay over the other with no way to tell what was underneath.
+     Memory is no longer a destination of its own — it moved into Settings
+     as a tab — so this only has to arbitrate between the two that remain,
+     and it arbitrates as a modal layered over the chat (matching the
+     reference: opening Settings there doesn't replace the sidebar and
+     transcript, it covers them, with its own close button as the way back). */
+  const [overlay, setOverlay] = useState<'none' | 'knowledge' | 'settings'>('none');
   /* Which Settings tab to land on. The composer's model chip needs to open
      straight to Provider rather than Appearance — a plain boolean couldn't
      say that, and it is the one deep link anything in the app currently
@@ -510,19 +515,7 @@ export default function App() {
           scrolling inside them. */}
       <div className="flex flex-1 min-h-0 w-full overflow-clip">
 
-      <AppRail
-        section={section}
-        onSection={s => {
-          // Chats while already in Chats toggles the list. This is the only way
-          // back once it is collapsed, and it works because the rail is pinned
-          // and cannot scroll out of reach — the failure V1 documented.
-          if (s === 'chat' && section === 'chat') setChats(!chatsOpen);
-          else { setSection(s); if (s === 'chat') setChats(true); }
-        }}
-        connected={state.connected} synced={state.synced} />
-
       {/* ── Conversations ─────────────────────────────────────────────── */}
-      {section === 'chat' && (
       <ContextSidebar title="Conversations"
         open={chatsOpen} onClose={() => setChats(false)}
         actions={
@@ -533,36 +526,40 @@ export default function App() {
         </button>
       }>
         {/* The two things that ADD to this list, at the top of the list they
-            add to. They were in the rail, which is for destinations. */}
-        <div className="sticky top-0 z-10 bg-[var(--nav-bg)] px-3 pt-3 pb-2 space-y-2">
-          <div className="flex items-center gap-2">
-            <button onClick={() => newChat(false)}
-              className="px-interactive group/n flex-1 flex items-center justify-between
-                         rounded-lg border border-on-surface/[0.10] px-3 py-2 text-[13px]
-                         hover:border-on-surface/25 hover:bg-on-surface/[0.03]">
-              New chat
-              <Plus size={14} aria-hidden="true"
-                className="opacity-60 transition-transform duration-200 group-hover/n:rotate-90" />
-            </button>
-            <button onClick={() => newChat(true)}
-              aria-label="New incognito chat"
-              title="Nothing is written to disk. It ends when Primnox closes."
-              className="px-interactive shrink-0 rounded-lg border border-dashed
-                         border-on-surface/[0.16] p-2 text-on-surface/60
-                         hover:border-on-surface/30 hover:text-on-surface">
-              <EyeOff size={14} aria-hidden="true" />
-            </button>
-          </div>
+            add to. They were in the rail, which is for destinations.
+
+            Borderless, icon-led rows rather than an outlined button —
+            matched to a plain "New chat" row that highlights on hover
+            instead of sitting inside its own box, so the whole block reads
+            as the first two rows of the list rather than a toolbar sitting
+            above it. */}
+        <div className="sticky top-0 z-10 bg-[var(--nav-bg)] px-2 pt-3 pb-2 space-y-0.5">
+          <button onClick={() => newChat(false)}
+            className="px-interactive w-full flex items-center gap-2.5 rounded-lg
+                       px-3 py-2.5 text-[13px] text-on-surface/85
+                       hover:bg-on-surface/[0.06]">
+            <PenSquare size={15} aria-hidden="true" className="shrink-0 opacity-70" />
+            New chat
+          </button>
+          <button onClick={() => newChat(true)}
+            aria-label="New incognito chat"
+            title="Nothing is written to disk. It ends when Primnox closes."
+            className="px-interactive w-full flex items-center gap-2.5 rounded-lg
+                       px-3 py-2.5 text-[13px] text-on-surface/85
+                       hover:bg-on-surface/[0.06]">
+            <EyeOff size={15} aria-hidden="true" className="shrink-0 opacity-70" />
+            Incognito chat
+          </button>
 
           <label htmlFor="chat-search" className="sr-only">Search chats</label>
-          <div className="flex items-center gap-2 rounded-lg border border-on-surface/[0.10]
-                          px-2.5 py-1.5 focus-within:border-on-surface/30">
-            <Search size={12} className="shrink-0 text-on-surface/50" aria-hidden="true" />
+          <div className="!mt-2 flex items-center gap-2.5 rounded-lg bg-on-surface/[0.05]
+                          px-3 py-2 focus-within:bg-on-surface/[0.08]">
+            <Search size={13} className="shrink-0 text-on-surface/45" aria-hidden="true" />
             <input id="chat-search" type="search" value={chatQuery}
               onChange={e => setChatQuery(e.target.value)}
               placeholder="Search chats"
-              className="min-w-0 flex-1 bg-transparent text-[12px] outline-none
-                         placeholder:text-on-surface/50" />
+              className="min-w-0 flex-1 bg-transparent text-[13px] outline-none
+                         placeholder:text-on-surface/45" />
             {chatQuery && (
               <button type="button" onClick={() => setChatQuery('')}
                 aria-label="Clear search"
@@ -579,7 +576,7 @@ export default function App() {
               matches across three headings and hide how many there are. */}
           {matches !== null ? (
             <>
-              <p className="px-label mx-3 mb-1.5">
+              <p className="mx-3 mb-1.5 text-[11px] font-medium text-on-surface/40">
                 {matches.length} {matches.length === 1 ? 'match' : 'matches'}
               </p>
               {matches.map(c => <ChatRow key={c.id} c={c} />)}
@@ -600,8 +597,8 @@ export default function App() {
           <>
           {pinned.length > 0 && (
             <>
-              <p className="px-label mx-3 mb-1.5 flex items-center gap-1.5">
-                <Pin size={9} aria-hidden="true" /> Pinned
+              <p className="mx-3 mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-on-surface/40">
+                <Pin size={10} aria-hidden="true" /> Pinned
               </p>
               {pinned.map(c => <ChatRow key={c.id} c={c} />)}
               <div className="h-3" />
@@ -751,7 +748,7 @@ export default function App() {
               "battery pptx" from "battery pdf" at a glance. */}
           {groupByDay(loose).map(([label, rows]) => (
             <div key={label}>
-              {label && <p className="px-label px-3 pt-3 pb-1.5 text-on-surface/50">{label}</p>}
+              {label && <p className="px-3 pt-3 pb-1.5 text-[11px] font-medium text-on-surface/40">{label}</p>}
               {rows.map(c => <ChatRow key={c.id} c={c} />)}
             </div>
           ))}
@@ -759,20 +756,22 @@ export default function App() {
           </>
           )}
         </nav>
+
+        <AccountMenu connected={state.connected} synced={state.synced}
+          onKnowledge={() => setOverlay('knowledge')}
+          onSettings={() => setOverlay('settings')} />
       </ContextSidebar>
+
+      {/* ── Knowledge / Settings ──────────────────────────────────────────
+          Both render as full modal overlays now — not beside the sidebar,
+          over it, with their own close button as the way back. Memory is no
+          longer a destination here at all; it moved into Settings as a tab. */}
+      {overlay === 'knowledge' && <GraphPanel onClose={() => setOverlay('none')} />}
+      {overlay === 'settings' && (
+        <SettingsPanel onClose={() => setOverlay('none')} initialTab={settingsTab} />
       )}
 
-      {/* ── The section ───────────────────────────────────────────────────
-          Knowledge, Memory and Settings render HERE rather than as
-          `fixed inset-0` overlays. As overlays they blanked the rail that
-          opened them, so the only way out of any of them was a close button —
-          and moving between two of them meant closing one first. */}
-      {section === 'knowledge' && <GraphPanel embedded />}
-      {section === 'memory' && <MemoryPanel embedded />}
-      {section === 'settings' && <SettingsPanel embedded initialTab={settingsTab} />}
-
       {/* ── Transcript ────────────────────────────────────────────────── */}
-      {section === 'chat' && (
       <main className="relative flex-1 flex flex-col min-w-0">
         {/* The ground the glass sits on.
             These three were defined in tailwind.css and used by nothing, which
@@ -789,11 +788,10 @@ export default function App() {
         <header className="relative z-10 h-14 shrink-0 flex items-center justify-between gap-3 px-8 border-b border-on-surface/[0.07]">
           {/* The way back, where a way back belongs: at the edge the panel
               retracted into, in the header of the thing that took its space.
-              The rail's Chats button also restores it, but nothing about an
-              icon for the section you are already in says "this reveals the
-              list" — that was reachable, not discoverable, which is not the
-              same thing. Mirrors the context panel's own show-control on the
-              opposite edge, so both sides of the app behave alike. */}
+              Now the ONLY way back, since the icon rail that used to also
+              restore it is gone — mirrors the context panel's own
+              show-control on the opposite edge, so both sides of the app
+              behave alike. */}
           {!chatsOpen && (
             <button onClick={() => setChats(true)}
               aria-label="Show conversations" aria-expanded={false}
@@ -1080,7 +1078,7 @@ export default function App() {
                   // Settings → Provider, so that is where this goes.
                   <button
                     type="button"
-                    onClick={() => { setSettingsTab('provider'); setSection('settings'); }}
+                    onClick={() => { setSettingsTab('provider'); setOverlay('settings'); }}
                     title="Change the model or provider"
                     className="px-label px-1 rounded hover:text-on-surface hover:bg-on-surface/[0.06] transition duration-150 cursor-pointer">
                     {health?.model
@@ -1117,7 +1115,6 @@ export default function App() {
           </div>
         </div>
       </main>
-      )}
 
       {/* ── Context rail ──────────────────────────────────────────────────
           Inline above 1280px, an overlay drawer below it. Previously the rail
@@ -1136,7 +1133,7 @@ export default function App() {
             every frame a layout+paint+composite on the widest element on
             screen, which is what the performance rule exists to stop. The
             inner panel carries a transform, which the compositor owns. */}
-        {canvasId && section === 'chat' && (
+        {canvasId && (
           <motion.div key="canvas"
             initial={{ width: 0 }}
             animate={{ width: 420, transition: { duration: 0 } }}
@@ -1161,7 +1158,7 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence initial={false}>
-        {railOpen && section === 'chat' && !canvasId && (
+        {railOpen && !canvasId && (
           <motion.div key="rail"
             initial={{ width: 0 }}
             animate={{ width: 288, transition: { duration: 0 } }}
@@ -1184,7 +1181,7 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-      {!railOpen && section === 'chat' && (
+      {!railOpen && (
         <button onClick={toggleRail} aria-label="Show context panel"
           className="shrink-0 w-10 border-l border-on-surface/[0.07] bg-[var(--nav-bg)] hidden xl:flex items-start justify-center pt-4 text-on-surface/50 hover:text-on-surface transition duration-150">
           <PanelRight size={15} />
@@ -1192,7 +1189,7 @@ export default function App() {
       )}
 
       <AnimatePresence>
-        {narrowRailOpen && section === 'chat' && (
+        {narrowRailOpen && (
           <motion.div key="rail-overlay" className="xl:hidden fixed inset-0 z-40 flex justify-end"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}>

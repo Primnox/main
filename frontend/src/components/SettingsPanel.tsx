@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader2, SlidersHorizontal, X } from 'lucide-react';
 import { Tabs } from '@base-ui-components/react/tabs';
 import { API } from '../lib/crs';
+import { MemoryPanel } from './MemoryPanel';
 import { ModelProfiles } from './ModelProfiles';
 import { OmniRoute } from './OmniRoute';
 import { MissionControl } from './MissionControl';
@@ -32,7 +33,7 @@ import { Button, Choice, Field, SectionHeader } from './ui';
  * section is currently visible. Switching tabs must never look like undoing
  * an edit on a tab you're not looking at.
  */
-type SettingsTab = 'appearance' | 'tuning' | 'provider' | 'privacy' | 'vault' | 'sandbox' | 'diagnostics';
+type SettingsTab = 'appearance' | 'tuning' | 'provider' | 'memory' | 'privacy' | 'vault' | 'sandbox' | 'diagnostics';
 
 export function SettingsPanel({ onClose, embedded, initialTab }: {
   onClose?: () => void;
@@ -101,6 +102,7 @@ export function SettingsPanel({ onClose, embedded, initialTab }: {
     { id: 'appearance', label: 'Appearance' },
     { id: 'tuning', label: 'Tuning' },
     { id: 'provider', label: 'Provider' },
+    { id: 'memory', label: 'Memory' },
     { id: 'privacy', label: 'Privacy' },
     { id: 'vault', label: 'Vault' },
     { id: 'sandbox', label: 'Sandbox' },
@@ -148,8 +150,8 @@ export function SettingsPanel({ onClose, embedded, initialTab }: {
               The provider tab is a 347-row catalogue with a facet rail and a
               routing table beside it, and squeezing that into the same column
               as a checkbox is most of why it was unusable. */}
-          <div className={`${tab === 'provider' ? 'max-w-5xl' : 'max-w-xl'}
-                           mx-auto px-8 py-8 space-y-8 transition-[max-width] duration-200`}>
+          <div className={`${tab === 'provider' || tab === 'memory' ? 'max-w-5xl' : 'max-w-xl'}
+                           mx-auto ${tab === 'memory' ? '' : 'px-8 py-8'} space-y-8 transition-[max-width] duration-200`}>
             {note && <p className="text-[12px] text-on-surface/70">{note}</p>}
 
             <Tabs.Panel value="appearance" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)]">
@@ -204,6 +206,10 @@ export function SettingsPanel({ onClose, embedded, initialTab }: {
                   '(this, or an OpenAI-compatible reasoning model that sends it unprompted) ' +
                   'it shows above the reply in its own collapsed block.')}
               </section>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="memory" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)]">
+              <MemoryPanel embedded />
             </Tabs.Panel>
 
             <Tabs.Panel value="privacy" className="animate-[settings-panel-in_140ms_cubic-bezier(0.23,1,0.32,1)]">
